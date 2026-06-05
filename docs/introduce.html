@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>午夜书斋 · ChatFiles —— 把你的聊天记录长成一座私人档案馆</title>
+<meta name="description" content="用几份规范文档 + AI，一键解密整理你自己的微信/QQ 聊天记录与文件，做成一个本地的第二大脑网站。" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=Hanken+Grotesk:wght@300..800&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#14110d; --bg-2:#1b1712; --bg-3:#221d17; --bg-4:#2a241d;
+    --line:#2e271f; --line-2:#3a3127;
+    --ink:#ece3d4; --ink-soft:#b7ab97; --ink-mute:#8a7e6c;
+    --gold:#d8a24a; --gold-2:#e9c079; --jade:#79a99a; --rust:#c0653a;
+    --serif:"Fraunces",Georgia,"Songti SC",serif;
+    --sans:"Hanken Grotesk","PingFang SC","Microsoft YaHei","Source Han Sans CN",system-ui,sans-serif;
+    --mono:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+    --radius:14px; --shadow:0 24px 60px -28px rgba(0,0,0,.75);
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-size:17px; line-height:1.7; -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 85% -8%, rgba(216,162,74,.10), transparent 60%),
+      radial-gradient(900px 500px at -5% 12%, rgba(121,169,154,.07), transparent 55%);
+    background-attachment:fixed;
+  }
+  /* film grain */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:1; pointer-events:none; opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  ::selection{background:rgba(216,162,74,.28); color:#fff}
+  ::-webkit-scrollbar{width:11px;height:11px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px;border:3px solid var(--bg)}
+  a{color:var(--gold-2);text-decoration:none}
+  a:hover{color:#fff}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px;position:relative;z-index:2}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-mute)}
+  .gold{color:var(--gold-2)}
+  .jade{color:var(--jade)}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);
+    background:linear-gradient(to bottom,rgba(20,17,13,.92),rgba(20,17,13,.66));
+    border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+  nav .brand{font-family:var(--serif);font-weight:700;font-size:20px;letter-spacing:.02em}
+  nav .brand .dot{color:var(--gold)}
+  nav .links{display:flex;gap:26px;font-size:14.5px;color:var(--ink-soft)}
+  nav .links a{position:relative;color:var(--ink-soft)}
+  nav .links a::after{content:"";position:absolute;left:0;right:100%;bottom:-6px;height:1px;background:var(--gold);transition:right .3s ease}
+  nav .links a:hover{color:var(--ink)}
+  nav .links a:hover::after{right:0}
+  @media(max-width:760px){nav .links{display:none}}
+
+  /* hero */
+  header.hero{padding:96px 0 64px;position:relative;overflow:hidden}
+  .hero h1{font-family:var(--serif);font-weight:600;line-height:1.04;margin:.4em 0 .3em;
+    font-size:clamp(44px,8vw,86px);letter-spacing:-.01em;
+    background:linear-gradient(110deg,#fff 0%,var(--gold-2) 38%,var(--gold) 60%,#fff 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .lede{font-size:clamp(18px,2.4vw,22px);color:var(--ink-soft);max-width:660px}
+  .hero .lede b{color:var(--ink);font-weight:600}
+  .cta{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;border-radius:999px;font-weight:600;font-size:15px;
+    border:1px solid var(--line-2);color:var(--ink);transition:.22s ease;cursor:pointer}
+  .btn.primary{background:linear-gradient(180deg,var(--gold-2),var(--gold));color:#241a08;border-color:transparent;
+    box-shadow:0 12px 30px -12px rgba(216,162,74,.6)}
+  .btn.primary:hover{transform:translateY(-2px);box-shadow:0 18px 40px -14px rgba(216,162,74,.7)}
+  .btn.ghost:hover{border-color:var(--gold);color:var(--gold-2)}
+  .stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:48px}
+  .stat{border:1px solid var(--line);background:linear-gradient(180deg,var(--bg-2),var(--bg));border-radius:var(--radius);
+    padding:16px 22px;min-width:140px}
+  .stat .n{font-family:var(--serif);font-weight:600;font-size:30px;color:var(--gold-2);line-height:1}
+  .stat .l{font-size:13px;color:var(--ink-mute);margin-top:7px;letter-spacing:.02em}
+
+  section{padding:62px 0;border-top:1px solid var(--line)}
+  .sec-head{margin-bottom:34px}
+  .sec-head h2{font-family:var(--serif);font-weight:600;font-size:clamp(28px,4vw,40px);margin:.25em 0 .15em;letter-spacing:-.01em}
+  .sec-head p{color:var(--ink-soft);max-width:680px;margin:0}
+
+  /* feature cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:
+    linear-gradient(180deg,var(--bg-2),var(--bg));transition:.25s ease;position:relative;overflow:hidden}
+  .card::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--gold),transparent);opacity:0;transition:.25s}
+  .card:hover{transform:translateY(-4px);border-color:var(--line-2)}
+  .card:hover::before{opacity:1}
+  .card .ic{font-size:24px}
+  .card h3{font-family:var(--serif);font-weight:600;font-size:21px;margin:12px 0 8px}
+  .card p{margin:0;color:var(--ink-soft);font-size:15px}
+  .card .tag{display:inline-block;margin-top:12px;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+    color:var(--jade);border:1px solid var(--line-2);border-radius:999px;padding:3px 10px}
+
+  /* flow */
+  .flow{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap;margin-top:8px}
+  .flow .step{flex:1;min-width:150px;border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;background:var(--bg-2)}
+  .flow .step .k{font-family:var(--mono);font-size:12px;color:var(--gold)}
+  .flow .step h4{font-family:var(--serif);font-size:18px;margin:6px 0 6px}
+  .flow .step p{margin:0;font-size:14px;color:var(--ink-mute)}
+  .flow .arr{align-self:center;color:var(--line-2);font-size:22px}
+
+  /* tutorial steps */
+  .steps{counter-reset:step;display:flex;flex-direction:column;gap:20px}
+  .tstep{display:grid;grid-template-columns:64px 1fr;gap:20px;align-items:start;
+    border:1px solid var(--line);border-radius:var(--radius);padding:26px;background:linear-gradient(180deg,var(--bg-2),var(--bg))}
+  .tstep .num{counter-increment:step;font-family:var(--serif);font-weight:700;font-size:34px;
+    width:64px;height:64px;display:grid;place-items:center;border-radius:50%;
+    color:var(--gold-2);border:1px solid var(--line-2);background:var(--bg-3)}
+  .tstep .num::before{content:counter(step)}
+  .tstep h3{font-family:var(--serif);font-weight:600;font-size:23px;margin:6px 0 8px}
+  .tstep p{margin:0 0 12px;color:var(--ink-soft)}
+  .tstep .hint{font-size:14px;color:var(--ink-mute);border-left:2px solid var(--jade);padding:4px 0 4px 14px;margin:12px 0}
+  .tstep .hint b{color:var(--jade)}
+
+  /* macOS code window */
+  .mac{border:1px solid var(--line-2);border-radius:12px;overflow:hidden;margin:16px 0;background:#0f0d0a;box-shadow:var(--shadow)}
+  .mac .bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:linear-gradient(180deg,#241f19,#1b1712);border-bottom:1px solid var(--line)}
+  .mac .bar .lights{display:flex;gap:8px}
+  .mac .bar .lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .mac .bar .lights .r{background:#ff5f56}.mac .bar .lights .y{background:#ffbd2e}.mac .bar .lights .g{background:#27c93f}
+  .mac .bar .fn{font-family:var(--mono);font-size:12.5px;color:var(--ink-mute);margin-left:6px}
+  .mac .bar .copy{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-soft);background:var(--bg-3);
+    border:1px solid var(--line-2);border-radius:7px;padding:4px 11px;cursor:pointer;transition:.18s}
+  .mac .bar .copy:hover{color:var(--gold-2);border-color:var(--gold)}
+  .mac pre{margin:0;padding:18px 20px;overflow:auto;max-height:560px}
+  .mac code{font-family:var(--mono);font-size:13.5px;line-height:1.65;color:#e7dcc8;white-space:pre-wrap;word-break:break-word}
+  .mac .cm{color:var(--ink-mute)} /* comment */
+  .mac .pr{color:var(--gold-2)}   /* prompt/keyword */
+  .mac .ja{color:var(--jade)}
+
+  .note{border:1px solid var(--line);background:var(--bg-2);border-radius:var(--radius);padding:18px 22px;margin:18px 0}
+  .note.warn{border-color:rgba(192,101,58,.45);background:linear-gradient(180deg,rgba(192,101,58,.08),var(--bg-2))}
+  .note h4{margin:0 0 8px;font-family:var(--serif);font-size:18px}
+  .note.warn h4{color:var(--rust)}
+  .note ul{margin:8px 0 0;padding-left:20px;color:var(--ink-soft)}
+  .note li{margin:4px 0}
+
+  /* cost compare */
+  .cost{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px}
+  @media(max-width:640px){.cost{grid-template-columns:1fr}}
+  .cost .opt{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:linear-gradient(180deg,var(--bg-2),var(--bg))}
+  .cost .opt.reco{border-color:var(--gold);box-shadow:0 0 0 1px rgba(216,162,74,.25) inset}
+  .cost .opt .h{display:flex;align-items:center;justify-content:space-between}
+  .cost .opt h4{font-family:var(--serif);font-size:21px;margin:0}
+  .cost .opt .badge{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:#241a08;background:var(--gold);border-radius:999px;padding:3px 10px}
+  .cost .opt .big{font-family:var(--serif);font-size:30px;color:var(--gold-2);margin:12px 0 2px}
+  .cost .opt .sub{color:var(--ink-mute);font-size:14px}
+  .cost .opt ul{margin:14px 0 0;padding-left:18px;color:var(--ink-soft);font-size:14.5px}
+
+  .doclinks{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .doclinks a{border:1px solid var(--line-2);border-radius:10px;padding:10px 16px;color:var(--ink);font-family:var(--mono);font-size:13px;transition:.2s}
+  .doclinks a:hover{border-color:var(--gold);color:var(--gold-2)}
+
+  footer{border-top:1px solid var(--line);padding:48px 0 70px;color:var(--ink-mute)}
+  footer .wrap{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:end}
+  footer .big{font-family:var(--serif);font-size:24px;color:var(--ink)}
+
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand">午夜书斋<span class="dot"> · </span><span style="font-family:var(--mono);font-size:13px;color:var(--ink-mute);letter-spacing:.1em">ChatFiles</span></div>
+    <div class="links">
+      <a href="#features">功能</a>
+      <a href="#how">原理</a>
+      <a href="#tutorial">新手教程</a>
+      <a href="#prompt">提示词</a>
+      <a href="#docs">文档</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow reveal">本地 · 私人 · 你自己的数据</div>
+    <h1 class="reveal">把你的聊天记录<br/>长成一座私人档案馆</h1>
+    <p class="lede reveal">你不用写一行代码。把<b>几份"规范文档"</b>交给 AI，它会替你<b>解密</b>整个微信聊天记录、<b>整理</b>所有下载过的文件、再<b>提炼</b>出这些年沉淀下来的思想——做成一个端口 3456 的本地网站。这页教你怎么从零跑出它。</p>
+    <div class="cta reveal">
+      <a class="btn primary" href="#tutorial">▶ 开始新手教程</a>
+      <a class="btn ghost" href="#prompt">复制提示词</a>
+    </div>
+    <div class="stats reveal">
+      <div class="stat"><div class="n">738,511</div><div class="l">条消息已解密</div></div>
+      <div class="stat"><div class="n">980</div><div class="l">个会话可浏览</div></div>
+      <div class="stat"><div class="n">5,907</div><div class="l">份文件已归类</div></div>
+      <div class="stat"><div class="n">2,338</div><div class="l">条 AI 提炼洞察</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">它能做什么</div>
+      <h2>一个真正属于你的「第二大脑」</h2>
+      <p>解密、整理、提炼——全部在本地完成，<b class="jade">不上传任何数据</b>，原始聊天记录与文件<b class="jade">一字不动</b>。</p>
+    </div>
+    <div class="grid">
+      <div class="card reveal"><div class="ic">💬</div><h3>一键查看聊天记录</h3><p>解密<b>全部</b>微信聊天记录，按人物 / 群组浏览。真实气泡、按天分隔、会话内搜索——点开就看，像在用微信本体，却是离线的、可全文检索的。</p><span class="tag">decrypt · browse · search</span></div>
+      <div class="card reveal"><div class="ic">🗂️</div><h3>文件全格式直渲</h3><p>整理所有从聊天里下载过的文件资源，按顶级分类归档、自动去重。左侧 VS Code 风格文件树，右侧<b>直接内部渲染</b>：图片 / 视频 / 语音 / PDF / Word / Excel / PPT / Markdown / 代码 / 网页 / 压缩包 / 数据库结构……一键查看，无需打开外部程序。</p><span class="tag">tree · preview · dedup</span></div>
+      <div class="card reveal"><div class="ic">🧠</div><h3>AI 洞察与总结</h3><p>从所有聊天里提炼技术上、哲理上、学业上有价值的内容，按人物/群组归类；再自动写成<b>顶级富文本主题总结</b>，把你这些年散落的思想沉淀成可随时回看的文档。</p><span class="tag">extract · synthesize</span></div>
+      <div class="card reveal"><div class="ic">🌙</div><h3>午夜书斋审美</h3><p>温暖深色编辑风、衬线标题、金玉点缀、纸感颗粒——结合 <b>frontend-design</b> 能力打磨，不是千篇一律的 AI 通用风，而是一座值得深夜独坐的书斋。</p><span class="tag">frontend-design</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW / LEVERAGE -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">杠杆原理</div>
+      <h2>它不是"写"出来的，是"长"出来的</h2>
+      <p>真正的杠杆不在代码，而在<b>几份规范文档</b>。你把它们交给 AI，再说一句话，AI 就会按规格把整套项目建出来——这正是这个项目自己被造出来的方式。</p>
+    </div>
+    <div class="flow reveal">
+      <div class="step"><div class="k">输入</div><h4>4 份规范文档</h4><p>PROMPT · SPEC · SKILLS · RUNBOOK</p></div>
+      <div class="arr">→</div>
+      <div class="step"><div class="k">一句话</div><h4>/goal + 提示词</h4><p>启用多 agent 编排</p></div>
+      <div class="arr">→</div>
+      <div class="step"><div class="k">AI 自动</div><h4>勘探→解密→提炼</h4><p>解析 · 归档 · 综述 · 前端</p></div>
+      <div class="arr">→</div>
+      <div class="step"><div class="k">产出</div><h4>:3456 网站</h4><p>五板块开箱即用</p></div>
+    </div>
+    <div class="note reveal">
+      <h4>📦 你需要的"杠杆文档"就在 <code>replication/</code> 文件夹里</h4>
+      <p style="margin:6px 0 0;color:var(--ink-soft)">AGENTS.md（项目宪法）、README.md（导航）、global.css（设计基座），以及 docs/ 下的 PROMPT.md（提示词）、RUNBOOK.md（逐步手册）、SKILLS.md（用到的能力）、spec/（12 篇完整技术规格）。复刻时把整个 replication/ 放进新文件夹即可——下面教程第 2 步。</p>
+    </div>
+  </div>
+</section>
+
+<!-- TUTORIAL -->
+<section id="tutorial">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">面向零基础</div>
+      <h2>新手教程：从零跑出这个项目</h2>
+      <p>跟着 5 步走。每一步都给了能直接复制的命令；不懂的名词都有"小白解释"。</p>
+    </div>
+
+    <div class="steps">
+
+      <div class="tstep reveal">
+        <div class="num"></div>
+        <div>
+          <h3>安装「凯杰」开源的 skills 技能包</h3>
+          <p>这个项目的"超能力"（多 agent 并行、frontend-design 审美、Workflow 编排）来自一套开源 <b>skills</b>。先把它装进 Claude Code。</p>
+          <div class="hint"><b>还没装 Claude Code？</b> 先按 UU 整理的图文教程一步步配置好，再回来装 skills：<br/><a href="https://my.feishu.cn/docx/LapgdxhM8oudftxxbCvcmaa7nvf?from=from_copylink" target="_blank" rel="noopener">📘 UU 的 Claude Code 安装配置教程（飞书）→</a></div>
+          <p class="hint" style="border-color:var(--gold)"><b style="color:var(--gold)">小白解释：</b>「skills / 技能包」就像给 AI 装的插件，装好后它才会用那些高级能力。按「凯杰」skills 仓库 / 教程里的说明安装即可。</p>
+        </div>
+      </div>
+
+      <div class="tstep reveal">
+        <div class="num"></div>
+        <div>
+          <h3>新建一个文件夹，放入几份规范文件</h3>
+          <p>在你电脑上随便建一个空文件夹（比如 <code>D:\ChatFiles</code>），把本项目 <code>replication/</code> 整个复制进去（<code>AGENTS.md</code>、<code>README.md</code>、<code>global.css</code> 和 <code>docs/</code>，尤其 <code>docs/PROMPT.md</code> 与 <code>docs/spec/</code>）。AI 会读它们当作"施工图"。</p>
+          <div class="mac">
+            <div class="bar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="fn">你的新文件夹</span></div>
+            <pre><code>D:\ChatFiles\
+└─ replication\
+   ├─ AGENTS.md          <span class="cm"># 项目宪法（AI 必读）</span>
+   ├─ README.md          <span class="cm"># 导航</span>
+   ├─ global.css         <span class="cm"># 设计基座</span>
+   └─ docs\
+      ├─ PROMPT.md       <span class="cm"># ← 待会儿复制里面的提示词</span>
+      ├─ RUNBOOK.md      <span class="cm"># 逐步手册</span>
+      ├─ SKILLS.md
+      └─ spec\           <span class="cm"># ← 完整技术规格，AI 照这建</span></code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="tstep reveal">
+        <div class="num"></div>
+        <div>
+          <h3>打开 Claude Code，<code>cd</code> 进这个文件夹</h3>
+          <p>打开 Claude Code（或终端里输入 <code>claude</code>），然后让它"进入"你刚建的文件夹。</p>
+          <div class="mac">
+            <div class="bar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="fn">terminal — claude code</span><button class="copy" data-copy="cd D:\ChatFiles">复制</button></div>
+            <pre><code><span class="ja">cd</span> D:\ChatFiles</code></pre>
+          </div>
+          <p class="hint"><b style="color:var(--jade)">小白解释：</b><code>cd</code> = "change directory / 进入文件夹"。<b>怎么拿到路径？</b>在文件资源管理器里打开那个文件夹，点一下顶部地址栏 → 全选复制，把它接在 <code>cd </code> 后面即可。Windows 用 <code>\</code>，macOS 用 <code>/</code>。</p>
+        </div>
+      </div>
+
+      <div class="tstep reveal">
+        <div class="num"></div>
+        <div>
+          <h3>用 <code>/goal</code> + 提示词，发送！</h3>
+          <p>复制 <a href="#prompt">下方的提示词</a>（把里面的 <code>{{占位符}}</code> 换成你自己的：项目目录、你的身份、想要的一级分类等），在 Claude Code 里输入 <code>/goal </code> 然后粘贴整段提示词，回车。AI 就会开始勘探、解密、整理、提炼、建站。</p>
+          <div class="mac">
+            <div class="bar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="fn">claude code — 输入框</span></div>
+            <pre><code><span class="pr">/goal</span> <span class="cm">&lt;在这里粘贴下方"提示词"整段&gt;</span></code></pre>
+          </div>
+          <div class="note warn">
+            <h4>⚠️ 跑之前务必：微信（QQ）保持登录运行</h4>
+            <ul>
+              <li>解密密钥要从<b>正在运行的</b>微信进程内存里取——跑的全程别退出微信。</li>
+              <li>全程只动副本：<b>绝不删除/移动任何原始聊天记录与文件</b>，只解密你自己的本地数据，不上传。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="tstep reveal">
+        <div class="num"></div>
+        <div>
+          <h3>选模型 / 备好额度，等它跑完</h3>
+          <p>这是个大工程（解密 + 解析 73 万条消息 + 几百个 agent 提炼 + 重做前端），需要较强模型和一定额度。两种主流跑法：</p>
+          <div class="cost">
+            <div class="opt reco">
+              <div class="h"><h4>Claude Code</h4><span class="badge">推荐</span></div>
+              <div class="big">≈ $200</div><div class="sub">额度（用量计费）</div>
+              <ul>
+                <li>开启 <b>Opus 4.8 · XHigh</b> 推理</li>
+                <li>多 agent 编排最稳、质量最高</li>
+                <li>一次 <code>/goal</code> 基本能跑通</li>
+              </ul>
+            </div>
+            <div class="opt">
+              <div class="h"><h4>Codex</h4></div>
+              <div class="big">≈ 10 小时</div><div class="sub">约 ChatGPT Pro 的 3 个 5h 额度</div>
+              <ul>
+                <li>先<b>新建项目</b>，再用 <code>/goal</code> 指令</li>
+                <li>耗时更长，适合已有 Pro 额度</li>
+                <li>跑完后同样得到 :3456 网站</li>
+              </ul>
+            </div>
+          </div>
+          <p class="hint"><b style="color:var(--jade)">小白解释：</b>「XHigh / 高推理」= 让 AI 想得更久更深，质量更好但更费额度。这个项目值得用最高档。跑的过程它会偶尔用 AskUserQuestion 问你两个选择（解密方式 / 前端范围），照推荐选即可。</p>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="note reveal" style="margin-top:26px">
+      <h4>🎉 跑完之后</h4>
+      <p style="margin:6px 0 10px;color:var(--ink-soft)">在项目目录执行下面命令，浏览器打开 <a href="http://127.0.0.1:3456" target="_blank">http://127.0.0.1:3456</a>，五大板块（概览 / 聊天 / 文件 / 洞察 / 学业）开箱即用。</p>
+      <div class="mac">
+        <div class="bar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="fn">terminal</span><button class="copy" data-copy="npm run dev">复制</button></div>
+        <pre><code><span class="ja">npm</span> run dev   <span class="cm"># 构建 + 启动服务 → ChatFiles running at http://127.0.0.1:3456</span></code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROMPT -->
+<section id="prompt">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">第 4 步要粘贴的内容</div>
+      <h2>复刻提示词</h2>
+      <p>把 <code>{{占位符}}</code> 换成你自己的值，整段复制，用 <code>/goal</code> 发送。开头的 <code>ultracode</code> 是触发词——它让 AI 启用多 agent 编排（大规模提炼靠它）。完整版（含 AI 解析 / 懒加载 / 独立滚动 / 导航分组等新功能）与分阶段版见 <code>replication/docs/PROMPT.md</code>。</p>
+    </div>
+    <div class="mac reveal">
+      <div class="bar">
+        <span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>
+        <span class="fn">replication / docs / PROMPT.md — Mega-Prompt</span>
+        <button class="copy" id="copyPrompt" data-copy="ultracode 我要做一个本地的&quot;第二大脑&quot;网站，深度系统地把我自己微信（和 QQ）里的全部聊天记录与有价值文件解密、整理出来。请你设法找到我电脑上微信/QQ 聊天记录和文件的真实存储位置，然后用 React + TypeScript、最适合富文本/多格式的架构，做一个端口 3456 的网站，项目目录在 &quot;{{项目目录}}&quot;。
+
+网站要做到：
+1. 文件板块：把微信/QQ 里所有有价值的文件，复制进项目目录并做好顶级分类（一级分类如 {{一级分类：过去/创业/AI/树林/学业/专业/比赛 等}}，次级、次次级自己延伸）。同名文件如 xxx、xxx(1)、xxx(2) 取序号最大的一份，内容相同(sha256)只留一份。用类似 VS Code 文件夹树的形式浏览，点击后右侧把所有常见格式（图片/视频/语音/PDF/Word/Excel/PPT/Markdown/代码/网页/压缩包/数据库结构…）完美内部渲染。
+2. 聊天板块：解密并解析我全部微信聊天记录，按人物/群组可浏览。
+3. 洞察/总结板块：从所有聊天记录里提炼——(a) 技术上有价值、哲理上有价值的内容，按聊群/人物归类；(b) 我学业上能用的资料（我是 {{你的身份，如 基医强基 2501}}，下学期要学 {{学业站点}} 的内容）；(c) 其他一切有价值的内容。并且自己生成顶级富文本总结：总结每段聊天、提炼关键信息，做成可随时回看的主题文档。板块自己延伸（如 资源工具/人物/个人成长 等）。
+
+关键体验与新功能：
+4. 海量内容动态懒加载：聊天、文件夹树、媒体网格先加载有限数量，下滑再懒加载续载，较远上方不再渲染，严防卡死。
+5. 三栏/多栏板块（如总结）左、中、右各自独立滚动，不能一起滚导致左栏被带走。
+6. 左侧导航分两组：上半成果组（概览/聊天/文件/洞察/学业/媒体），下半配置组（总结/线索/聊天整理/数据库/候选/知识/AI）。
+7. AI 板块：设置页可配置接口 URL、API Key、模型 ID、上下文阈值；聊天右侧面板加「AI 解析」悬浮窗，AI 读取该会话全部上下文（注入式），阈值可从 1 万 token 调到 80 万 token，实际上下文超过阈值要报错。密钥只存本机浏览器、经本机代理透传、不落盘。
+
+硬约束（务必遵守）：
+- 禁止删除/移动/改写任何原始聊天记录与文件；只读原始数据，只对副本解密，只复制文件到项目里。只解密我自己的本地数据。不上传。
+- 一切用最顶尖方式；审美设计必须结合 frontend-design skill；保持架构规范、单文件不超过约 300 行、不堆砌冗余代码。
+- 遵守 PADC 流程，每完成一个阶段就 commit；不清楚的地方自己分析后选最佳方案。
+- 目标：直到全部弄完（所有文件归类、所有微信聊天记录都探索并深度整理），或你确实无法操作再停。
+- 必须探索所有目录下的微信/QQ 数据，不要把平台日志/缓存/广告当成我的聊天正文。
+
+请先深度勘探现状（已有什么、数据在哪、能否解密），把关键发现告诉我，再开始建。遇到&quot;解密方式&quot;和&quot;前端改造范围&quot;这类需要我拍板的，用 AskUserQuestion 问我。">📋 一键复制</button>
+      </div>
+      <pre><code><span class="pr">ultracode</span> 我要做一个本地的"第二大脑"网站，深度系统地把我自己微信（和 QQ）里的全部聊天记录与有价值文件解密、整理出来。请你设法找到我电脑上微信/QQ 聊天记录和文件的真实存储位置，然后用 React + TypeScript、最适合富文本/多格式的架构，做一个端口 3456 的网站，项目目录在 "<span class="ja">{{项目目录}}</span>"。
+
+网站要做到：
+1. 文件板块：把微信/QQ 里所有有价值的文件，复制进项目目录并做好顶级分类（一级分类如 <span class="ja">{{一级分类：过去/创业/AI/树林/学业/专业/比赛 等}}</span>，次级、次次级自己延伸）。同名文件如 xxx、xxx(1)、xxx(2) 取序号最大的一份，内容相同(sha256)只留一份。用类似 VS Code 文件夹树的形式浏览，点击后右侧把所有常见格式（图片/视频/语音/PDF/Word/Excel/PPT/Markdown/代码/网页/压缩包/数据库结构…）完美内部渲染。
+2. 聊天板块：解密并解析我全部微信聊天记录，按人物/群组可浏览。
+3. 洞察/总结板块：从所有聊天记录里提炼——(a) 技术上有价值、哲理上有价值的内容，按聊群/人物归类；(b) 我学业上能用的资料（我是 <span class="ja">{{你的身份，如 基医强基 2501}}</span>，下学期要学 <span class="ja">{{学业站点}}</span> 的内容）；(c) 其他一切有价值的内容。并且自己生成顶级富文本总结：总结每段聊天、提炼关键信息，做成可随时回看的主题文档。板块自己延伸（如 资源工具/人物/个人成长 等）。
+
+关键体验与新功能：
+4. 海量内容动态懒加载：聊天、文件夹树、媒体网格先加载有限数量，下滑再懒加载续载，较远上方不再渲染，严防卡死。
+5. 三栏/多栏板块（如总结）左、中、右各自独立滚动，不能一起滚导致左栏被带走。
+6. 左侧导航分两组：上半成果组（概览/聊天/文件/洞察/学业/媒体），下半配置组（总结/线索/聊天整理/数据库/候选/知识/AI）。
+7. AI 板块：设置页可配置接口 URL、API Key、模型 ID、上下文阈值；聊天右侧面板加「AI 解析」悬浮窗，AI 读取该会话全部上下文（注入式），阈值可从 1 万 token 调到 80 万 token，实际上下文超过阈值要报错。密钥只存本机浏览器、经本机代理透传、不落盘。
+
+硬约束（务必遵守）：
+- 禁止删除/移动/改写任何原始聊天记录与文件；只读原始数据，只对副本解密，只复制文件到项目里。只解密我自己的本地数据。不上传。
+- 一切用最顶尖方式；审美设计必须结合 frontend-design skill；保持架构规范、单文件不超过约 300 行、不堆砌冗余代码。
+- 遵守 PADC 流程，每完成一个阶段就 commit；不清楚的地方自己分析后选最佳方案。
+- 目标：直到全部弄完（所有文件归类、所有微信聊天记录都探索并深度整理），或你确实无法操作再停。
+- 必须探索所有目录下的微信/QQ 数据，不要把平台日志/缓存/广告当成我的聊天正文。
+
+请先深度勘探现状（已有什么、数据在哪、能否解密），把关键发现告诉我，再开始建。遇到"解密方式"和"前端改造范围"这类需要我拍板的，用 AskUserQuestion 问我。</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- DOCS -->
+<section id="docs">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">深入</div>
+      <h2>杠杆文档全集</h2>
+      <p>想看懂每个细节、或手动复刻，点开下面（服务器已支持直接渲染 Markdown）。</p>
+    </div>
+    <div class="doclinks reveal">
+      <a href="/docs/doc.html?f=/replication/README.md">📁 README 导航</a>
+      <a href="/docs/doc.html?f=/replication/AGENTS.md">⚖️ AGENTS 宪法</a>
+      <a href="/docs/doc.html?f=/replication/docs/PROMPT.md">✍️ 提示词</a>
+      <a href="/docs/doc.html?f=/replication/docs/RUNBOOK.md">🛠️ 逐步手册</a>
+      <a href="/docs/doc.html?f=/replication/docs/SKILLS.md">🧩 用到的 Skills</a>
+      <a href="/docs/doc.html?f=/replication/docs/spec/00_overview.md">📐 规格 · 总览</a>
+      <a href="/docs/doc.html?f=/replication/docs/spec/03_decryption.md">🔓 规格 · 解密</a>
+      <a href="/docs/doc.html?f=/replication/docs/spec/08_frontend.md">🎨 规格 · 前端</a>
+      <a href="/docs/doc.html?f=/replication/docs/spec/09_ai-assistant.md">🤖 规格 · AI 助手</a>
+    </div>
+    <div class="note warn reveal" style="margin-top:24px">
+      <h4>安全红线</h4>
+      <ul>
+        <li><b>只解密你自己的、你拥有的本地数据</b>——个人数据归档用途，勿用于他人/未授权设备。</li>
+        <li><b>绝不删除、移动、改写原始聊天记录与文件</b>；只对副本操作。</li>
+        <li><b>不上传</b>：全部在本地完成，数据库与密钥不出本机。</li>
+        <li>解不了的边界（如 QQ 正文）<b>如实记录</b>，不绕过任何安全限制。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="big">午夜书斋 · ChatFiles</div>
+      <div style="margin-top:6px">把散落在聊天里的这些年，重新收进一座书斋。</div>
+    </div>
+    <div style="font-family:var(--mono);font-size:12.5px;text-align:right;color:var(--ink-mute)">
+      React + TypeScript · Express :3456<br/>
+      frontend-design · multi-agent workflow<br/>
+      本地 · 私有 · 不上传
+    </div>
+  </div>
+</footer>
+
+<script>
+  // copy buttons
+  document.querySelectorAll('[data-copy]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var text = btn.getAttribute('data-copy');
+      navigator.clipboard.writeText(text).then(function(){
+        var old = btn.textContent; btn.textContent = '✓ 已复制';
+        setTimeout(function(){ btn.textContent = old; }, 1600);
+      }).catch(function(){ btn.textContent = '复制失败,请手动选'; });
+    });
+  });
+  // reveal on scroll
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, {threshold:.12});
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+</script>
+</body>
+</html>
