@@ -419,7 +419,10 @@ Fallback：`{ generatedAt, roots:[], files:[], stats:{discovered:0,archived:0,du
 通用十六进制 / 字符串检查（`inspectFile`，见 §7.1）。无 preview 限制。响应 = `FileInspection`。
 
 ### 5.6 `GET /files/:id`
-**原始字节下载/内联**。`Content-Type = mime.getType(target) ?? 'application/octet-stream'`，`sendFile(target)`。用于 `<img>`/`<video>`/`<iframe>`/PDF 等直接引用。
+**原始字节下载/内联**。`Content-Type = mime.getType(target) ?? 'application/octet-stream'`，`sendFile(target)`。用于点开后的完整预览（`<img>`/`<video>`/`<iframe>`/PDF）。**注意**：媒体网格**不得**用本端点当缩略图（会拉原图卡死），网格一律用 §5.7 的缩略图。
+
+### 5.7 `GET /api/file/:id/thumb?w=`
+**媒体缩略图 / 视频 poster**（`server/utils/thumbs.ts`）。`w` 默认 360、夹取 `[96,512]`。按 `item.preview` 分流：`image` → `imageThumb`（ffmpeg `-vf scale='min(w,iw)':-2:flags=lanczos -c:v libwebp -quality 72` 缩成 WebP）；`video` → `videoPoster`（ffmpeg `-ss 1 -frames:v 1` 抽一帧，短片回退 `-ss 0`）；其它类型 → `415`。产物按 `sha1(kind|path|size|mtime|w)` 落盘 `work/thumb-cache/<key>.webp`（路径前缀校验防穿越），命中即直接 `sendFile`。响应 `Content-Type: image/webp` + `Cache-Control: public, max-age=31536000, immutable`；ffmpeg 失败 → `500`（前端 `<img onError>` 回退图标）。**这是媒体板块不卡的服务端支柱**（实测 9.8MB 图→~40KB、1GB 视频→~9KB poster）。前端集成见 [`08_frontend.md`](08_frontend.md) §6.1。
 
 ---
 
@@ -445,6 +448,9 @@ SQLite 结构预览（`inspectSqlite`，见 §7.4）。仅当 `preview === 'data
 
 ### 6.6 `GET /api/source-file/:id/inspect`
 同 §5.5（`inspectFile`）。
+
+### 6.7 `GET /api/source-file/:id/thumb?w=`
+同 §5.7，但经 `resolveSourceFile`（原盘文件）。同样 `image`/`video` 出 WebP 缩略图/poster、缓存于 `work/thumb-cache/`、强缓存头。
 
 ### 6.7 `GET /source-files/:id`
 同 §5.6，原始字节，MIME 推断。
@@ -555,6 +561,7 @@ SQLite 结构预览（`inspectSqlite`，见 §7.4）。仅当 `preview === 'data
 | GET | `/api/file/:id/voice` | files.ts | — | VoicePreview |
 | GET | `/api/file/:id/voice.wav` | files.ts | — | audio/wav |
 | GET | `/api/file/:id/inspect` | files.ts | — | FileInspection |
+| GET | `/api/file/:id/thumb` | files.ts | `w` | image/webp（缩略图/poster） |
 | GET | `/files/:id` | files.ts | — | 原始字节 |
 | GET | `/api/source-file/:id/text` | source-files.ts | — | text/plain（≤5MB） |
 | GET | `/api/source-file/:id/database` | source-files.ts | — | DatabasePreview |
@@ -562,6 +569,7 @@ SQLite 结构预览（`inspectSqlite`，见 §7.4）。仅当 `preview === 'data
 | GET | `/api/source-file/:id/voice` | source-files.ts | — | VoicePreview |
 | GET | `/api/source-file/:id/voice.wav` | source-files.ts | — | audio/wav |
 | GET | `/api/source-file/:id/inspect` | source-files.ts | — | FileInspection |
+| GET | `/api/source-file/:id/thumb` | source-files.ts | `w` | image/webp（缩略图/poster） |
 | GET | `/source-files/:id` | source-files.ts | — | 原始字节 |
 | GET | `/docs/*` `/replication/*` `/*` | index.ts | — | 静态 / SPA fallback |
 

@@ -29,6 +29,7 @@
 - **Node ≥ 24**（自带 `zlib.zstdDecompressSync`，解析微信 zstd 压缩消息体必需）。
 - **Python 3.14**（自带 `compression.zstd` + `sqlite3`，用于交叉核验解密结果）。
 - **git**、**可联网**（拉 Go module / mingw / npm 包）。
+- **ffmpeg / ffprobe 在 PATH**——语音转码（`/voice.wav`）与**媒体缩略图/视频 poster**（`/thumb`）都靠它；缺了媒体网格会回退到图标、语音不可播。
 - **微信、QQ 正在运行且已登录**——内存取运行时密钥的硬前提。关掉应用 = 内存里没有 derived encKey = 无法解密。
 
 **安装依赖**
@@ -59,10 +60,14 @@ node -e "fetch('https://proxy.golang.org/').then(r=>console.log('net',r.status))
 
 # 4) 两个应用都在跑
 Get-Process Weixin,QQ -ErrorAction SilentlyContinue | Select Name,Id   # 两行都在
+
+# 5) ffmpeg / ffprobe 可用（语音转码 + 媒体缩略图都需要）
+ffmpeg -version | Select-Object -First 1 ; ffprobe -version | Select-Object -First 1
 ```
 
 - [ ] `node -e ...` 打印 `v24+ function`
 - [ ] Python 打印 `3.14.x zstd-ok sqlite-ok`
+- [ ] `ffmpeg`/`ffprobe` 打印版本号
 - [ ] `Weixin` 与 `QQ` 进程都存在
 
 ---

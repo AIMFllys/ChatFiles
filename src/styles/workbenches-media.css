@@ -36,22 +36,37 @@
   font-weight: 700;
 }
 
+/* scroll container only — sized to the full virtual height; the mounted window
+   is an absolutely-positioned grid translated to its real row (see
+   useGridVirtualizer + MediaReview). column count is set inline. */
 .media-grid {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+.media-sizer {
+  position: relative;
+  width: 100%;
+}
+
+.media-window {
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
-  padding: 14px;
   align-content: start;
+  will-change: transform;
 }
 
 .media-card {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 242px;
+  height: 248px;
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -61,9 +76,6 @@
   cursor: pointer;
   text-align: left;
   font: inherit;
-  /* cull off-screen cards so a large mounted window stays smooth */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 242px;
 }
 
 .media-card:hover {
@@ -74,15 +86,32 @@
 
 .media-thumb {
   position: relative;
-  flex: 0 0 168px;
+  flex: 0 0 150px;
   width: 100%;
-  height: 168px;
+  height: 150px;
   display: grid;
   place-items: center;
   padding: 8px;
   background: var(--bg);
   color: var(--gold);
   overflow: hidden;
+}
+
+.media-play {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(20, 17, 13, 0.74);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  padding-left: 2px;
+  backdrop-filter: blur(2px);
 }
 
 .media-thumb img,

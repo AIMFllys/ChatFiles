@@ -1,9 +1,39 @@
-import { useMemo, useState } from 'react'
-import { Mic2, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Film, ImageOff, Mic2, Search } from 'lucide-react'
 import type { LibraryFile, LibraryManifest } from '../../types'
 import { formatBytes } from '../../utils/format'
-import { useVisibleCount } from '../../hooks/useVisibleCount'
-import { asArchiveFile, fileUrl, type BrowsableFile } from '../../utils/tree'
+import { useGridVirtualizer } from '../../hooks/useGridVirtualizer'
+import { asArchiveFile, thumbUrl, type BrowsableFile } from '../../utils/tree'
+
+// keep these in lockstep with workbenches-media.css (.media-card height + .media-grid gap/pad)
+const CARD_H = 248
+const GAP = 12
+const PAD = 14
+const MIN_COL = 220
+const ROW_H = CARD_H + GAP
+
+function MediaThumb({ file }: { file: BrowsableFile }) {
+  const [failed, setFailed] = useState(false)
+  if (file.preview === 'audio' || file.preview === 'voice') return <Mic2 size={34} />
+  if (failed) return file.preview === 'video' ? <Film size={32} /> : <ImageOff size={28} />
+  return (
+    <>
+      <img
+        src={thumbUrl(file, 360)}
+        alt={file.name}
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
+        onError={() => setFailed(true)}
+      />
+      {file.preview === 'video' && (
+        <span className="media-play" aria-hidden>
+          ▶
+        </span>
+      )}
+    </>
+  )
+}
 
 export function MediaReview({
   manifest,
@@ -14,6 +44,8 @@ export function MediaReview({
 }) {
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | LibraryFile['preview']>('all')
+  const scrollRef = useRef<HTMLDivElement>(null)
+
   const mediaFiles = useMemo(
     () => manifest.files.filter((file) => ['image', 'video', 'audio', 'voice'].includes(file.preview)).map(asArchiveFile),
     [manifest.files],
@@ -35,11 +67,16 @@ export function MediaReview({
     })
   }, [mediaFiles, query, typeFilter])
 
-  // mount in ~300-card windows — a 5k-image grid would otherwise fire thousands
-  // of requests at once and freeze the tab; off-screen cards are then culled by
-  // content-visibility (see workbenches-media.css)
-  const { count, sentinelRef, done } = useVisibleCount(filtered.length, 300, `${query}|${typeFilter}`)
-  const shown = filtered.slice(0, count)
+  // jump back to the top whenever the visible set changes so the window math
+  // never starts mid-scroll over a shorter list
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0)
+  }, [query, typeFilter])
+
+  // true virtualization: only rows near the viewport are ever mounted, so the
+  // live <img> count stays bounded no matter how many thousands of files exist
+  const win = useGridVirtualizer(scrollRef, filtered.length, { minCol: MIN_COL, rowH: ROW_H, gap: GAP, padX: PAD, padY: PAD })
+  const shown = filtered.slice(win.start, win.end)
 
   return (
     <section className="media-review">
@@ -73,7 +110,9 @@ export function MediaReview({
             </button>
           ))}
         </div>
-        <p className="media-note">这里展示已复制进项目 archive 的归档副本，用来快速扫图、扫视频和定位语音；点击任意卡片会进入右侧完整预览。</p>
+        <p className="media-note">
+          网格只加载服务端生成的小缩略图（视频取一帧做封面），并按视口回收卡片——无论上万文件都不会卡。点击任意卡片进入右侧完整预览。
+        </p>
       </aside>
       <section className="media-grid-panel">
         <header>
@@ -83,29 +122,29 @@ export function MediaReview({
           </div>
           <span>{formatBytes(filtered.reduce((sum, file) => sum + file.size, 0))}</span>
         </header>
-        <div className="media-grid">
-          {shown.map((file) => (
-            <button key={file.treeId} className={`media-card ${file.preview}`} onClick={() => onOpenFile(file)} type="button" title={file.sourcePath}>
-              <div className="media-thumb">
-                {file.preview === 'image' ? (
-                  <img src={fileUrl(file)} alt={file.name} loading="lazy" decoding="async" />
-                ) : file.preview === 'video' ? (
-                  <video src={fileUrl(file)} muted preload="none" />
-                ) : (
-                  <Mic2 size={34} />
-                )}
-              </div>
-              <strong>{file.name}</strong>
-              <span>{file.sourceApp} / {file.subcategory.join(' / ') || file.preview}</span>
-              <em>{formatBytes(file.size)} · {new Date(file.modified).toLocaleDateString()}</em>
-            </button>
-          ))}
-        </div>
-        {!done && (
-          <div ref={sentinelRef} className="lazy-sentinel">
-            正在载入更多媒体… {count.toLocaleString()} / {filtered.length.toLocaleString()}
+        <div className="media-grid" ref={scrollRef}>
+          <div className="media-sizer" style={{ height: win.totalHeight }}>
+            <div
+              className="media-window"
+              style={{ transform: `translateY(${win.translateY}px)`, gridTemplateColumns: `repeat(${win.cols}, minmax(0, 1fr))` }}
+            >
+              {shown.map((file) => (
+                <button key={file.treeId} className={`media-card ${file.preview}`} onClick={() => onOpenFile(file)} type="button" title={file.sourcePath}>
+                  <div className="media-thumb">
+                    <MediaThumb file={file} />
+                  </div>
+                  <strong>{file.name}</strong>
+                  <span>
+                    {file.sourceApp} / {file.subcategory.join(' / ') || file.preview}
+                  </span>
+                  <em>
+                    {formatBytes(file.size)} · {new Date(file.modified).toLocaleDateString()}
+                  </em>
+                </button>
+              ))}
+            </div>
           </div>
-        )}
+        </div>
       </section>
     </section>
   )

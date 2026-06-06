@@ -4,8 +4,29 @@ import mime from 'mime'
 import { inspectArchive, inspectFile, inspectSqlite } from '../utils/inspect.js'
 import { resolveSourceFile } from '../utils/helpers.js'
 import { inspectVoice, isVoiceFile, transcodeVoice } from '../utils/voice.js'
+import { imageThumb, videoPoster } from '../utils/thumbs.js'
 
 const router = Router()
+
+router.get('/api/source-file/:id/thumb', (req, res) => {
+  const resolved = resolveSourceFile(req.params.id)
+  if (!resolved) return res.status(404).json({ error: 'File not found' })
+  const width = Number(req.query.w ?? 360)
+  try {
+    const target =
+      resolved.item.preview === 'video'
+        ? videoPoster(resolved.target, width)
+        : resolved.item.preview === 'image'
+          ? imageThumb(resolved.target, width)
+          : null
+    if (!target) return res.status(415).json({ error: 'No thumbnail for this type.' })
+    res.type('image/webp')
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    res.sendFile(target)
+  } catch {
+    res.status(500).json({ error: 'Thumbnail generation failed.' })
+  }
+})
 
 router.get('/api/source-file/:id/text', (req, res) => {
   const resolved = resolveSourceFile(req.params.id)

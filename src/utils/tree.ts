@@ -98,6 +98,11 @@ export function fileUrl(file: BrowsableFile) {
   return file.storage === 'source' ? `/source-files/${file.id}` : `/files/${file.id}`
 }
 
+export function thumbUrl(file: BrowsableFile, w = 360) {
+  const base = file.storage === 'source' ? `/api/source-file/${file.id}/thumb` : `/api/file/${file.id}/thumb`
+  return `${base}?w=${w}`
+}
+
 export function textUrl(file: BrowsableFile) {
   return file.storage === 'source' ? `/api/source-file/${file.id}/text` : `/api/file/${file.id}/text`
 }

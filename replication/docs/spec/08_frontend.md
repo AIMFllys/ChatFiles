@@ -42,7 +42,7 @@ feTurbulence 纸感颗粒叠层(~3%)、金色发丝分割线、双径向暖光�
 | `src/components/workbenches/` | 工作台面板 | SummaryReader, ChatClueReader, ChatSynthesisReader, MediaReview, DatabaseWorkbench, ValueCandidateWorkbench, KnowledgeReader |
 | `src/components/ai/` | AI 助手 | AIChatDock |
 | `src/components/shared/` | 通用 | TreeView |
-| `src/hooks/` | 自定义 hooks | useVisibleCount, useInView |
+| `src/hooks/` | 自定义 hooks | useVisibleCount, useInView, useGridVirtualizer |
 | `src/utils/` | 纯函数 | format(formatBytes/fmtDate), tree, constants, aiConfig |
 | `src/types/` | 领域类型 | index(barrel), files, chat, insights |
 | `src/styles/` | 样式（`@import` 聚合） | layout, files, file-preview*, workbenches*, boards*, summary, shared, ai |
@@ -76,13 +76,22 @@ feTurbulence 纸感颗粒叠层(~3%)、金色发丝分割线、双径向暖光�
 
 各列自身 `overflow:auto`，于是**左/中/右各自独立滚动**，互不牵连。`.chat3` 用 `calc(100vh - 168px)` 同理。
 
-## 6. 懒加载 / 虚拟化（本轮新增，防卡死）
+## 6. 懒加载 / 虚拟化 / 媒体缩略图（防卡死）
 
-海量列表（媒体网格数千张图、洞察碎金、超长聊天）**禁止**一次性挂载——否则瞬间发起数千网络请求、DOM 爆炸卡死。
+海量列表（媒体网格数千张图、洞察碎金、超长聊天）**禁止**一次性挂载——否则瞬间发起数千网络请求、DOM 爆炸卡死。手机相册上万张图不卡靠**三件事**，本项目逐条对齐：**①只加载小缩略图（不碰原图）②卡片按视口回收（live 元素数 = O(可视) 而非 O(总数)）③不用重量级 `<video>` 做封面**。
 
-- **`src/hooks/useVisibleCount.ts`**：`IntersectionObserver` 增量挂载。`useVisibleCount(total, step, resetKey)` 返回 `{count, sentinelRef, done}`；渲染 `items.slice(0, count)`，在切片下方放 `sentinelRef` 哨兵；`resetKey`（如筛选/类目）变化时回到首批。`rootMargin:'300px'` 预取。
-  - **MediaReview**：`step=300`（一次动态渲染窗口 ~300），`resetKey=\`${query}|${typeFilter}\``，`<img loading="lazy" decoding="async">`、`<video preload="none">`；并在 `.media-card` 加 `content-visibility:auto; contain-intrinsic-size:auto 242px;`——挂载窗口较大时离屏卡片仍被原生剔除，**防止过于卡顿**。
-  - **Insights**：`step=36`、`resetKey=current`（类目）。
+### 6.1 媒体网格：服务端缩略图 + 真·视口虚拟化（核心）
+
+媒体板块 `MediaReview.tsx` 面对 3,779 图 + 474 视频（最大约 1GB），若像普通列表那样 `<img src={原图}>` + `<video>` 必卡。两层深度优化：
+
+- **服务端缩略图服务（手机的"缩略图缓存"）**——见 [`07_server-api.md`](07_server-api.md) `GET /api/(source-)file/:id/thumb?w=`，用 **ffmpeg**（与语音转码同一二进制）把图缩成 ~360px WebP、把视频**抽第 1 秒一帧**做 poster，落盘 `work/thumb-cache/`，发 `Cache-Control: immutable`。前端 `thumbUrl(file, 360)`（`src/utils/tree.ts`）指向它。实测 9.8MB 原图→**~40KB**、1GB 视频→**~9KB** poster；每格下载与解码量降一两个数量级。
+- **真·虚拟化（回收，类 RecyclerView/UICollectionView）**——`src/hooks/useGridVirtualizer.ts`：以 `overflow:auto` 滚动容器为基准，按 `clientWidth` 算列数（镜像 `auto-fill/minmax`）、按 `rowH=卡片高+gap` 算行，**只挂载视口 ± `overscan` 行、其余卸载**。滚动容器撑到 `totalHeight` 全高，挂载窗口 `position:absolute` + `translateY(行号*rowH)` 落到真实行；`rAF` 节流 scroll、`ResizeObserver` 跟随宽度。结构：`.media-grid`(滚动) → `.media-sizer`(撑高) → `.media-window`(绝对定位网格，`grid-template-columns` 内联 `repeat(cols, …)`)。**无论上万文件，live 卡片数恒为几十**（实测 4,350 项时只挂载 ~30）。
+- **视频不渲染 `<video>`**：网格视频格用 poster `<img>` + `.media-play` ▶ 角标（`MediaThumb` 组件，`onError` 回退到图标），点开才进右栏真播放器——干掉数百个最重的媒体元素。
+- 卡片高度在 CSS 与 JS 常量（`CARD_H/GAP/PAD/MIN_COL`）**两边对齐**，行距才精确；筛选变化时把滚动容器 `scrollTo(0,0)` 复位。
+
+### 6.2 中等列表：增量挂载 + content-visibility
+
+- **`src/hooks/useVisibleCount.ts`**：`IntersectionObserver` 增量挂载。`useVisibleCount(total, step, resetKey)` 返回 `{count, sentinelRef, done}`；渲染 `items.slice(0, count)`，切片下方放 `sentinelRef` 哨兵；`resetKey`（筛选/类目）变化回到首批。**Insights** 用 `step=36`。（媒体板块已升级为 6.1 的真虚拟化，不再用本 hook。）
 - **`src/hooks/useInView.ts`**：`useInView(onEnter, enabled)` 哨兵进入视口即回调。**Chat** 用它把"手动加载更多"改成**下滑自动翻页**：会话从最旧一页开始、滚到底自动拉更新一页（`PAGE=400`）。
 - **`content-visibility`**：聊天气泡 `.msg { content-visibility:auto; contain-intrinsic-size:auto 52px; }` + 线程容器 `overflow-anchor:auto`——浏览器原生剔除离屏气泡、首绘后记住真实高度避免跳动，**"较远上方不渲染"**。
 - 统一的加载哨兵样式：`.lazy-sentinel`。
@@ -101,7 +110,7 @@ const OWNER_NAME = (import.meta.env.VITE_OWNER_NAME ?? '').trim()
 
 ## 8. 验收
 - 总结/文件/知识等板块左中右**各自独立滚动**，左栏不再被整页带走。
-- 媒体板块**按需挂载**（不一次性渲染 5,907 张），下滑续载，不卡死。
+- 媒体板块走**服务端缩略图 + 真·视口虚拟化**：网格只请求 `…/thumb?w=360`（非原图）、视频用 poster 不用 `<video>`、任意滚动深度 live 卡片恒为几十（`node work/check-media.mjs` 头检：mounted≈30、`<video>`=0、滚动后窗口回收）。
 - 左导航为**两组**（成果含媒体 / 配置含 AI）；聊天右栏有「AI 解析」。
 - `npm run build` 通过、无控制台错误（`node work/check-ui.mjs` 头检）。
 - 仓库内**不含**真实 wxid / QQ 号 / 个人绝对路径（`git grep` 自查）。
