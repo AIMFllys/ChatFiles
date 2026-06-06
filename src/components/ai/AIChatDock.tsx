@@ -40,6 +40,7 @@ export function AIChatDock({
   const [size, setSize] = useState<DockSize>(loadDockSize)
   const abortRef = useRef<AbortController | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // restore saved chat when the conversation changes (history is injected as context)
   useEffect(() => {
@@ -70,6 +71,14 @@ export function AIChatDock({
   useEffect(() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }), [turns])
   useEffect(() => saveDockSize(size), [size])
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  // auto-grow the input textarea to fit content
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${ta.scrollHeight}px`
+  }, [input])
 
   const over = ctx ? ctx.tokens > config.threshold : false
   const ready = isConfigured(config) && !ctxLoading && !over
@@ -196,6 +205,7 @@ export function AIChatDock({
 
       <div className="ai-dock-foot">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -205,7 +215,7 @@ export function AIChatDock({
             }
           }}
           placeholder={ready ? '问点什么…（Enter 发送 / Shift+Enter 换行）' : over ? '上下文超阈值，请调高阈值' : '配置后可用'}
-          rows={2}
+          rows={1}
           disabled={!ready || busy}
         />
         <button className="ai-send" type="button" onClick={send} disabled={!ready || busy || !input.trim()}>
