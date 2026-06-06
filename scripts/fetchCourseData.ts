@@ -4,7 +4,11 @@ import { chromium } from 'playwright'
 import type { CourseItem } from '../src/types.js'
 import { dataDir, ensureDir, writeJson } from './shared.js'
 
-const url = 'https://newgpa.husteread.icu/'
+// Course site + owner identity are injected locally (gitignored .env.local) — see
+// .env.example. Without COURSE_URL there is nothing school-specific to fetch.
+const url = (process.env.COURSE_URL || '').trim()
+const OWNER_IDENTITY = (process.env.OWNER_IDENTITY || '').trim()
+const idPrefix = OWNER_IDENTITY ? `${OWNER_IDENTITY} ` : ''
 
 type SiteState = {
   archive?: CourseItem[]
@@ -12,6 +16,11 @@ type SiteState = {
 }
 
 ensureDir(dataDir)
+
+if (!url) {
+  console.log('COURSE_URL 未设置，跳过课程站点抓取（在 .env.local 里填 COURSE_URL 即可启用）。')
+  process.exit(0)
+}
 
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ locale: 'zh-CN' })
@@ -34,7 +43,7 @@ writeJson(path.join(dataDir, 'course-plan.json'), {
 })
 
 const lines = [
-  '# 基医强基 2501 学业资料索引',
+  `# ${idPrefix}学业资料索引`,
   '',
   `来源：${url}`,
   `抓取时间：${new Date().toISOString()}`,

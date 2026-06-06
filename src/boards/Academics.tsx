@@ -2,6 +2,11 @@ import { useMemo } from 'react'
 import { ExternalLink, GraduationCap } from 'lucide-react'
 import type { InsightNugget, InsightsResponse, KnowledgeBase } from '../types'
 
+// Owner identity + course site come from the local (gitignored) .env.local — nothing
+// personal is hard-coded in the open-source shell. See .env.example.
+const OWNER_IDENTITY = (import.meta.env.VITE_OWNER_IDENTITY ?? '').trim()
+const COURSE_URL = (import.meta.env.VITE_COURSE_URL ?? '').trim()
+
 function importanceDots(n?: number) {
   const v = Math.max(0, Math.min(5, Math.round(n ?? 0)))
   return (
@@ -31,23 +36,25 @@ export default function AcademicsBoard({
   return (
     <section className="aca">
       <header className="aca-hero rise">
-        <p className="eyebrow">ACADEMICS · 基医强基 2501</p>
+        <p className="eyebrow">{OWNER_IDENTITY ? `ACADEMICS · ${OWNER_IDENTITY}` : 'ACADEMICS'}</p>
         <h1 className="aca-title">学业</h1>
         <p className="aca-sub">把散落在聊天与文件里的学业线索收拢成一处——课程、成绩、专业笔记，以及下学期的去向。</p>
       </header>
 
       <div className="aca-grid">
-        <a className="aca-course rise" href="https://newgpa.husteread.icu/" target="_blank" rel="noreferrer">
-          <span className="aca-course-icon">
-            <GraduationCap size={22} />
-          </span>
-          <p className="eyebrow">下学期课程</p>
-          <h3>newgpa · 选课与成绩</h3>
-          <p className="aca-course-body">前往 husteread 查阅下学期课程安排、学分与 GPA 测算。</p>
-          <span className="aca-course-go">
-            打开 <ExternalLink size={15} />
-          </span>
-        </a>
+        {COURSE_URL && (
+          <a className="aca-course rise" href={COURSE_URL} target="_blank" rel="noreferrer">
+            <span className="aca-course-icon">
+              <GraduationCap size={22} />
+            </span>
+            <p className="eyebrow">下学期课程</p>
+            <h3>课程站点 · 选课与成绩</h3>
+            <p className="aca-course-body">前往你的课程站点查阅下学期课程安排、学分与 GPA 测算。</p>
+            <span className="aca-course-go">
+              打开 <ExternalLink size={15} />
+            </span>
+          </a>
+        )}
 
         {knowledge.sections.slice(0, 5).map((s) => (
           <article className="aca-know rise" key={s.id}>

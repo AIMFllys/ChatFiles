@@ -254,7 +254,7 @@ app.listen(port, '127.0.0.1', …)
     "is_group": 0,           // 1/0
     "msg_count": 1234
   },
-  "text": "羽升: 你好\n对方: 在的\n群友A: [图片]\n…",  // 以 \n 连接的 transcript
+  "text": "{{机主昵称}}: 你好\n对方: 在的\n群友A: [图片]\n…",  // 以 \n 连接的 transcript
   "chars": 158234,           // text 实际字符数
   "lines": 842,              // transcript 行数
   "truncated": false         // 是否因 maxChars 或 LIMIT 被截断

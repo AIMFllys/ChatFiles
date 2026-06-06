@@ -50,7 +50,7 @@ feTurbulence 纸感颗粒叠层(~3%)、金色发丝分割线、双径向暖光�
 ## 4. 各板块内容
 
 - **Overview**：大号衬线标题 + Fraunces 数字统计 + 入口卡。
-- **Chat**（三栏）：会话列表（搜索 / 全部·群·私 + 群/私 chip）| 消息气泡流（机主金色靠右"我·羽升"、他人左、非文本显 `[图片]` 等 chip、日期分隔、会话内搜索）| 右栏 `ChatContext`（摘要/话题/关键人物/事实 + **「AI 解析」**按钮）。
+- **Chat**（三栏）：会话列表（搜索 / 全部·群·私 + 群/私 chip）| 消息气泡流（机主金色靠右"我·{{机主昵称}}"、他人左、非文本显 `[图片]` 等 chip、日期分隔、会话内搜索）| 右栏 `ChatContext`（摘要/话题/关键人物/事实 + **「AI 解析」**按钮）。
 - **Insights**：左类目（13 类 + 计数）| 中 importance 排序的 nugget 卡（懒加载）+ 顶部渲染 `boards[类].md`。
 - **Academics**：身份框定 + 课程站点入口 + 学业/专业 nugget。
 - **Files**（`Files.tsx`）：模式切换（归档/源文件）+ `TreeView` 懒展开 + `FilePreview` 多格式面板；状态（fileMode/selected/filter）提升到 `App`，便于工作台深链跳转。

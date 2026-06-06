@@ -36,6 +36,9 @@ export interface NavItem {
   icon: ReactNode
 }
 
+// Owner identity comes from the local (gitignored) .env.local — see .env.example.
+const OWNER_IDENTITY = (import.meta.env.VITE_OWNER_IDENTITY ?? '').trim()
+
 /** upper rail — boards that directly present a finished result */
 export const PRIMARY_NAV: NavItem[] = [
   { id: 'overview', label: '概览', icon: <Home size={20} /> },
@@ -68,7 +71,7 @@ export const TAB_TITLES: Record<Tab, { eyebrow: string; title: string }> = {
   chat: { eyebrow: '解密微信 · 逐条重读', title: '聊天' },
   files: { eyebrow: '归档与索引 · 只读预览', title: '文件' },
   insights: { eyebrow: 'AI 札记 · 碎金合集', title: '洞察' },
-  academics: { eyebrow: '基医强基 2501 · 学业线索', title: '学业' },
+  academics: { eyebrow: OWNER_IDENTITY ? `${OWNER_IDENTITY} · 学业线索` : '学业线索', title: '学业' },
   media: { eyebrow: '归档副本 · 媒体复核', title: '媒体' },
   summary: { eyebrow: '证据分层 · 全局总结', title: '总结' },
   clues: { eyebrow: '聊天线索 · 证据复核', title: '线索' },

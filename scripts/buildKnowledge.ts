@@ -5,6 +5,9 @@ import type { CourseItem, KnowledgeBase, LibraryManifest, SourceDiscovery } from
 import { dataDir, root, writeJson } from './shared.js'
 
 const home = process.env.USERPROFILE ?? ''
+// Owner identity label is injected locally (gitignored .env.local) — see .env.example.
+const OWNER_IDENTITY = (process.env.OWNER_IDENTITY || '').trim()
+const idPrefix = OWNER_IDENTITY ? `${OWNER_IDENTITY} ` : ''
 const qqDb = path.join(home, 'Documents', 'Tencent Files', (process.env.QQ_NUMBER || ''), 'nt_qq', 'nt_db', 'nt_msg.db')
 const wechatRoam = path.join(home, 'AppData', 'Roaming', 'Tencent', 'xwechat', 'roam')
 
@@ -80,7 +83,7 @@ const knowledge: KnowledgeBase = {
         : '尚未生成 source-discovery.json。',
     },
     {
-      source: '基医强基 2501 课程网站',
+      source: `${idPrefix}课程网站`,
       status: forecast.length ? 'done' : 'partial',
       detail: forecast.length
         ? `已从 newgpa 抓取 ${forecast.length} 门下学期课程。`
@@ -117,9 +120,9 @@ const knowledge: KnowledgeBase = {
     },
     {
       id: 'academic-next-term',
-      title: '基医强基 2501 下学期学习地图',
+      title: `${idPrefix}下学期学习地图`,
       scope: '学业',
-      tags: ['基医强基2501', '下学期', '课程'],
+      tags: [...(OWNER_IDENTITY ? [OWNER_IDENTITY] : []), '下学期', '课程'],
       content: `## 下学期课程重点
 
 ${forecast

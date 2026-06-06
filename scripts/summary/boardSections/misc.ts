@@ -40,7 +40,7 @@ ${valuableTextExtracts.length
     {
       id: 'academic-synthesis',
       title: '学业资料与下学期行动图',
-      scope: '基医强基 2501',
+      scope: (process.env.OWNER_IDENTITY || '学业').trim(),
       priority: 'high',
       tags: ['学业', '课程', '下学期'],
       evidence: ['data/course-plan.json', ...manifest.files.filter((file) => file.category === '学业').map((file) => file.archivePath)],
