@@ -49,8 +49,8 @@
 <script>
   var params = new URLSearchParams(location.search);
   var f = params.get('f') || '/replication/README.md';
-  // only allow same-origin doc paths under /replication or /docs
-  if(!/^\/(replication|docs)\/[\w./-]+\.md$/.test(f)){ f='/replication/README.md'; }
+  // only allow same-origin doc paths under /replication or /docs (Chinese folder names allowed)
+  if(!/^\/(replication|docs)\/[\w./一-鿿-]+\.md$/.test(f)){ f='/replication/README.md'; }
   fetch(f).then(function(r){ if(!r.ok) throw new Error(r.status); return r.text(); })
     .then(function(t){
       var title = (t.match(/^#\s+(.+)$/m)||[])[1];
