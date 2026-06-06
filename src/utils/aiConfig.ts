@@ -43,6 +43,63 @@ export function isConfigured(cfg: AIConfig): boolean {
   return Boolean(cfg.baseURL.trim() && cfg.apiKey.trim() && cfg.model.trim())
 }
 
+/* ---- per-conversation chat history (localStorage) ----------------------- */
+const HISTORY_KEY = (convId: string) => `chatfiles.ai.history.${convId}`
+const MAX_HISTORY = 60
+
+export function loadHistory(convId: string): ChatTurn[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY(convId))
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? (arr as ChatTurn[]) : []
+  } catch {
+    return []
+  }
+}
+
+export function saveHistory(convId: string, turns: ChatTurn[]): void {
+  try {
+    const kept = turns.filter((t) => t.content.trim()).slice(-MAX_HISTORY)
+    if (kept.length) localStorage.setItem(HISTORY_KEY(convId), JSON.stringify(kept))
+    else localStorage.removeItem(HISTORY_KEY(convId))
+  } catch {
+    /* quota — ignore */
+  }
+}
+
+export function clearHistory(convId: string): void {
+  try {
+    localStorage.removeItem(HISTORY_KEY(convId))
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ---- floating dock size (localStorage) ---------------------------------- */
+export interface DockSize {
+  w: number
+  h: number
+}
+
+export function loadDockSize(): DockSize {
+  try {
+    const raw = localStorage.getItem('chatfiles.ai.docksize')
+    const s = raw ? JSON.parse(raw) : null
+    if (s && typeof s.w === 'number' && typeof s.h === 'number') return s as DockSize
+  } catch {
+    /* ignore */
+  }
+  return { w: 420, h: 560 }
+}
+
+export function saveDockSize(size: DockSize): void {
+  try {
+    localStorage.setItem('chatfiles.ai.docksize', JSON.stringify(size))
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Conservative token estimate. CJK glyphs cost ~1 token each; Latin/whitespace
  * pack ~3.5 chars per token. Deliberately over-estimates so the threshold gate

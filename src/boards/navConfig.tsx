@@ -46,16 +46,22 @@ export const PRIMARY_NAV: NavItem[] = [
   { id: 'media', label: '媒体', icon: <LayoutGrid size={20} /> },
 ]
 
-/** lower rail — configuration + evidence/working boards (not finished output) */
-export const CONFIG_NAV: NavItem[] = [
-  { id: 'summary', label: '总结', icon: <Brain size={20} /> },
-  { id: 'clues', label: '线索', icon: <MessageSquareText size={20} /> },
-  { id: 'synthesis', label: '聊天整理', icon: <FileText size={20} /> },
-  { id: 'databases', label: '数据库', icon: <DatabaseZap size={20} /> },
-  { id: 'candidates', label: '候选', icon: <Layers3 size={20} /> },
+/** the 5 evidence/working boards collapsed behind one 配置 button → second-level menu */
+export const CONFIG_SUB: NavItem[] = [
+  { id: 'summary', label: '总结', icon: <Brain size={18} /> },
+  { id: 'clues', label: '线索', icon: <MessageSquareText size={18} /> },
+  { id: 'synthesis', label: '聊天整理', icon: <FileText size={18} /> },
+  { id: 'databases', label: '数据库', icon: <DatabaseZap size={18} /> },
+  { id: 'candidates', label: '候选', icon: <Layers3 size={18} /> },
+]
+
+/** lower rail standalone buttons (besides the 配置 group button) */
+export const LOWER_NAV: NavItem[] = [
   { id: 'knowledge', label: '知识', icon: <BookOpenText size={20} /> },
   { id: 'ai', label: 'AI', icon: <Sparkles size={20} /> },
 ]
+
+export const CONFIG_TAB_IDS: Tab[] = CONFIG_SUB.map((item) => item.id)
 
 export const TAB_TITLES: Record<Tab, { eyebrow: string; title: string }> = {
   overview: { eyebrow: '午夜书斋 · 概览', title: '概览' },

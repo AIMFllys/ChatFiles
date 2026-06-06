@@ -23,11 +23,13 @@ feTurbulence 纸感颗粒叠层(~3%)、金色发丝分割线、双径向暖光�
 左侧细栏 `84px`，品牌徽标 + **两组导航**（本轮重组）：
 
 - `PRIMARY_NAV`（**成果组**，上半）：概览 · 聊天 · 文件 · 洞察 · 学业 · **媒体**。
-- `CONFIG_NAV`（**配置组**，下半，`rail-nav.secondary`）：总结 · 线索 · 聊天整理 · 数据库 · 候选 · 知识 · **AI**。
+- 下半 = 一个**「配置」组按钮** + 两个独立按钮 **知识** · **AI**：
+  - `CONFIG_SUB`（5 个工作台板块：**总结 · 线索 · 聊天整理 · 数据库 · 候选**）**收进单个「配置」按钮**——点「配置」时在内容区顶部弹出**二级菜单**（`.config-subnav` 胶囊标签）供选择；`CONFIG_TAB_IDS` 用于判定「配置」是否高亮。
+  - `LOWER_NAV`（**知识 · AI**）仍是独立的一级按钮。
 
-`navConfig.tsx` 导出 `Tab` 联合类型、`NavItem` 接口、两组数组、`TAB_TITLES`（每 tab 的 eyebrow/title）。`App.tsx` 用一个 `renderNav(items, label)` 渲染两组，中间夹 `rail-div` 发丝线；工作区 `topbar`（概览/学业为全幅 `fullBleed` 不显 topbar）。
+`navConfig.tsx` 导出 `Tab`、`NavItem`、`PRIMARY_NAV`、`CONFIG_SUB`、`LOWER_NAV`、`CONFIG_TAB_IDS`、`TAB_TITLES`。`App.tsx`：`renderNav(PRIMARY_NAV,'成果')` 渲染上半；下半手写「配置」按钮（`onClick` → `setActiveTab(lastConfig)`，`lastConfig` 记住上次选的子板块，默认 `summary`）+ `LOWER_NAV`；当 `activeTab ∈ CONFIG_TAB_IDS` 时 `workspace` 加 `cfg` 类并在 topbar 下渲染 `.config-subnav` 二级菜单。`.workspace.cfg` 把这 5 个定高板块的 `height` 降到 `calc(100vh - 258px)` 给二级菜单让位。
 
-> 重组动机：把"直接展示成果"的板块（含**媒体**）放上半，把"配置/工作台/非直接成果"（总结/线索/整理/数据库/候选/知识/**AI**）收进下半「配置」组，认知更清晰。
+> 重组动机：把"直接展示成果"的板块（含**媒体**）放上半；把 5 个"工作台/证据"板块**合并到一个「配置」入口 + 二级菜单**，下半只剩「配置 / 知识 / AI」三个按钮，左栏更克制。
 
 ## 3. 板块拆分规范
 
@@ -78,8 +80,8 @@ feTurbulence 纸感颗粒叠层(~3%)、金色发丝分割线、双径向暖光�
 
 海量列表（媒体网格数千张图、洞察碎金、超长聊天）**禁止**一次性挂载——否则瞬间发起数千网络请求、DOM 爆炸卡死。
 
-- **`src/hooks/useVisibleCount.ts`**：`IntersectionObserver` 增量挂载。`useVisibleCount(total, step, resetKey)` 返回 `{count, sentinelRef, done}`；渲染 `items.slice(0, count)`，在切片下方放 `sentinelRef` 哨兵；`resetKey`（如筛选/类目）变化时回到首批。`rootMargin:'700px'` 预取。
-  - **MediaReview**：`step=60`、`resetKey=\`${query}|${typeFilter}\``，`<img loading="lazy" decoding="async">`、`<video preload="none">`。
+- **`src/hooks/useVisibleCount.ts`**：`IntersectionObserver` 增量挂载。`useVisibleCount(total, step, resetKey)` 返回 `{count, sentinelRef, done}`；渲染 `items.slice(0, count)`，在切片下方放 `sentinelRef` 哨兵；`resetKey`（如筛选/类目）变化时回到首批。`rootMargin:'300px'` 预取。
+  - **MediaReview**：`step=300`（一次动态渲染窗口 ~300），`resetKey=\`${query}|${typeFilter}\``，`<img loading="lazy" decoding="async">`、`<video preload="none">`；并在 `.media-card` 加 `content-visibility:auto; contain-intrinsic-size:auto 242px;`——挂载窗口较大时离屏卡片仍被原生剔除，**防止过于卡顿**。
   - **Insights**：`step=36`、`resetKey=current`（类目）。
 - **`src/hooks/useInView.ts`**：`useInView(onEnter, enabled)` 哨兵进入视口即回调。**Chat** 用它把"手动加载更多"改成**下滑自动翻页**：会话从最旧一页开始、滚到底自动拉更新一页（`PAGE=400`）。
 - **`content-visibility`**：聊天气泡 `.msg { content-visibility:auto; contain-intrinsic-size:auto 52px; }` + 线程容器 `overflow-anchor:auto`——浏览器原生剔除离屏气泡、首绘后记住真实高度避免跳动，**"较远上方不渲染"**。

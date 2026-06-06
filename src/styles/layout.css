@@ -42,13 +42,18 @@
 .brand-mark {
   width: 46px;
   height: 46px;
+  aspect-ratio: 1;
   margin-bottom: 8px;
   border-radius: 12px;
   display: grid;
   place-items: center;
   color: var(--bg);
+  font-family: "Noto Serif SC", serif;
+  font-size: 20px;
+  font-weight: 900;
   background: linear-gradient(150deg, var(--gold-2), var(--gold));
   box-shadow: 0 10px 26px -10px rgba(216, 162, 74, 0.6);
+  flex-shrink: 0;
 }
 
 .rail-nav {
@@ -151,6 +156,45 @@ h1 {
   color: var(--jade);
   font-size: 13px;
   font-weight: 600;
+}
+
+/* ---- config second-level menu (二级菜单) --------------------------------- */
+.config-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 18px;
+}
+.config-subnav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.config-subnav button:hover {
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+.config-subnav button.on {
+  color: var(--gold-2);
+  border-color: rgba(216, 162, 74, 0.4);
+  background: linear-gradient(180deg, rgba(216, 162, 74, 0.12), rgba(216, 162, 74, 0.04));
+}
+/* leave room for the submenu so the fixed-height config boards still fit */
+.workspace.cfg .summary-layout,
+.workspace.cfg .clue-workbench,
+.workspace.cfg .database-workbench,
+.workspace.cfg .value-workbench,
+.workspace.cfg .chat-synthesis {
+  height: calc(100vh - 258px);
 }
 
 /* ---- responsive ---------------------------------------------------------- */

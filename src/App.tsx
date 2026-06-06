@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpenText, CheckCircle2, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, ShieldCheck, SlidersHorizontal } from 'lucide-react'
 import type {
   ChatClueDossier,
   ChatSummary,
@@ -13,7 +13,7 @@ import type {
   SourceFileManifest,
   ValueCandidateIndex,
 } from './types'
-import { CONFIG_NAV, PRIMARY_NAV, TAB_TITLES, type Tab } from './boards/navConfig'
+import { CONFIG_SUB, CONFIG_TAB_IDS, LOWER_NAV, PRIMARY_NAV, TAB_TITLES, type Tab } from './boards/navConfig'
 import OverviewBoard from './boards/Overview'
 import ChatBoard from './boards/Chat'
 import InsightsBoard from './boards/Insights'
@@ -56,6 +56,7 @@ function App() {
   const [insights, setInsights] = useState<InsightsResponse>(emptyInsights)
   const [aiConfig, setAiConfig] = useState<AIConfig>(loadAIConfig)
   const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [lastConfig, setLastConfig] = useState<Tab>('summary')
   const [fileMode, setFileMode] = useState<'archive' | 'source'>('archive')
   const [selected, setSelected] = useState<BrowsableFile>()
   const [filter, setFilter] = useState('')
@@ -88,6 +89,7 @@ function App() {
 
   const heading = TAB_TITLES[activeTab]
   const fullBleed = activeTab === 'overview' || activeTab === 'academics'
+  const isConfig = CONFIG_TAB_IDS.includes(activeTab)
 
   const renderNav = (items: typeof PRIMARY_NAV, label: string) => (
     <nav className={`rail-nav${label === '配置' ? ' secondary' : ''}`} aria-label={label}>
@@ -110,14 +112,36 @@ function App() {
     <main className="app-shell">
       <aside className="left-rail">
         <div className="brand-mark" title="午夜书斋">
-          <BookOpenText size={22} />
+          斋
         </div>
         {renderNav(PRIMARY_NAV, '成果')}
         <div className="rail-div" />
-        {renderNav(CONFIG_NAV, '配置')}
+        <nav className="rail-nav secondary" aria-label="配置">
+          <button
+            className={isConfig ? 'rail-button active' : 'rail-button'}
+            onClick={() => setActiveTab(lastConfig)}
+            title="配置"
+            type="button"
+          >
+            <SlidersHorizontal size={20} />
+            <span className="rail-label">配置</span>
+          </button>
+          {LOWER_NAV.map((item) => (
+            <button
+              key={item.id}
+              className={activeTab === item.id ? 'rail-button active' : 'rail-button'}
+              onClick={() => setActiveTab(item.id)}
+              title={item.label}
+              type="button"
+            >
+              {item.icon}
+              <span className="rail-label">{item.label}</span>
+            </button>
+          ))}
+        </nav>
       </aside>
 
-      <section className="workspace">
+      <section className={isConfig ? 'workspace cfg' : 'workspace'}>
         {!fullBleed && (
           <header className="topbar">
             <div>
@@ -129,6 +153,25 @@ function App() {
               原始文件保留
             </div>
           </header>
+        )}
+
+        {isConfig && (
+          <div className="config-subnav" role="tablist" aria-label="配置板块">
+            {CONFIG_SUB.map((item) => (
+              <button
+                key={item.id}
+                className={activeTab === item.id ? 'on' : ''}
+                onClick={() => {
+                  setActiveTab(item.id)
+                  setLastConfig(item.id)
+                }}
+                type="button"
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
         )}
 
         {activeTab === 'overview' ? (

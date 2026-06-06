@@ -30,7 +30,7 @@ export function useVisibleCount(total: number, step = 48, resetKey?: unknown) {
           setCount((c) => Math.min(c + step, total))
         }
       },
-      { rootMargin: '700px 0px' },
+      { rootMargin: '300px 0px' },
     )
     io.observe(node)
     return () => io.disconnect()

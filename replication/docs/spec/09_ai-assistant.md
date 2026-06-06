@@ -53,16 +53,22 @@ interface AIConfig {
 1. **拉取上下文**：会话或阈值变化时 `GET …/transcript?maxChars=min(threshold*4, 4_000_000)`；用 `estimateTokens(text)` 估 token，存 `{text, tokens, lines, truncated}`。
 2. **阈值闸门**：`over = tokens > threshold`。顶部状态条显示「注入 N 行 · 约 X tokens / 阈值 Y」；`over` 时该条标红、输入框禁用，发送被拦截并报错：`上下文 X tokens 超过阈值 Y tokens，请在 AI 设置调高阈值或改用更大窗口模型`。
 3. **未配置**：`isConfigured` 为假时提示并给「前往配置 →」按钮（`onGotoSettings` 切到 AI 板块）。
-4. **对话**：每次发送组装 `messages = [system, ...历史]`，其中 `system` 注入该会话全文（`你是严谨的聊天记录分析助手……===== 会话记录开始 ===== …`），调 `streamChat` 流式把增量拼到最后一条 assistant 气泡；`AbortController` 在关闭/重发时中止上一请求。
-5. 切换会话时关闭并重置悬浮窗（`dockOpen=false`），避免把 A 会话的对话错配到 B 会话。
+4. **对话 + Markdown**：每次发送组装 `messages = [system, ...历史]`，`system` 注入该会话全文（`你是严谨的聊天记录分析助手……可用 Markdown 排版……===== 会话记录开始 ===== …`），调 `streamChat` 流式把增量拼到最后一条 assistant 气泡；assistant 气泡用 **`react-markdown` + `remark-gfm` 渲染 Markdown**（`.ai-turn-text.markdown-body`，代码块/表格/列表/行内代码均生效），user 气泡保持纯文本；`AbortController` 在关闭/重发/清除时中止上一请求。
+5. **本地历史 + 注入**：每个会话的对话**持久化到 localStorage**（`chatfiles.ai.history.<convId>`，`saveHistory`/`loadHistory`，保留最近 60 条）。重新打开悬浮窗自动 `loadHistory(convId)` 恢复——**之前聊过的内容还在，并作为 `...历史` 一并注入上下文**，AI 能接着上次聊。状态条在有历史时附「· 含历史对话」。
+6. **清除上下文**：头部 `Trash2` 按钮 `clearCtx()` → 中止请求 + `setTurns([])` + `clearHistory(convId)`，把该会话的对话与注入历史清空（不影响会话转写本身）。
+7. **自由调节大小**：悬浮窗左上角 `.ai-dock-resize` 拖拽手柄（`onPointerDown` → 监听 `pointermove`）调节 `width/height`（夹取 `[320, vw-48] × [360, vh-90]`），尺寸持久化到 `chatfiles.ai.docksize`（`loadDockSize`/`saveDockSize`），下次打开沿用。
+8. 切换会话时由 `Chat.tsx` 关闭并重置悬浮窗（`dockOpen=false`），避免把 A 会话的对话错配到 B 会话；重开时各自加载自己的历史。
 
-样式见 `src/styles/ai.css`（`.ai-dock` 右下角悬浮、macOS 式头、流式气泡）。
+样式见 `src/styles/ai.css`（`.ai-dock` 右下角悬浮、可缩放、macOS 式头、流式 Markdown 气泡、`.ai-dock-resize` 手柄）。
 
 ## 5. 验收
 
 - AI 板块保存后刷新仍在（localStorage）。
 - `POST /api/ai/chat` 缺字段 → 400；带 `{baseURL,apiKey,model,messages}` → 转发上游（假 key 得 401 透传即证明打通）。
 - 聊天点「AI 解析」→ 悬浮窗加载转写、显示 token/阈值；当 `tokens > threshold` 时发送被拦截并报错（本项目首会话约 31.7 万 token，在默认 12.8 万阈值下正确进入 `over` 态）。
+- assistant 回复渲染 **Markdown**（代码块/表格/列表生效）；user 气泡为纯文本。
+- 关闭再打开同一会话的悬浮窗：**之前的对话还在**并被注入上下文；点「清除上下文」按钮即清空该会话历史。
+- 拖拽左上角手柄可**自由调节窗口大小**，尺寸记忆到下次打开。
 - 全程密钥不出现在任何服务端文件或日志中。
 
 > 安全：本功能严格遵守 [`../../AGENTS.md`](../../AGENTS.md) 第 2 节红线——只读机主本地数据、密钥不落盘、不上传聊天内容到第三方以外的任何地方（上游即用户自己配置的接口）。

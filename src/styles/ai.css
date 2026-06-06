@@ -194,12 +194,32 @@
   box-shadow: 0 30px 70px -28px rgba(0, 0, 0, 0.85);
   animation: ms-rise 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
+.ai-dock-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 3;
+  border-top: 2px solid var(--line-2);
+  border-left: 2px solid var(--line-2);
+  border-top-left-radius: var(--radius-lg);
+}
+.ai-dock-resize:hover {
+  border-color: var(--gold);
+}
 .ai-dock-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 13px 14px;
   border-bottom: 1px solid var(--line);
+}
+.ai-dock-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .ai-dock-title {
   display: inline-flex;
@@ -303,6 +323,63 @@
   border-top-right-radius: 5px;
   background: linear-gradient(160deg, rgba(216, 162, 74, 0.16), rgba(216, 162, 74, 0.07));
   color: var(--ink);
+}
+/* markdown inside the assistant bubble — tighten the shared markdown-body */
+.ai-turn-text.markdown-body {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+.ai-turn-text.markdown-body > :first-child {
+  margin-top: 0;
+}
+.ai-turn-text.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+.ai-turn-text.markdown-body p {
+  margin: 0.4em 0;
+}
+.ai-turn-text.markdown-body ul,
+.ai-turn-text.markdown-body ol {
+  margin: 0.4em 0;
+  padding-left: 1.25em;
+}
+.ai-turn-text.markdown-body h1,
+.ai-turn-text.markdown-body h2,
+.ai-turn-text.markdown-body h3 {
+  margin: 0.6em 0 0.3em;
+  font-size: 1.05em;
+}
+.ai-turn-text.markdown-body pre {
+  margin: 0.5em 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: #0f0d0a;
+  overflow: auto;
+  font-size: 12px;
+}
+.ai-turn-text.markdown-body code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.ai-turn-text.markdown-body :not(pre) > code {
+  padding: 0.1em 0.36em;
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--jade);
+}
+.ai-turn-text.markdown-body table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.ai-turn-text.markdown-body th,
+.ai-turn-text.markdown-body td {
+  border: 1px solid var(--line-2);
+  padding: 4px 8px;
+}
+.ai-turn-text.markdown-body a {
+  color: var(--gold-2);
 }
 .ai-dock-err {
   margin: 0 14px;

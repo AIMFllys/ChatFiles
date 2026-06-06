@@ -35,9 +35,10 @@ export function MediaReview({
     })
   }, [mediaFiles, query, typeFilter])
 
-  // only mount what has been scrolled to — a 5k-image grid would otherwise
-  // fire thousands of requests at once and freeze the tab
-  const { count, sentinelRef, done } = useVisibleCount(filtered.length, 60, `${query}|${typeFilter}`)
+  // mount in ~300-card windows — a 5k-image grid would otherwise fire thousands
+  // of requests at once and freeze the tab; off-screen cards are then culled by
+  // content-visibility (see workbenches-media.css)
+  const { count, sentinelRef, done } = useVisibleCount(filtered.length, 300, `${query}|${typeFilter}`)
   const shown = filtered.slice(0, count)
 
   return (
