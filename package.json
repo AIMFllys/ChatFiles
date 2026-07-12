@@ -6,6 +6,7 @@
   "scripts": {
     "test": "tsx --test \"scripts/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\"",
     "audit:chat": "tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.next/wechat.db --strict",
+    "audit:assets": "tsx scripts/auditConversationAssets.ts --bundle data/chat-assets.current",
     "dev": "npm run build && tsx server/index.ts",
     "dev:vite": "vite --host 127.0.0.1 --port 3456",
     "ingest:files": "tsx scripts/archiveFiles.ts",
@@ -43,6 +44,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.17.0",
     "mime": "^4.1.0",
+    "protobufjs": "^7.6.5",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
@@ -68,6 +70,6 @@
     "tsx": "^4.22.3",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.14"
+    "vite": "^8.1.4"
   }
 }
