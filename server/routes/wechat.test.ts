@@ -6,6 +6,7 @@ import test, { type TestContext } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
 import express from 'express'
+import JSZip from 'jszip'
 
 import { createApp } from '../app.js'
 import { createWechatRouter, type WechatRouterDependencies } from './wechat.js'
@@ -219,8 +220,10 @@ test('returns path-free metadata with capabilities only when the runtime source 
     const readyBody = await (await fetch(`${baseUrl}/api/wechat/artifact/${ready}/metadata`)).json() as {
       availability: string
       capabilities: Record<string, string>
+      size: number | null
     }
     assert.equal(readyBody.availability, 'ready')
+    assert.equal(readyBody.size, 5)
     assert.deepEqual(Object.keys(readyBody.capabilities).sort(), ['content', 'metadata', 'thumbnail'])
     assert.doesNotMatch(JSON.stringify(readyBody), /source_relative_path|private full text|private failure|wxid_fixture/)
     const metadataResponse = await fetch(`${baseUrl}/api/wechat/artifact/${ready}/metadata`)
@@ -241,6 +244,42 @@ test('returns path-free metadata with capabilities only when the runtime source 
     }
     assert.equal(linkBody.availability, 'ready')
     assert.deepEqual(Object.keys(linkBody.capabilities), ['metadata'])
+  })
+})
+
+test('serves path-free inspection data for ready generic files and archives', async (t) => {
+  const fixtureData = fixture(t)
+  const generic = fixtureData.addAsset({
+    name: 'sample.bin', preview: 'download', content: 'visible artifact content',
+  })
+  const zip = new JSZip()
+  zip.file('\u4e2d\u6587/readme.txt', 'ok')
+  const zipContent = await zip.generateAsync({ type: 'nodebuffer' })
+  const archive = fixtureData.addAsset({
+    name: '资料.zip', preview: 'archive', relativePath: '资料.zip', content: zipContent,
+  })
+
+  await withServer(createWechatRouter(fixtureData.dependencies), async (baseUrl) => {
+    const inspectionResponse = await fetch(`${baseUrl}/api/wechat/artifact/${generic}/inspect`)
+    assert.equal(inspectionResponse.status, 200)
+    const inspection = await inspectionResponse.json() as { path: string; headerHex: string }
+    assert.equal(inspection.path, '')
+    assert.match(inspection.headerHex, /^76 69 73 69 62 6c 65/u)
+    assert.doesNotMatch(JSON.stringify(inspection), /chatfiles-wechat-http|wxid_fixture/u)
+
+    const archiveResponse = await fetch(`${baseUrl}/api/wechat/artifact/${archive}/archive`)
+    assert.equal(archiveResponse.status, 200)
+    const archiveBody = await archiveResponse.json() as {
+      path: string
+      readable: boolean
+      entries: Array<{ name: string }>
+    }
+    assert.equal(archiveBody.path, '')
+    assert.equal(archiveBody.readable, true)
+    assert.deepEqual(archiveBody.entries.map((entry) => entry.name), [
+      '\u4e2d\u6587/', '\u4e2d\u6587/readme.txt',
+    ])
+    assert.doesNotMatch(JSON.stringify(archiveBody), /chatfiles-wechat-http|wxid_fixture/u)
   })
 })
 

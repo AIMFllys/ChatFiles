@@ -27,7 +27,9 @@ export function FilePreview({ file }: { file?: BrowsableFile }) {
       <header className="preview-header">
         <div>
           <p className="eyebrow">
-            {file.storage === 'source'
+            {file.storage === 'artifact'
+              ? `会话素材 / ${file.category}`
+              : file.storage === 'source'
               ? `源文件 / ${file.sourceApp} / ${file.relativePath ?? file.name}`
               : `${file.sourceApp} / ${file.category} / ${file.subcategory.join(' / ')}`}
           </p>

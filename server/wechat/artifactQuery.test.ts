@@ -123,8 +123,9 @@ test('returns only path-free public DTO fields and no ordinary artifact text', (
   assert.doesNotMatch(serialized, /内部说明|未关联会话|secret detail|private failure/)
   assert.deepEqual(Object.keys(page.items[0] ?? {}).sort(), [
     'availability', 'category', 'conversationId', 'createdAt', 'id', 'itemType',
-    'kind', 'metadataUrl', 'name', 'preview', 'senderName', 'url',
+    'kind', 'metadataUrl', 'name', 'preview', 'senderName', 'size', 'url',
   ])
+  assert.equal(page.items[0]?.itemType === 'artifact' ? page.items[0].size : null, 30)
   assetDb.close()
   wechatDb.close()
 })

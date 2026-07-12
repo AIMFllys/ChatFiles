@@ -82,14 +82,19 @@ function App() {
 
   const openMatchedFile = (file: BrowsableFile) => {
     setSelected(file)
-    setFileMode(file.storage)
+    if (file.storage !== 'artifact') setFileMode(file.storage)
     setFilter(file.name)
     setActiveTab('files')
   }
 
   const heading = TAB_TITLES[activeTab]
-  const fullBleed = activeTab === 'overview' || activeTab === 'academics'
+  const fullBleed = activeTab === 'overview' || activeTab === 'academics' || activeTab === 'chat'
   const isConfig = CONFIG_TAB_IDS.includes(activeTab)
+  const workspaceClass = [
+    'workspace',
+    isConfig ? 'cfg' : '',
+    activeTab === 'chat' ? 'chat-workspace' : '',
+  ].filter(Boolean).join(' ')
 
   const renderNav = (items: typeof PRIMARY_NAV, label: string) => (
     <nav className={`rail-nav${label === '配置' ? ' secondary' : ''}`} aria-label={label}>
@@ -150,7 +155,7 @@ function App() {
         </nav>
       </aside>
 
-      <section className={isConfig ? 'workspace cfg' : 'workspace'}>
+      <section className={workspaceClass}>
         {!fullBleed && (
           <header className="topbar">
             <div>

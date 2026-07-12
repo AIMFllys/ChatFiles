@@ -12,6 +12,7 @@ import type {
   ChatArtifactTab,
 } from '../../src/types/chat.js'
 import { root } from '../utils/helpers.js'
+import { inspectArchive, inspectFile } from '../utils/inspect.js'
 import { imageThumb, videoPoster } from '../utils/thumbs.js'
 import { openValidatedArtifactDatabase } from '../wechat/artifactDatabase.js'
 import { queryArtifacts } from '../wechat/artifactQuery.js'
@@ -126,6 +127,7 @@ function publicMetadata(
     url: asset.url,
     createdAt: asset.createdAt,
     senderName: asset.senderName,
+    size: asset.size,
     availability,
     metadataUrl: capabilities.metadata,
     capabilities,
@@ -379,6 +381,58 @@ export function createWechatRouter(
       return sendError(response, 503, 'database_unavailable')
     } finally {
       lease.release()
+    }
+  })
+
+  router.get('/api/wechat/artifact/:id/inspect', (request, response) => {
+    const lease = deps.openArtifactDatabase()
+    if (!lease.db) return sendError(response, 503, 'database_unavailable')
+    let result: ArtifactSourceResolution
+    try {
+      result = createArtifactSourceResolver({
+        assetDb: lease.db,
+        accountRootProvider: deps.accountRootProvider,
+      }).resolve(request.params.id, 'content')
+    } catch {
+      return sendError(response, 503, 'database_unavailable')
+    } finally {
+      lease.release()
+    }
+    if (result.status !== 'available') return assetResultError(response, result)
+    try {
+      return response.json({ ...inspectFile(result.target), path: '' })
+    } catch {
+      return sendError(response, 409, 'source_unavailable', 'source_unavailable')
+    }
+  })
+
+  router.get('/api/wechat/artifact/:id/archive', async (request, response) => {
+    const lease = deps.openArtifactDatabase()
+    if (!lease.db) return sendError(response, 503, 'database_unavailable')
+    let result: ArtifactSourceResolution
+    try {
+      result = createArtifactSourceResolver({
+        assetDb: lease.db,
+        accountRootProvider: deps.accountRootProvider,
+      }).resolve(request.params.id, 'content')
+    } catch {
+      return sendError(response, 503, 'database_unavailable')
+    } finally {
+      lease.release()
+    }
+    if (result.status !== 'available') return assetResultError(response, result)
+    if (result.asset.preview !== 'archive' && !/\.(?:zip|rar|7z)$/iu.test(result.asset.name)) {
+      return sendError(response, 415, 'operation_unsupported', result.state)
+    }
+    try {
+      const preview = await inspectArchive(result.target)
+      return response.json({
+        ...preview,
+        path: '',
+        ...(preview.readable ? {} : { error: '压缩包目录不可读' }),
+      })
+    } catch {
+      return sendError(response, 409, 'source_unavailable', 'source_unavailable')
     }
   })
 

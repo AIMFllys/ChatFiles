@@ -27,6 +27,7 @@ type ArtifactRow = {
   name: string
   preview: string
   url: string | null
+  source_size: number | null
   created_at: number
   sender_name: string
   materialization: string
@@ -121,7 +122,7 @@ function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput) {
   const matching = assetDb.prepare(`SELECT count(*) AS count FROM artifacts WHERE ${where.sql}`)
     .get(...where.params) as { count: number } | undefined
   const rows = assetDb.prepare(`
-    SELECT asset_id, conv_id, category, kind, name, preview, url, created_at,
+    SELECT asset_id, conv_id, category, kind, name, preview, url, source_size, created_at,
            sender_name, materialization, preview_status
     FROM artifacts
     WHERE ${where.sql}
@@ -139,6 +140,7 @@ function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput) {
     url: row.url,
     createdAt: Number(row.created_at),
     senderName: row.sender_name,
+    size: row.source_size === null ? null : Number(row.source_size),
     availability: availabilityFor(row.materialization, row.preview_status),
     metadataUrl: `/api/wechat/artifact/${row.asset_id}/metadata`,
   }))

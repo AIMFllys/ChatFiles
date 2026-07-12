@@ -3,10 +3,12 @@ import { Archive, DatabaseZap, FileText, Image as ImageIcon, Mic2 } from 'lucide
 import type { LibraryFile, SourceIndexedFile } from '../types'
 
 export type BrowsableFile = LibraryFile & {
-  storage: 'archive' | 'source'
+  storage: 'archive' | 'source' | 'artifact'
   treeId: string
   root?: string
   relativePath?: string
+  contentUrl?: string
+  thumbnailUrl?: string
 }
 
 export type TreeNode = {
@@ -95,27 +97,33 @@ export function fileIcon(file: BrowsableFile) {
 }
 
 export function fileUrl(file: BrowsableFile) {
+  if (file.storage === 'artifact') return file.contentUrl ?? '#'
   return file.storage === 'source' ? `/source-files/${file.id}` : `/files/${file.id}`
 }
 
 export function thumbUrl(file: BrowsableFile, w = 360) {
+  if (file.storage === 'artifact') return file.thumbnailUrl ? `${file.thumbnailUrl}?w=${w}` : fileUrl(file)
   const base = file.storage === 'source' ? `/api/source-file/${file.id}/thumb` : `/api/file/${file.id}/thumb`
   return `${base}?w=${w}`
 }
 
 export function textUrl(file: BrowsableFile) {
+  if (file.storage === 'artifact') return fileUrl(file)
   return file.storage === 'source' ? `/api/source-file/${file.id}/text` : `/api/file/${file.id}/text`
 }
 
 export function inspectUrl(file: BrowsableFile) {
+  if (file.storage === 'artifact') return `/api/wechat/artifact/${file.id}/inspect`
   return file.storage === 'source' ? `/api/source-file/${file.id}/inspect` : `/api/file/${file.id}/inspect`
 }
 
 export function archiveUrl(file: BrowsableFile) {
+  if (file.storage === 'artifact') return `/api/wechat/artifact/${file.id}/archive`
   return file.storage === 'source' ? `/api/source-file/${file.id}/archive` : `/api/file/${file.id}/archive`
 }
 
 export function voiceUrl(file: BrowsableFile) {
+  if (file.storage === 'artifact') return fileUrl(file)
   return file.storage === 'source' ? `/api/source-file/${file.id}/voice` : `/api/file/${file.id}/voice`
 }
 

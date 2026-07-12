@@ -18,6 +18,7 @@ export type ArtifactSourceAsset = {
   url: string | null
   createdAt: number
   senderName: string
+  size: number | null
   materialization: string
   previewStatus: string
 }
@@ -89,6 +90,7 @@ function publicAsset(row: InternalArtifactRow): ArtifactSourceAsset {
     url: row.url,
     createdAt: Number(row.created_at),
     senderName: row.sender_name,
+    size: row.source_size === null ? null : Number(row.source_size),
     materialization: row.materialization,
     previewStatus: row.preview_status,
   }

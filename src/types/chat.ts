@@ -309,6 +309,7 @@ export type ChatArtifactItem = {
   url: string | null
   createdAt: number
   senderName: string
+  size: number | null
   availability: ChatArtifactAvailability
   metadataUrl: string
 }
