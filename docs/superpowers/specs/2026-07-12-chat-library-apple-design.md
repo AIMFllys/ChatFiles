@@ -19,7 +19,7 @@
 
 ### 方案 B：独立资产索引与证据键（采用）
 
-解析阶段保留 `local_id`、`sort_seq`、基础/原始类型；资产导出阶段使用 `account + conversation + local_id` 关联 `MessageResourceInfo`，再把资源 hash 映射到本机文件。API 只读取索引并分页，前端负责展示。实现量较大，但可审计、可增量、不会把别人的文件错误挂到另一段对话。
+解析阶段保留 `message_uid`、`local_id`、`sort_seq`、基础/原始类型；资产导出阶段先用完整消息定位字段对齐 `MessageResourceInfo`，再要求同一会话范围与资源 hash 或应用消息 XML 标识精确一致。API 只读取索引并分页，前端负责展示。实现量较大，但可审计、可增量、不会把别人的文件错误挂到另一段对话。
 
 ### 方案 C：只展示全局归档文件
 
@@ -65,7 +65,7 @@
 
 ### 资产证据
 
-资产主键由 `account + conv_id + message_local_id + resource_hash + variant` 生成。每条本地资产记录至少保存：会话、消息、本地只读源路径、可选归档 ID、资源 hash、媒体类型、预览类型、导出状态、失败原因。聊天消息、URL 等虚拟资产同样保存来源消息序号。
+资产主键由 `message_uid + resource_evidence_signature + variant` 生成。证据签名只由规范会话范围、资源类型、`packed_info` 摘要、资源 hash 或应用消息 XML 文件标识等稳定证据构成；快照名、资源消息行号和资源明细行号只供审计，不参与身份。每条本地资产记录至少保存：会话、消息、本地只读源路径、可选归档 ID、资源 hash、媒体类型、预览类型、导出状态、失败原因。聊天消息、URL 等虚拟资产同样保存来源消息序号。
 
 只有以下证据可以建立会话文件关系：
 
@@ -106,4 +106,3 @@ HTML 预览在本地路由中设置限制性 CSP/sandbox；下载型文件不内
 - 重复账号快照不重复计入会话/消息；消息总量、首末时间、中文文本通过对账。
 - 浅色、深色、减少动态、移动端和桌面端通过 Playwright 截图与交互回归。
 - `git ls-files data archive work imports .env.local image_key.json` 无隐私文件；构建、单测、lint 与数据审计命令通过。
-
