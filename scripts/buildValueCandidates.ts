@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { DeepFileIndex, LibraryManifest, ValueCandidate, ValueCandidateIndex } from '../src/types.js'
-import { classify, dataDir, sha256, writeJson } from './shared.js'
+import { classify, dataDir, sha256File, writeJson } from './shared.js'
 
 const deepIndex = JSON.parse(fs.readFileSync(path.join(dataDir, 'deep-index.json'), 'utf8')) as DeepFileIndex
 const library = JSON.parse(fs.readFileSync(path.join(dataDir, 'library.json'), 'utf8')) as LibraryManifest
@@ -126,7 +126,7 @@ for (const file of deepIndex.files ?? []) {
     continue
   }
   if (isNoise(file)) continue
-  if (fs.existsSync(file.path) && fs.statSync(file.path).isFile() && archivedHashes.has(sha256(file.path))) {
+  if (fs.existsSync(file.path) && fs.statSync(file.path).isFile() && archivedHashes.has(await sha256File(file.path))) {
     representedByArchive += 1
     continue
   }

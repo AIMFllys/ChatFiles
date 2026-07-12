@@ -102,6 +102,7 @@ test('plans an exclusive copy for a hash not present in the manifest or archive'
       sourcePath: candidate.sourcePath,
       archivePath: candidate.archivePath,
       modified: candidate.modified,
+      sha256: candidate.sha256,
     },
   ])
   assert.deepEqual(plan.manifest.files, [candidate])

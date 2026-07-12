@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { LibraryFile, LibraryManifest, ValueCandidateIndex } from '../src/types.js'
-import { archiveDir, classify, dataDir, ensureDir, mimeFor, previewFor, root, safeName, sha256, writeJson } from './shared.js'
+import { archiveDir, classify, dataDir, ensureDir, mimeFor, previewFor, root, safeName, sha256File, writeJson } from './shared.js'
 
 const manifestPath = path.join(dataDir, 'library.json')
 const candidatesPath = path.join(dataDir, 'value-candidates.json')
@@ -30,7 +30,7 @@ for (const candidate of candidates.candidates.filter((item) => item.action === '
     skipped.push({ path: candidate.path, reason: 'empty file' })
     continue
   }
-  const hash = sha256(candidate.path)
+  const hash = await sha256File(candidate.path)
   if (seenHashes.has(hash)) {
     skipped.push({ path: candidate.path, reason: 'same sha256 already archived' })
     continue
@@ -42,7 +42,7 @@ for (const candidate of candidates.candidates.filter((item) => item.action === '
   const destDir = path.join(archiveDir, category, ...subcategory)
   ensureDir(destDir)
   let dest = path.join(destDir, cleanName)
-  if (fs.existsSync(dest) && sha256(dest) !== hash) {
+  if (fs.existsSync(dest) && (await sha256File(dest)) !== hash) {
     dest = path.join(destDir, `${path.basename(cleanName, ext)}-${hash.slice(0, 8)}${ext}`)
   }
   if (!fs.existsSync(dest)) fs.copyFileSync(candidate.path, dest)

@@ -3,8 +3,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import mime from 'mime'
 import type { Category, LibraryFile } from '../src/types.js'
+import { loadLocalEnv } from './localEnv.js'
 
 export const root = path.resolve(process.cwd())
+loadLocalEnv({ filePath: path.join(root, '.env.local') })
 export const dataDir = path.join(root, 'data')
 export const archiveDir = path.join(root, 'archive')
 export const home = process.env.USERPROFILE ?? ''
@@ -43,9 +45,10 @@ export function writeJson(filePath: string, value: unknown) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
-export function sha256(filePath: string) {
+export async function sha256File(filePath: string, options: { highWaterMark?: number } = {}) {
   const hash = crypto.createHash('sha256')
-  hash.update(fs.readFileSync(filePath))
+  const stream = fs.createReadStream(filePath, { highWaterMark: options.highWaterMark })
+  for await (const chunk of stream) hash.update(chunk)
   return hash.digest('hex')
 }
 

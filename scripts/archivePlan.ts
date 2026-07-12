@@ -20,6 +20,7 @@ export type ArchiveCopyOperation = {
   sourcePath: string
   archivePath: string
   modified: string
+  sha256: string
 }
 
 export type ArchiveIntegrityIssue =
@@ -153,6 +154,7 @@ export function planAppendOnlyArchive(input: ArchivePlanInput): AppendOnlyArchiv
         sourcePath: candidate.sourcePath,
         archivePath: targetPath,
         modified: candidate.modified,
+        sha256: candidate.sha256,
       })
     }
   }
