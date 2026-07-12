@@ -9,6 +9,16 @@ data/
 archive/
 work/
 imports/
+.uploads/
+docs/tmp/
+
+# ===== 本机解密 / 私有导出辅助文件 =====
+image_key.json
+scripts/exportIP*.mjs
+scripts/batch_*_insights_data.json
+scripts/missing*_overrides.json
+scripts/tmp/
+scripts/_test_*.png
 
 # ===== 构建产物 =====
 node_modules/
