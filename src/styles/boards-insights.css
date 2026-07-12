@@ -74,8 +74,8 @@
 }
 .ins-cats button.on {
   color: var(--gold-2);
-  background: linear-gradient(90deg, rgba(216, 162, 74, 0.12), transparent);
-  border-color: rgba(216, 162, 74, 0.28);
+  background: var(--accent-08);
+  border-color: var(--accent-28);
 }
 .ins-cats button.on em {
   color: var(--gold);

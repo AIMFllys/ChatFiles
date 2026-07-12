@@ -29,8 +29,8 @@
 .database-list button.active,
 .value-list button:hover,
 .value-list button.active {
-  border-color: rgba(216, 162, 74, 0.32);
-  background: linear-gradient(90deg, rgba(216, 162, 74, 0.08), var(--bg-3));
+  border-color: var(--accent-32);
+  background: var(--accent-08);
 }
 
 .database-list strong,
@@ -115,7 +115,7 @@
   font-weight: 700;
 }
 .open-source-button:hover {
-  border-color: rgba(216, 162, 74, 0.4);
+  border-color: var(--accent-40);
 }
 
 .database-path {

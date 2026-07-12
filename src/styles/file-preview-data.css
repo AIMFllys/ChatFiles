@@ -122,7 +122,7 @@
   margin-right: 8px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(121, 169, 154, 0.16);
+  background: var(--success-16);
   color: var(--jade);
   font-size: 11px;
   font-weight: 700;

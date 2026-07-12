@@ -15,7 +15,7 @@
   gap: 16px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
-  background: rgba(27, 23, 18, 0.6);
+  background: var(--surface-60);
 }
 
 .preview-header h2 {
@@ -43,7 +43,7 @@
 }
 .icon-link:hover {
   color: var(--gold-2);
-  border-color: rgba(216, 162, 74, 0.4);
+  border-color: var(--accent-40);
 }
 
 .preview-surface {

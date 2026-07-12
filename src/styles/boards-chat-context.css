@@ -6,7 +6,7 @@
   font-family: var(--body);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--gold);
 }
@@ -35,7 +35,7 @@
 }
 .ctx-tag-person {
   color: var(--jade) !important;
-  border-color: rgba(121, 169, 154, 0.3) !important;
+  border-color: var(--success-30) !important;
 }
 .ctx-facts {
   display: grid;

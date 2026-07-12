@@ -52,9 +52,9 @@
 }
 
 .filter-row button.active {
-  border-color: rgba(216, 162, 74, 0.4);
+  border-color: var(--accent-40);
   color: var(--gold-2);
-  background: linear-gradient(180deg, rgba(216, 162, 74, 0.1), transparent);
+  background: var(--accent-08);
 }
 
 .source-types {
@@ -93,8 +93,8 @@
 
 .clue-list button:hover,
 .clue-list button.active {
-  background: linear-gradient(90deg, rgba(216, 162, 74, 0.08), var(--bg-3));
-  border-color: rgba(216, 162, 74, 0.32);
+  background: var(--accent-08);
+  border-color: var(--accent-32);
 }
 
 .clue-list span,
@@ -118,7 +118,7 @@
 
 .clue-detail {
   padding: 24px;
-  background: linear-gradient(90deg, rgba(192, 101, 58, 0.05), transparent 40%), var(--bg-2);
+  background: var(--bg-2);
 }
 
 .clue-detail header {
@@ -169,7 +169,7 @@
   min-height: 34px;
   padding: 0 14px;
   border-radius: var(--radius);
-  background: linear-gradient(150deg, var(--gold-2), var(--gold));
+  background: var(--accent);
   color: var(--bg);
   font-weight: 700;
 }
@@ -189,7 +189,7 @@
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .clue-judgement p {

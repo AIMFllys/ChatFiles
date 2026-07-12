@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { CheckCircle2, Monitor, Moon, ShieldCheck, SlidersHorizontal, Sun } from 'lucide-react'
 import type {
   ChatClueDossier,
   ChatSummary,
@@ -41,9 +41,11 @@ import {
 } from './utils/constants'
 import { loadAIConfig, type AIConfig } from './utils/aiConfig'
 import type { BrowsableFile } from './utils/tree'
+import { useTheme } from './hooks/useTheme'
 import './App.css'
 
 function App() {
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme()
   const [manifest, setManifest] = useState<LibraryManifest>(emptyManifest)
   const [sourceManifest, setSourceManifest] = useState<SourceFileManifest>(emptySourceManifest)
   const [knowledge, setKnowledge] = useState<KnowledgeBase>(emptyKnowledge)
@@ -153,6 +155,25 @@ function App() {
             </button>
           ))}
         </nav>
+        <div className="theme-switcher" role="group" aria-label="外观模式">
+          {([
+            { id: 'system' as const, label: '跟随系统', icon: <Monitor size={14} /> },
+            { id: 'light' as const, label: '浅色模式', icon: <Sun size={14} /> },
+            { id: 'dark' as const, label: '深色模式', icon: <Moon size={14} /> },
+          ]).map((theme) => (
+            <button
+              aria-label={theme.label}
+              aria-pressed={themePreference === theme.id}
+              className={themePreference === theme.id ? 'active' : ''}
+              key={theme.id}
+              onClick={() => setThemePreference(theme.id)}
+              title={theme.label}
+              type="button"
+            >
+              {theme.icon}
+            </button>
+          ))}
+        </div>
       </aside>
 
       <section className={workspaceClass}>

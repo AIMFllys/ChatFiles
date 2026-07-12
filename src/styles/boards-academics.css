@@ -10,10 +10,10 @@
 }
 .aca-title {
   font-family: var(--display);
-  font-size: clamp(44px, 7vw, 76px);
-  line-height: 0.95;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-size: 52px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 .aca-sub {
   margin: 16px 0 0;
@@ -33,9 +33,9 @@
   display: block;
   text-decoration: none;
   padding: 24px;
-  border: 1px solid rgba(216, 162, 74, 0.34);
+  border: 1px solid var(--accent-34);
   border-radius: var(--radius-lg);
-  background: linear-gradient(160deg, rgba(216, 162, 74, 0.12), var(--bg-2));
+  background: var(--bg-2);
   color: var(--ink);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -49,9 +49,9 @@
   width: 44px;
   height: 44px;
   margin-bottom: 16px;
-  border-radius: 12px;
-  color: var(--bg);
-  background: linear-gradient(150deg, var(--gold-2), var(--gold));
+  border-radius: 8px;
+  color: var(--accent-contrast);
+  background: var(--accent);
 }
 .aca-course h3 {
   font-family: var(--display);
@@ -77,7 +77,7 @@
   padding: 22px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: linear-gradient(165deg, var(--bg-3), var(--bg-2));
+  background: var(--bg-2);
 }
 .aca-know h3 {
   font-family: var(--display);
@@ -105,4 +105,8 @@
 }
 .aca-nuggets {
   margin-top: 8px;
+}
+
+@media (max-width: 700px) {
+  .aca-title { font-size: 40px; }
 }

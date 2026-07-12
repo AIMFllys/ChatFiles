@@ -57,8 +57,8 @@
   background: var(--bg-3);
 }
 .conv-row.on {
-  background: linear-gradient(180deg, rgba(216, 162, 74, 0.12), rgba(216, 162, 74, 0.03));
-  border-color: rgba(216, 162, 74, 0.32);
+  background: var(--accent-10);
+  border-color: var(--accent-32);
 }
 .conv-row-top {
   display: flex;
@@ -93,20 +93,20 @@
 }
 .chip-group {
   color: var(--gold-2);
-  background: rgba(216, 162, 74, 0.14);
-  border: 1px solid rgba(216, 162, 74, 0.3);
+  background: var(--accent-14);
+  border: 1px solid var(--accent-30);
 }
 .chip-private {
   color: var(--jade);
-  background: rgba(121, 169, 154, 0.12);
-  border: 1px solid rgba(121, 169, 154, 0.28);
+  background: var(--success-12);
+  border: 1px solid var(--success-28);
 }
 
 /* center thread */
 .chat-thread {
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  background: var(--bg-2);
 }
 .chat-thread-head {
   display: flex;
@@ -115,7 +115,7 @@
   gap: 16px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
-  background: rgba(27, 23, 18, 0.6);
+  background: var(--surface-60);
 }
 .chat-thread-head h2 {
   font-family: var(--display);
@@ -153,7 +153,7 @@
   color: var(--ink-mute);
   font-family: var(--mono);
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .msg-stream {
@@ -226,9 +226,9 @@
   border-top-left-radius: 14px;
 }
 .msg-own .msg-bubble {
-  border: 1px solid rgba(216, 162, 74, 0.32);
+  border: 1px solid var(--accent-32);
   border-top-right-radius: 5px;
-  background: linear-gradient(160deg, rgba(216, 162, 74, 0.16), rgba(216, 162, 74, 0.07));
+  background: var(--accent-10);
   color: var(--gold-2);
 }
 .msg-cont.msg-own .msg-bubble {
@@ -260,7 +260,7 @@
   gap: 7px;
   padding: 7px 16px;
   border: 1px solid var(--line-2);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--bg-3);
   color: var(--ink-soft);
   font-size: 12.5px;
@@ -268,7 +268,7 @@
   cursor: pointer;
 }
 .load-more:hover:not(:disabled) {
-  border-color: rgba(216, 162, 74, 0.4);
+  border-color: var(--accent-40);
   color: var(--gold-2);
 }
 .load-more:disabled {

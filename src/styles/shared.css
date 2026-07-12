@@ -12,11 +12,11 @@
   padding: 18px 18px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: linear-gradient(165deg, var(--bg-3), var(--bg-2));
+  background: var(--bg-2);
   transition: border-color 0.18s ease, transform 0.18s ease;
 }
 .nugget:hover {
-  border-color: rgba(216, 162, 74, 0.3);
+  border-color: var(--accent-30);
   transform: translateY(-2px);
 }
 .nugget h3 {
@@ -139,7 +139,7 @@
   margin-bottom: 12px;
 }
 .search-box:focus-within {
-  border-color: rgba(216, 162, 74, 0.4);
+  border-color: var(--accent-40);
 }
 .search-box input {
   width: 100%;
@@ -206,7 +206,7 @@
   color: var(--ink-mute);
   font-family: var(--mono);
   font-size: 12px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .filter-row.wrap {

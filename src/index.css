@@ -1,26 +1,93 @@
+:root,
+:root[data-theme='light'] {
+  --bg: #f5f5f7;
+  --bg-2: #ffffff;
+  --bg-3: #ececf0;
+  --line: #d7d7dc;
+  --line-2: #b8bbc2;
+  --ink: #1d1d1f;
+  --ink-soft: #424245;
+  --ink-mute: #6e6e73;
+  --accent: #0677d8;
+  --accent-strong: #005eb8;
+  --accent-contrast: #ffffff;
+  --success: #13835f;
+  --warning: #b76500;
+  --danger: #c53d37;
+  --violet: #7657c7;
+  --surface-material: rgba(255, 255, 255, 0.82);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --scrim: rgba(0, 0, 0, 0.34);
+  --shadow: 0 16px 38px -22px rgba(28, 28, 30, 0.34);
+  --shadow-raised: 0 24px 60px -30px rgba(28, 28, 30, 0.42);
+}
+
+:root[data-theme='dark'] {
+  --bg: #101012;
+  --bg-2: #1c1c1e;
+  --bg-3: #2c2c2e;
+  --line: #38383a;
+  --line-2: #515154;
+  --ink: #f5f5f7;
+  --ink-soft: #d1d1d6;
+  --ink-mute: #98989d;
+  --accent: #64a9ff;
+  --accent-strong: #8ec1ff;
+  --accent-contrast: #07182b;
+  --success: #4bd69a;
+  --warning: #ffad33;
+  --danger: #ff6961;
+  --violet: #b89cff;
+  --surface-material: rgba(28, 28, 30, 0.84);
+  --surface-strong: rgba(28, 28, 30, 0.97);
+  --scrim: rgba(0, 0, 0, 0.54);
+  --shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.72);
+  --shadow-raised: 0 30px 76px -34px rgba(0, 0, 0, 0.88);
+}
+
 :root {
-  /* 午夜书斋 / Midnight Study — warm dark editorial vault */
-  --bg: #14110d;
-  --bg-2: #1b1712;
-  --bg-3: #221d17;
-  --line: #2e271f;
-  --line-2: #3a3127;
-  --ink: #ece3d4;
-  --ink-soft: #b7ab97;
-  --ink-mute: #8a7e6c;
-  --gold: #d8a24a;
-  --gold-2: #e9c079;
-  --jade: #79a99a;
-  --rust: #c0653a;
-  --radius: 10px;
-  --radius-lg: 16px;
-  --shadow: 0 14px 34px -16px rgba(0, 0, 0, 0.65);
-
-  --cjk: "PingFang SC", "Microsoft YaHei", "Source Han Sans CN", sans-serif;
-  --display: "Fraunces", "PingFang SC", "Microsoft YaHei", "Source Han Sans CN", serif;
-  --body: "Hanken Grotesk", "PingFang SC", "Microsoft YaHei", "Source Han Sans CN", sans-serif;
-  --mono: "JetBrains Mono", "PingFang SC", "Microsoft YaHei", monospace;
-
+  --gold: var(--accent);
+  --gold-2: var(--accent-strong);
+  --jade: var(--success);
+  --rust: var(--danger);
+  --accent-04: color-mix(in srgb, var(--accent) 4%, transparent);
+  --accent-03: color-mix(in srgb, var(--accent) 3%, transparent);
+  --accent-05: color-mix(in srgb, var(--accent) 5%, transparent);
+  --accent-07: color-mix(in srgb, var(--accent) 7%, transparent);
+  --accent-08: color-mix(in srgb, var(--accent) 8%, transparent);
+  --accent-10: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-12: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-14: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-15: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-16: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-22: color-mix(in srgb, var(--accent) 22%, transparent);
+  --accent-28: color-mix(in srgb, var(--accent) 28%, transparent);
+  --accent-30: color-mix(in srgb, var(--accent) 30%, transparent);
+  --accent-32: color-mix(in srgb, var(--accent) 32%, transparent);
+  --accent-34: color-mix(in srgb, var(--accent) 34%, transparent);
+  --accent-40: color-mix(in srgb, var(--accent) 40%, transparent);
+  --accent-45: color-mix(in srgb, var(--accent) 45%, transparent);
+  --accent-60: color-mix(in srgb, var(--accent) 60%, transparent);
+  --success-06: color-mix(in srgb, var(--success) 6%, transparent);
+  --success-08: color-mix(in srgb, var(--success) 8%, transparent);
+  --success-12: color-mix(in srgb, var(--success) 12%, transparent);
+  --success-16: color-mix(in srgb, var(--success) 16%, transparent);
+  --success-28: color-mix(in srgb, var(--success) 28%, transparent);
+  --success-30: color-mix(in srgb, var(--success) 30%, transparent);
+  --success-35: color-mix(in srgb, var(--success) 35%, transparent);
+  --danger-05: color-mix(in srgb, var(--danger) 5%, transparent);
+  --danger-10: color-mix(in srgb, var(--danger) 10%, transparent);
+  --danger-40: color-mix(in srgb, var(--danger) 40%, transparent);
+  --surface-50: color-mix(in srgb, var(--bg-2) 50%, transparent);
+  --surface-60: color-mix(in srgb, var(--bg-2) 60%, transparent);
+  --surface-74: color-mix(in srgb, var(--bg-2) 74%, transparent);
+  --surface-97: color-mix(in srgb, var(--bg-2) 97%, transparent);
+  --radius: 8px;
+  --radius-lg: 8px;
+  --cjk: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "SFMono-Regular", "Cascadia Code", Consolas, "PingFang SC", monospace;
   color: var(--ink);
   background: var(--bg);
   font: 15px/1.6 var(--body);
@@ -32,32 +99,19 @@
 
 * {
   box-sizing: border-box;
+  letter-spacing: 0;
 }
 
 html,
-body {
+body,
+#root {
   margin: 0;
   min-height: 100vh;
+  background: var(--bg);
 }
 
 body {
-  background:
-    radial-gradient(1200px 680px at 78% -8%, rgba(216, 162, 74, 0.07), transparent 60%),
-    radial-gradient(900px 620px at -6% 4%, rgba(121, 169, 154, 0.05), transparent 55%),
-    var(--bg);
-  background-attachment: fixed;
   color: var(--ink);
-}
-
-/* film-grain overlay */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 button,
@@ -65,7 +119,7 @@ input,
 textarea,
 select {
   font: inherit;
-  letter-spacing: inherit;
+  letter-spacing: 0;
   color: inherit;
 }
 
@@ -79,6 +133,11 @@ a {
   color: inherit;
 }
 
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 h1,
 h2,
 h3,
@@ -86,24 +145,23 @@ h4 {
   margin: 0;
   color: var(--ink);
   font-family: var(--display);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
 ::selection {
-  background: rgba(216, 162, 74, 0.28);
-  color: var(--gold-2);
+  background: var(--accent-28);
+  color: var(--ink);
 }
 
-/* custom thin scrollbars */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) var(--bg);
 }
 
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 *::-webkit-scrollbar-track {
@@ -111,23 +169,24 @@ h4 {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--line-2);
   border: 2px solid var(--bg);
   border-radius: 999px;
+  background: var(--line-2);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #4a3f31;
+  background: var(--ink-mute);
 }
 
 @keyframes ms-rise {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html,
+  body {
+    transition: background-color 180ms ease, color 180ms ease;
   }
 }
 
@@ -135,6 +194,21 @@ h4 {
   * {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme='light'] {
+    --line: #8e8e93;
+    --line-2: #636366;
+    --ink-mute: #3a3a3c;
+  }
+
+  :root[data-theme='dark'] {
+    --line: #8e8e93;
+    --line-2: #aeaeb2;
+    --ink-mute: #d1d1d6;
   }
 }

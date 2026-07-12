@@ -42,8 +42,8 @@
 
 .synthesis-section-list button:hover,
 .synthesis-section-list button.active {
-  border-color: rgba(216, 162, 74, 0.32);
-  background: linear-gradient(90deg, rgba(216, 162, 74, 0.08), var(--bg-3));
+  border-color: var(--accent-32);
+  background: var(--accent-08);
 }
 
 .synthesis-section-list span {
