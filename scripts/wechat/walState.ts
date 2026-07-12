@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 
 export const WAL_INDEX_VERSION = 3_007_000
@@ -81,6 +82,11 @@ export type SafeWalState = {
   nBackfillAttempted: number
   pageSize: number
   physicalFrameSlots: number
+  generationFingerprint: string
+}
+
+function generationFingerprint(shm: WalIndexState) {
+  return crypto.createHash('sha256').update(shm.stableBytes).digest('base64url')
 }
 
 function checksumWords(
@@ -197,6 +203,7 @@ export function validateWalGeneration(shm: WalIndexState, wal: WalReadWindow): S
       nBackfillAttempted: shm.nBackfillAttempted,
       pageSize: shm.pageSize,
       physicalFrameSlots: wal.exists && shm.pageSize ? frameSlots(wal.size, shm.pageSize) : 0,
+      generationFingerprint: generationFingerprint(shm),
     }
   }
 
@@ -228,6 +235,7 @@ export function validateWalGeneration(shm: WalIndexState, wal: WalReadWindow): S
     nBackfillAttempted: shm.nBackfillAttempted,
     pageSize: shm.pageSize,
     physicalFrameSlots,
+    generationFingerprint: generationFingerprint(shm),
   }
 }
 

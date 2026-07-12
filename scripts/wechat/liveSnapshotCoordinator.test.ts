@@ -9,9 +9,19 @@ import {
   type Snapshotter,
 } from './liveSnapshotCoordinator.js'
 import { CipherSnapshotError } from './readOnlyCipherSnapshot.js'
+import { ScannerRunError } from './keyScanner.js'
+import { WalStateError } from './walState.js'
 
 function fakeIo(events: string[], manifests: unknown[]): LiveSnapshotIo {
   return {
+    async canonicalizeExisting(target) {
+      events.push(`canonical-existing:${target}`)
+      return path.resolve(target)
+    },
+    async canonicalizeProspective(target) {
+      events.push(`canonical-prospective:${target}`)
+      return path.resolve(target)
+    },
     async ensureOutputRoot(root) {
       events.push(`root:${root}`)
     },
@@ -66,6 +76,7 @@ test('publishes a versioned snapshot only after every Chinese-path database vali
     sourcePaths.push(options.sourcePath)
     destinationPaths.push(options.destinationPath)
     assert.equal(options.key.equals(Buffer.alloc(32)), false)
+    assert.equal(options.helperPath, 'D:\\tools\\snapshot-helper.exe')
     options.key.fill(0)
     return {
       schemaObjects: 3,
@@ -78,6 +89,7 @@ test('publishes a versioned snapshot only after every Chinese-path database vali
         nBackfillAttempted: 4,
         pageSize: 4096,
         physicalFrameSlots: 4,
+        generationFingerprint: 'fixture-active',
       },
     }
   }
@@ -87,6 +99,7 @@ test('publishes a versioned snapshot only after every Chinese-path database vali
     accountRoot: 'C:\\微信数据\\wxid_secret',
     outputRoot: 'D:\\snapshots',
     scannerPath: 'D:\\tools\\scanner.exe',
+    snapshotHelperPath: 'D:\\tools\\snapshot-helper.exe',
     runId: '20260712T120000Z-fixture',
     scanKeys: scannerFor(records),
     snapshotDatabase: snapshotter,
@@ -133,6 +146,7 @@ test('keeps partial staging unpublished and appends a sanitized failure status',
         nBackfillAttempted: 0,
         pageSize: 0,
         physicalFrameSlots: 0,
+        generationFingerprint: 'fixture-reset',
       },
     }
   }
@@ -142,6 +156,7 @@ test('keeps partial staging unpublished and appends a sanitized failure status',
       accountRoot: 'C:\\private\\account',
       outputRoot: 'D:\\snapshots',
       scannerPath: 'scanner.exe',
+      snapshotHelperPath: 'snapshot-helper.exe',
       runId: 'failed-fixture',
       scanKeys: scannerFor([
         { relativePath: 'db_storage\\a.db', key: Buffer.alloc(32, 1) },
@@ -159,6 +174,35 @@ test('keeps partial staging unpublished and appends a sanitized failure status',
   assert.equal(JSON.stringify(failed).includes('private'), false)
 })
 
+test('preserves only a typed snapshot error code through the scanner consumer boundary', async () => {
+  const events: string[] = []
+  const manifests: unknown[] = []
+  const scannerFailure = new ScannerRunError(
+    'KEY_CONSUMER_FAILED',
+    new WalStateError('WAL_NOT_FULLY_BACKFILLED').code,
+  )
+
+  await assert.rejects(
+    runLiveSnapshot({
+      pid: 1,
+      accountRoot: 'C:\\private\\account',
+      outputRoot: 'D:\\snapshots',
+      scannerPath: 'scanner.exe',
+      snapshotHelperPath: 'snapshot-helper.exe',
+      runId: 'typed-consumer-failure',
+      scanKeys: async () => {
+        throw scannerFailure
+      },
+      io: fakeIo(events, manifests),
+    }),
+    (error: unknown) => error instanceof LiveSnapshotError && error.code === 'WAL_NOT_FULLY_BACKFILLED',
+  )
+
+  const serialized = JSON.stringify(manifests)
+  assert.equal(serialized.includes('WAL_NOT_FULLY_BACKFILLED'), true)
+  assert.equal(serialized.includes('private'), false)
+})
+
 test('rejects traversal and duplicate records before publication', async () => {
   for (const relativePaths of [
     ['..\\outside.db'],
@@ -171,6 +215,7 @@ test('rejects traversal and duplicate records before publication', async () => {
         accountRoot: 'C:\\account',
         outputRoot: 'D:\\snapshots',
         scannerPath: 'scanner.exe',
+        snapshotHelperPath: 'snapshot-helper.exe',
         runId: `invalid-${relativePaths.length}`,
         scanKeys: scannerFor(relativePaths.map((relativePath) => ({
           relativePath,
@@ -189,6 +234,7 @@ test('rejects traversal and duplicate records before publication', async () => {
               nBackfillAttempted: 0,
               pageSize: 0,
               physicalFrameSlots: 0,
+              generationFingerprint: 'fixture-reset',
             },
           }
         },
@@ -198,4 +244,54 @@ test('rejects traversal and duplicate records before publication', async () => {
     )
     assert.equal(events.some((event) => event.startsWith('publish:')), false)
   }
+})
+
+test('rejects canonical or symlink-equivalent source and output roots before any write', async () => {
+  const events: string[] = []
+  const manifests: unknown[] = []
+  const io = fakeIo(events, manifests)
+  io.canonicalizeExisting = async () => 'C:\\real\\wechat-account'
+  io.canonicalizeProspective = async () => 'C:\\real\\wechat-account\\snapshots'
+
+  await assert.rejects(
+    runLiveSnapshot({
+      pid: 1,
+      accountRoot: 'C:\\symlinked-account',
+      outputRoot: 'D:\\apparently-separate',
+      scannerPath: 'scanner.exe',
+      snapshotHelperPath: 'snapshot-helper.exe',
+      runId: 'overlap-fixture',
+      scanKeys: scannerFor([]),
+      io,
+    }),
+    (error: unknown) => error instanceof LiveSnapshotError && error.code === 'ROOTS_OVERLAP',
+  )
+
+  assert.equal(events.some((event) => /^(root|staging|manifest|publish):/u.test(event)), false)
+  assert.equal(manifests.length, 0)
+})
+
+test('downgrades an unknown typed error code before writing it to manifests', async () => {
+  const events: string[] = []
+  const manifests: unknown[] = []
+
+  await assert.rejects(
+    runLiveSnapshot({
+      pid: 1,
+      accountRoot: 'C:\\account',
+      outputRoot: 'D:\\snapshots',
+      scannerPath: 'scanner.exe',
+      snapshotHelperPath: 'snapshot-helper.exe',
+      runId: 'unknown-error-fixture',
+      scanKeys: async () => {
+        throw new LiveSnapshotError('PRIVATE_PATH_TOKEN' as never)
+      },
+      io: fakeIo(events, manifests),
+    }),
+    (error: unknown) => error instanceof LiveSnapshotError && error.code === 'SNAPSHOT_FAILED',
+  )
+
+  const serialized = JSON.stringify(manifests)
+  assert.equal(serialized.includes('PRIVATE_PATH_TOKEN'), false)
+  assert.equal(serialized.includes('SNAPSHOT_FAILED'), true)
 })

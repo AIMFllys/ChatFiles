@@ -10,10 +10,11 @@ type SnapshotCliOptions = {
   accountRoot: string
   outputRoot: string
   scannerPath: string
+  snapshotHelperPath: string
   runId?: string
 }
 
-const flagNames = new Set(['--pid', '--account-root', '--output-root', '--scanner', '--run-id'])
+const flagNames = new Set(['--pid', '--account-root', '--output-root', '--scanner', '--snapshot-helper', '--run-id'])
 
 export function parseSnapshotCliArgs(args: string[]): SnapshotCliOptions {
   const values = new Map<string, string>()
@@ -29,8 +30,9 @@ export function parseSnapshotCliArgs(args: string[]): SnapshotCliOptions {
   const accountRoot = values.get('--account-root')
   const outputRoot = values.get('--output-root')
   const scannerPath = values.get('--scanner')
+  const snapshotHelperPath = values.get('--snapshot-helper')
   const pid = Number(pidText)
-  if (!Number.isSafeInteger(pid) || pid <= 0 || !accountRoot || !outputRoot || !scannerPath) {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !accountRoot || !outputRoot || !scannerPath || !snapshotHelperPath) {
     throw new Error('CLI_ARGUMENT_INVALID')
   }
   return {
@@ -38,6 +40,7 @@ export function parseSnapshotCliArgs(args: string[]): SnapshotCliOptions {
     accountRoot,
     outputRoot,
     scannerPath,
+    snapshotHelperPath,
     ...(values.has('--run-id') ? { runId: values.get('--run-id') } : {}),
   }
 }

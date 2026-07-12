@@ -144,6 +144,22 @@ test('validates an active WAL generation using big-endian metadata and raw salts
   assert.equal(state.kind, 'active')
   assert.equal(state.physicalFrameSlots, 2)
   assert.equal(state.safeForReadonlyShm, true)
+  assert.match(state.generationFingerprint, /^[A-Za-z0-9_-]{43}$/u)
+})
+
+test('binds the safe WAL state to a fingerprint of the observed generation', () => {
+  const leftWal = makeWal({ salt: Buffer.from('0011223344556677', 'hex') })
+  const rightWal = makeWal({ salt: Buffer.from('8899aabbccddeeff', 'hex') })
+  const left = validateWalGeneration(parseWalIndexShm(makeShm({
+    salt: Buffer.from('0011223344556677', 'hex'),
+    frameChecksum: leftWal.frameChecksum,
+  })), leftWal.window)
+  const right = validateWalGeneration(parseWalIndexShm(makeShm({
+    salt: Buffer.from('8899aabbccddeeff', 'hex'),
+    frameChecksum: rightWal.frameChecksum,
+  })), rightWal.window)
+
+  assert.notEqual(left.generationFingerprint, right.generationFingerprint)
 })
 
 test('rejects active generations with stale salts, short WALs, or wrong frame checksums', () => {

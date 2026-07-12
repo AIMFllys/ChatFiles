@@ -14,11 +14,13 @@ export type ScannerRunErrorCode =
 
 export class ScannerRunError extends Error {
   readonly code: ScannerRunErrorCode
+  readonly consumerCode?: string
 
-  constructor(code: ScannerRunErrorCode) {
+  constructor(code: ScannerRunErrorCode, consumerCode?: string) {
     super(code)
     this.name = 'ScannerRunError'
     this.code = code
+    this.consumerCode = consumerCode
   }
 }
 
@@ -78,6 +80,7 @@ export async function runKeyScanner(options: {
   pid: number
   accountRoot: string
   onKey(record: DeliveredScannerKey): Promise<void>
+  allowedConsumerErrorCodes?: ReadonlySet<string>
   spawn?: ScannerSpawn
 }) {
   if (!Number.isSafeInteger(options.pid) || options.pid <= 0) throw new RangeError('pid')
@@ -105,18 +108,29 @@ export async function runKeyScanner(options: {
   try {
     for await (const value of child.stdout) {
       const records = parser.push(pipeChunk(value))
-      for (const record of records) {
-        try {
-          const databasePath = resolveContainedDatabasePath(options.accountRoot, record.relativePath)
+      try {
+        for (const record of records) {
           try {
-            await options.onKey({ ...record, databasePath })
-          } catch {
-            throw new ScannerRunError('KEY_CONSUMER_FAILED')
+            const databasePath = resolveContainedDatabasePath(options.accountRoot, record.relativePath)
+            try {
+              await options.onKey({ ...record, databasePath })
+            } catch (error) {
+              const candidate = error !== null && typeof error === 'object'
+                ? (error as { code?: unknown }).code
+                : undefined
+              const consumerCode = typeof candidate === 'string'
+                && options.allowedConsumerErrorCodes?.has(candidate)
+                ? candidate
+                : undefined
+              throw new ScannerRunError('KEY_CONSUMER_FAILED', consumerCode)
+            }
+            count += 1
+          } finally {
+            record.key.fill(0)
           }
-          count += 1
-        } finally {
-          record.key.fill(0)
         }
+      } finally {
+        for (const record of records) record.key.fill(0)
       }
     }
     parser.finish()

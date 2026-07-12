@@ -2,7 +2,11 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import Database from 'better-sqlite3-multiple-ciphers'
-import { readStableWalState, type SafeWalState } from './walState.js'
+import { WalStateError, readStableWalState, type SafeWalState } from './walState.js'
+import {
+  SqlcipherSnapshotHelperError,
+  runSqlcipherSnapshotHelper,
+} from './sqlcipherSnapshotHelper.js'
 
 export type CipherSnapshotErrorCode =
   | 'KEY_LENGTH_INVALID'
@@ -12,6 +16,7 @@ export type CipherSnapshotErrorCode =
   | 'VALIDATION_OPEN_FAILED'
   | 'INTEGRITY_CHECK_FAILED'
   | 'SCHEMA_MISMATCH'
+  | 'WAL_GENERATION_CHANGED'
 
 export class CipherSnapshotError extends Error {
   readonly code: CipherSnapshotErrorCode
@@ -102,23 +107,124 @@ export async function snapshotCipherDatabase(options: {
   adapter?: CipherSnapshotAdapter
   fileIo?: SnapshotFileIo
   readWalState?: (databasePath: string) => Promise<SafeWalState>
+  helperPath?: string
+  runHelper?: typeof runSqlcipherSnapshotHelper
   maxCantInitRetries?: number
+  maxWalSafetyRetries?: number
+  waitForWalSafety?: () => Promise<void>
 }) {
   const adapter = options.adapter ?? betterSqliteSnapshotAdapter
   const fileIo = options.fileIo ?? nodeSnapshotFileIo
   const inspectWal = options.readWalState ?? readStableWalState
+  const runHelper = options.runHelper ?? runSqlcipherSnapshotHelper
   const maxCantInitRetries = options.maxCantInitRetries ?? 2
-  if (!Number.isSafeInteger(maxCantInitRetries) || maxCantInitRetries < 0) {
+  const maxWalSafetyRetries = options.maxWalSafetyRetries ?? 120
+  const waitForWalSafety = options.waitForWalSafety ?? (() => new Promise<void>((resolve) => {
+    setTimeout(resolve, 1_000)
+  }))
+  if (
+    !Number.isSafeInteger(maxCantInitRetries)
+    || maxCantInitRetries < 0
+    || !Number.isSafeInteger(maxWalSafetyRetries)
+    || maxWalSafetyRetries < 0
+  ) {
     options.key.fill(0)
-    throw new RangeError('maxCantInitRetries')
+    throw new RangeError('snapshot retry options')
   }
   if (options.key.length !== 32) {
     options.key.fill(0)
     throw new CipherSnapshotError('KEY_LENGTH_INVALID')
   }
 
+  const readFullyBackfilledWal = async () => {
+    for (let attempt = 0; attempt <= maxWalSafetyRetries; attempt += 1) {
+      try {
+        return await inspectWal(options.sourcePath)
+      } catch (error) {
+        if (
+          !(error instanceof WalStateError)
+          || error.code !== 'WAL_NOT_FULLY_BACKFILLED'
+          || attempt >= maxWalSafetyRetries
+        ) {
+          throw error
+        }
+        await waitForWalSafety()
+      }
+    }
+    throw new WalStateError('WAL_NOT_FULLY_BACKFILLED')
+  }
+
   let destinationReserved = false
   try {
+    if (options.helperPath) {
+      const nativeKey = Buffer.from(options.key)
+      options.key.fill(0)
+      try {
+        for (let attempt = 0; attempt <= maxWalSafetyRetries; attempt += 1) {
+          const wal = await readFullyBackfilledWal()
+          const attemptKey = Buffer.from(nativeKey)
+          let result: Awaited<ReturnType<typeof runSqlcipherSnapshotHelper>>
+          try {
+            result = await runHelper({
+              executablePath: options.helperPath,
+              sourcePath: options.sourcePath,
+              destinationPath: options.destinationPath,
+              key: attemptKey,
+            })
+          } catch (error) {
+            if (
+              error instanceof SqlcipherSnapshotHelperError
+              && (
+                error.code === 'HELPER_NATIVE_E_OPEN_SOURCE'
+                || error.code === 'HELPER_NATIVE_E_BEGIN'
+                || error.code === 'HELPER_NATIVE_E_READ_SOURCE'
+              )
+              && attempt < maxWalSafetyRetries
+            ) {
+              await waitForWalSafety()
+              continue
+            }
+            throw error
+          } finally {
+            attemptKey.fill(0)
+          }
+          const walAfter = await inspectWal(options.sourcePath)
+          if (
+            !wal.generationFingerprint
+            || wal.generationFingerprint !== walAfter.generationFingerprint
+          ) {
+            throw new CipherSnapshotError('WAL_GENERATION_CHANGED')
+          }
+          let plain: CipherDatabase
+          try {
+            plain = adapter.open(options.destinationPath, { readonly: true, fileMustExist: true })
+          } catch {
+            throw new CipherSnapshotError('VALIDATION_OPEN_FAILED')
+          }
+          let destinationSchema: ReturnType<typeof schemaSnapshot>
+          try {
+            if (!integrityIsOk(plain.pragma('integrity_check'))) {
+              throw new CipherSnapshotError('INTEGRITY_CHECK_FAILED')
+            }
+            destinationSchema = schemaSnapshot(plain)
+            if (destinationSchema.count !== result.schemaObjects) {
+              throw new CipherSnapshotError('SCHEMA_MISMATCH')
+            }
+          } finally {
+            plain.close()
+          }
+          return {
+            schemaObjects: result.schemaObjects,
+            schemaFingerprint: destinationSchema.fingerprint,
+            wal,
+          }
+        }
+        throw new CipherSnapshotError('DATABASE_READ_FAILED')
+      } finally {
+        nativeKey.fill(0)
+      }
+    }
+
     for (let attempt = 0; attempt <= maxCantInitRetries; attempt += 1) {
       const wal = await inspectWal(options.sourcePath)
       let source: CipherDatabase | undefined

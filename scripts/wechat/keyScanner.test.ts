@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   SCANNER_PROTOCOL_MAGIC,
   SCANNER_PROTOCOL_VERSION,
+  ScannerProtocolParser,
 } from './scannerProtocol.js'
 import {
   ScannerRunError,
@@ -13,22 +14,36 @@ import {
   type ScannerSpawn,
 } from './keyScanner.js'
 
-function wire(relativePath: string, key: Buffer) {
-  const pathBytes = Buffer.from(relativePath, 'utf8')
-  const bytes = Buffer.alloc(SCANNER_PROTOCOL_MAGIC.length + 4 + 4 + pathBytes.length + 32 + 4)
+function wireMany(records: Array<{ relativePath: string; key: Buffer }>) {
+  const encoded = records.map(({ relativePath, key }) => ({
+    pathBytes: Buffer.from(relativePath, 'utf8'),
+    key,
+  }))
+  const bytes = Buffer.alloc(
+    SCANNER_PROTOCOL_MAGIC.length
+    + 4
+    + encoded.reduce((sum, record) => sum + 4 + record.pathBytes.length + 32, 0)
+    + 4,
+  )
   let offset = 0
   SCANNER_PROTOCOL_MAGIC.copy(bytes, offset)
   offset += SCANNER_PROTOCOL_MAGIC.length
   bytes.writeUInt32LE(SCANNER_PROTOCOL_VERSION, offset)
   offset += 4
-  bytes.writeUInt32LE(pathBytes.length, offset)
-  offset += 4
-  pathBytes.copy(bytes, offset)
-  offset += pathBytes.length
-  key.copy(bytes, offset)
-  offset += 32
+  for (const { pathBytes, key } of encoded) {
+    bytes.writeUInt32LE(pathBytes.length, offset)
+    offset += 4
+    pathBytes.copy(bytes, offset)
+    offset += pathBytes.length
+    key.copy(bytes, offset)
+    offset += 32
+  }
   bytes.writeUInt32LE(0, offset)
   return bytes
+}
+
+function wire(relativePath: string, key: Buffer) {
+  return wireMany([{ relativePath, key }])
 }
 
 class FakeChild extends EventEmitter implements ScannerChild {
@@ -111,6 +126,7 @@ test('discards stderr content and exposes only a stable code for scanner failure
 
 test('sanitizes consumer failures and zeroes the delivered key', async () => {
   const key = Buffer.alloc(32, 0xcd)
+  const consumerFailure = new Error('C:\\private ' + 'cd'.repeat(32))
   let delivered: Buffer | undefined
   const child = new FakeChild([wire('db_storage\\message\\message.db', key)], [])
   const spawn: ScannerSpawn = () => child
@@ -122,11 +138,72 @@ test('sanitizes consumer failures and zeroes the delivered key', async () => {
       spawn,
       async onKey(record) {
         delivered = record.key
-        throw new Error('C:\\private ' + 'cd'.repeat(32))
+        throw consumerFailure
       },
     }),
-    (error: unknown) => error instanceof ScannerRunError && error.code === 'KEY_CONSUMER_FAILED',
+    (error: unknown) => {
+      assert.equal(error instanceof ScannerRunError && error.code === 'KEY_CONSUMER_FAILED', true)
+      assert.equal((error as Error & { cause?: unknown }).cause, undefined)
+      assert.equal((error as ScannerRunError).consumerCode, undefined)
+      assert.equal(String((error as Error).message).includes('private'), false)
+      assert.equal(String((error as Error).message).includes('cdcd'), false)
+      return true
+    },
   )
   assert.deepEqual(delivered, Buffer.alloc(32))
   assert.equal(child.killed, true)
+})
+
+test('zeroes every parsed sibling key when the first consumer call fails', async () => {
+  const encoded = wireMany([
+    { relativePath: 'db_storage\\message\\first.db', key: Buffer.alloc(32, 0x11) },
+    { relativePath: 'db_storage\\message\\second.db', key: Buffer.alloc(32, 0x22) },
+  ])
+  const captured: Buffer[] = []
+  const originalPush = ScannerProtocolParser.prototype.push
+  ScannerProtocolParser.prototype.push = function captureKeys(chunk: Buffer) {
+    const records = originalPush.call(this, chunk)
+    captured.push(...records.map((record) => record.key))
+    return records
+  }
+  try {
+    await assert.rejects(runKeyScanner({
+      executablePath: 'scanner.exe',
+      pid: 1,
+      accountRoot: 'C:\\fixture',
+      spawn: () => new FakeChild([encoded], []),
+      async onKey() {
+        throw new Error('consumer failed')
+      },
+    }), (error: unknown) => error instanceof ScannerRunError && error.code === 'KEY_CONSUMER_FAILED')
+  } finally {
+    ScannerProtocolParser.prototype.push = originalPush
+  }
+
+  assert.equal(captured.length, 2)
+  for (const key of captured) assert.deepEqual(key, Buffer.alloc(32))
+})
+
+test('retains only an explicitly allowlisted consumer error code', async () => {
+  const failure = Object.assign(new Error('private details'), { code: 'SAFE_FIXTURE_FAILURE' })
+  await assert.rejects(
+    runKeyScanner({
+      executablePath: 'scanner.exe',
+      pid: 1,
+      accountRoot: 'C:\\fixture',
+      spawn: () => new FakeChild([
+        wire('db_storage\\message\\message.db', Buffer.alloc(32, 0x33)),
+      ], []),
+      allowedConsumerErrorCodes: new Set(['SAFE_FIXTURE_FAILURE']),
+      async onKey() {
+        throw failure
+      },
+    }),
+    (error: unknown) => (
+      error instanceof ScannerRunError
+      && error.code === 'KEY_CONSUMER_FAILED'
+      && error.consumerCode === 'SAFE_FIXTURE_FAILURE'
+      && error.cause === undefined
+    ),
+  )
 })
