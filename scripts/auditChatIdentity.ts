@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { auditWechatDatabase } from './wechat/chatAudit.js'
+import { reconcileChatAudits } from './wechat/combinedChatAudit.js'
 import { auditSourceIdentity } from './wechat/sourceIdentityAudit.js'
 
 function option(name: string) {
@@ -19,13 +20,15 @@ try {
   const sourcePath = sourceOption ? path.resolve(process.cwd(), sourceOption) : undefined
   const result = auditWechatDatabase(dbPath)
   const sourceIdentity = sourcePath ? auditSourceIdentity(dbPath, sourcePath) : undefined
-  const ok = result.ok && (sourceIdentity?.ok ?? true)
+  const combined = reconcileChatAudits(result, sourceIdentity)
+  const ok = combined.ok
   console.log(JSON.stringify({
     database: dbPath,
     source: sourcePath,
     strict,
     ...result,
     sourceIdentity,
+    replacementCharacterReconciliation: combined.replacementCharacterReconciliation,
     ok,
   }, null, 2))
   if (!ok) process.exitCode = 1

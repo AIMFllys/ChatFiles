@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
+import { auditWechatDatabase } from './chatAudit.js'
 import { auditSourceIdentity } from './sourceIdentityAudit.js'
 
 type SourceRow = {
@@ -21,6 +23,7 @@ type SourceRow = {
 type OutputRow = {
   uid: string
   sourceDb: string
+  sourceTable?: string
   localId: number
   serverId: bigint
   rawType: bigint
@@ -33,7 +36,10 @@ type OutputRow = {
 }
 
 const snapshot = 'snapshot-new'
-const table = 'Msg_fixture'
+
+function messageTable(username: string) {
+  return `Msg_${crypto.createHash('md5').update(username, 'utf8').digest('hex')}`
+}
 
 function createSourceContacts(root: string) {
   const contactDir = path.join(root, snapshot, 'db_storage', 'contact')
@@ -44,6 +50,7 @@ function createSourceContacts(root: string) {
     CREATE TABLE contact(username TEXT, nick_name TEXT, remark TEXT, alias TEXT);
     INSERT INTO contact VALUES ('wxid_owner', '机主', '', '');
     INSERT INTO contact VALUES ('wxid_peer', '陈同学', '', '');
+    INSERT INTO contact VALUES ('wxid_alternate', '另一个联系人', '', '');
     INSERT INTO contact VALUES ('wxid_member', '群成员甲', '', '');
     INSERT INTO contact VALUES ('room@chatroom', '中文测试群', '', '');
   `)
@@ -56,11 +63,13 @@ function createSourceShard(
   filename: string,
   names: ReadonlyArray<readonly [number, string]>,
   rows: readonly SourceRow[],
+  conversationUsername = 'wxid_peer',
 ) {
   const messageDir = path.join(root, snapshot, 'db_storage', 'message')
   fs.mkdirSync(messageDir, { recursive: true })
   const dbPath = path.join(messageDir, filename)
   const db = new DatabaseSync(dbPath)
+  const table = messageTable(conversationUsername)
   db.exec(`
     CREATE TABLE Name2Id(user_name TEXT PRIMARY KEY, is_session INTEGER);
     CREATE TABLE ${table}(
@@ -91,6 +100,8 @@ function createOutputDatabase(
   options: {
     owner?: string
     peer?: string
+    display?: string
+    id?: string
     isGroup?: boolean
     rows: readonly OutputRow[]
   },
@@ -98,7 +109,8 @@ function createOutputDatabase(
   const dbPath = path.join(root, 'wechat.db')
   const owner = options.owner ?? 'wxid_owner'
   const peer = options.peer ?? 'wxid_peer'
-  const convId = `wx:${owner}:${peer}`
+  const display = options.display ?? (peer === 'room@chatroom' ? '中文测试群' : peer === 'wxid_peer' ? '陈同学' : peer)
+  const convId = options.id ?? `wx:${owner}:${peer}`
   const db = new DatabaseSync(dbPath)
   db.exec(`
     CREATE TABLE conversations(
@@ -123,7 +135,7 @@ function createOutputDatabase(
     snapshot,
     owner,
     peer,
-    '中文测试会话',
+    display,
     options.isGroup ? 1 : 0,
     options.rows.length,
     options.rows.length,
@@ -139,7 +151,7 @@ function createOutputDatabase(
       index,
       snapshot,
       row.sourceDb,
-      table,
+      row.sourceTable ?? messageTable(peer),
       row.localId,
       row.serverId.toString(),
       row.sortSeq,
@@ -179,10 +191,12 @@ function createOutputDatabase(
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-source-audit-'))
   const sourceRoot = path.join(dir, 'source')
-  const files = [createSourceContacts(sourceRoot)]
+  const contactPath = createSourceContacts(sourceRoot)
+  const files = [contactPath]
   return {
     dir,
     sourceRoot,
+    contactPath,
     track(file: string) {
       files.push(file)
       return file
@@ -366,7 +380,7 @@ test('reports missing source rows and every immutable source-field conflict', ()
       realSenderId: 7,
       time: 1_700_000_100,
       content: 'wxid_member:\n群聊中文正文',
-    }]))
+    }], 'room@chatroom'))
     const outputDb = item.track(createOutputDatabase(item.dir, {
       owner: 'wxid_owner',
       peer: 'room@chatroom',
@@ -432,6 +446,267 @@ test('rejects mutated output text and sender display name despite exact source p
     assert.equal(result.ok, false)
     assert.equal(codes.has('source-text-mismatch'), true)
     assert.equal(codes.has('source-sender-name-mismatch'), true)
+  } finally {
+    item.cleanup()
+  }
+})
+
+test('accepts source-origin replacement characters only with exact text and display provenance', () => {
+  const item = fixture()
+  try {
+    const replacement = String.fromCodePoint(0xfffd)
+    const sourceDisplay = `陈${replacement}同学`
+    const sourceText = `源${replacement}正文`
+    const contactDb = new DatabaseSync(item.contactPath)
+    try {
+      contactDb.prepare('UPDATE contact SET nick_name=? WHERE username=?').run(sourceDisplay, 'wxid_peer')
+    } finally {
+      contactDb.close()
+    }
+    item.track(createSourceShard(item.sourceRoot, 'message_0.db', [[8, 'wxid_peer']], [{
+      localId: 10,
+      serverId: 410n,
+      rawType: 1n,
+      sortSeq: 20,
+      realSenderId: 8,
+      time: 1_700_000_410,
+      content: sourceText,
+    }]))
+    const outputDb = item.track(createOutputDatabase(item.dir, {
+      display: sourceDisplay,
+      rows: [{
+        uid: 'uid-source-replacement',
+        sourceDb: 'message_0.db',
+        localId: 10,
+        serverId: 410n,
+        rawType: 1n,
+        sortSeq: 20,
+        time: 1_700_000_410,
+        sender: 'wxid_peer',
+        senderName: sourceDisplay,
+        text: sourceText,
+      }],
+    }))
+
+    const standalone = auditWechatDatabase(outputDb)
+    assert.equal(standalone.ok, false)
+    assert.equal(standalone.issues.some((issue) => issue.code === 'replacement-character'), true)
+
+    const sourceAudit = auditSourceIdentity(outputDb, item.sourceRoot)
+    assert.equal(sourceAudit.ok, true)
+    assert.equal(sourceAudit.metrics.outputReplacementCharacters, 3)
+    assert.equal(sourceAudit.metrics.sourceVerifiedReplacementCharacters, 3)
+    assert.equal(sourceAudit.metrics.matchedConversationDisplays, 1)
+
+    const cli = spawnSync(process.execPath, [
+      '--import',
+      'tsx',
+      path.resolve(process.cwd(), 'scripts', 'auditChatIdentity.ts'),
+      '--db',
+      outputDb,
+      '--source',
+      item.sourceRoot,
+      '--strict',
+    ], { cwd: process.cwd(), encoding: 'utf8' })
+    assert.equal(cli.status, 0, cli.stderr || cli.stdout)
+    const payload = JSON.parse(cli.stdout) as {
+      ok: boolean
+      issues: Array<{ code: string }>
+      replacementCharacterReconciliation: {
+        databaseRows: number
+        outputCharacters: number
+        sourceVerifiedCharacters: number
+        reconciled: boolean
+      }
+    }
+    assert.equal(payload.ok, true)
+    assert.equal(payload.issues.some((issue) => issue.code === 'replacement-character'), true)
+    assert.deepEqual(payload.replacementCharacterReconciliation, {
+      databaseRows: 1,
+      outputCharacters: 3,
+      sourceVerifiedCharacters: 3,
+      reconciled: true,
+    })
+  } finally {
+    item.cleanup()
+  }
+})
+
+test('rejects an output replacement character not present in the exact source text', () => {
+  const item = fixture()
+  try {
+    const replacement = String.fromCodePoint(0xfffd)
+    item.track(createSourceShard(item.sourceRoot, 'message_0.db', [[8, 'wxid_peer']], [{
+      localId: 11,
+      serverId: 411n,
+      rawType: 1n,
+      sortSeq: 21,
+      realSenderId: 8,
+      time: 1_700_000_411,
+      content: '未经修改的源正文',
+    }]))
+    const outputDb = item.track(createOutputDatabase(item.dir, { rows: [{
+      uid: 'uid-injected-replacement',
+      sourceDb: 'message_0.db',
+      localId: 11,
+      serverId: 411n,
+      rawType: 1n,
+      sortSeq: 21,
+      time: 1_700_000_411,
+      sender: 'wxid_peer',
+      senderName: '陈同学',
+      text: `被注入${replacement}的正文`,
+    }] }))
+
+    const sourceAudit = auditSourceIdentity(outputDb, item.sourceRoot)
+    assert.equal(sourceAudit.ok, false)
+    assert.equal(sourceAudit.issues.some((issue) => issue.code === 'source-text-mismatch'), true)
+    assert.equal(sourceAudit.metrics.outputReplacementCharacters, 1)
+    assert.equal(sourceAudit.metrics.sourceVerifiedReplacementCharacters, 0)
+
+    const cli = spawnSync(process.execPath, [
+      '--import',
+      'tsx',
+      path.resolve(process.cwd(), 'scripts', 'auditChatIdentity.ts'),
+      '--db',
+      outputDb,
+      '--source',
+      item.sourceRoot,
+      '--strict',
+    ], { cwd: process.cwd(), encoding: 'utf8' })
+    assert.equal(cli.status, 1, cli.stderr || cli.stdout)
+    const payload = JSON.parse(cli.stdout) as {
+      replacementCharacterReconciliation: { reconciled: boolean }
+    }
+    assert.equal(payload.replacementCharacterReconciliation.reconciled, false)
+  } finally {
+    item.cleanup()
+  }
+})
+
+test('rejects a conversation display that differs from the snapshot contact display', () => {
+  const item = fixture()
+  try {
+    item.track(createSourceShard(item.sourceRoot, 'message_0.db', [[8, 'wxid_peer']], [{
+      localId: 12,
+      serverId: 412n,
+      rawType: 1n,
+      sortSeq: 22,
+      realSenderId: 8,
+      time: 1_700_000_412,
+      content: '源正文',
+    }]))
+    const outputDb = item.track(createOutputDatabase(item.dir, {
+      display: '伪造的会话名',
+      rows: [{
+        uid: 'uid-mutated-conversation-display',
+        sourceDb: 'message_0.db',
+        localId: 12,
+        serverId: 412n,
+        rawType: 1n,
+        sortSeq: 22,
+        time: 1_700_000_412,
+        sender: 'wxid_peer',
+        senderName: '陈同学',
+        text: '源正文',
+      }],
+    }))
+
+    const result = auditSourceIdentity(outputDb, item.sourceRoot)
+
+    assert.equal(result.ok, false)
+    assert.equal(
+      result.issues.some((issue) => issue.code === 'source-conversation-display-mismatch'),
+      true,
+    )
+  } finally {
+    item.cleanup()
+  }
+})
+
+test('rejects a valid-contact substitution whose conversation id and source table belong to another peer', () => {
+  const item = fixture()
+  try {
+    const replacement = String.fromCodePoint(0xfffd)
+    const sourceText = `源${replacement}正文`
+    item.track(createSourceShard(item.sourceRoot, 'message_0.db', [[7, 'wxid_owner']], [{
+      localId: 13,
+      serverId: 413n,
+      rawType: 1n,
+      sortSeq: 23,
+      realSenderId: 7,
+      time: 1_700_000_413,
+      content: sourceText,
+    }], 'wxid_peer'))
+    const outputDb = item.track(createOutputDatabase(item.dir, {
+      id: 'wx:wxid_owner:wxid_peer',
+      peer: 'wxid_alternate',
+      display: '另一个联系人',
+      rows: [{
+        uid: 'uid-contact-substitution',
+        sourceDb: 'message_0.db',
+        sourceTable: messageTable('wxid_peer'),
+        localId: 13,
+        serverId: 413n,
+        rawType: 1n,
+        sortSeq: 23,
+        time: 1_700_000_413,
+        sender: 'wxid_owner',
+        senderName: '机主',
+        text: sourceText,
+      }],
+    }))
+
+    const standalone = auditWechatDatabase(outputDb)
+    assert.deepEqual(standalone.issues.map((issue) => issue.code), ['replacement-character'])
+
+    const sourceAudit = auditSourceIdentity(outputDb, item.sourceRoot)
+    assert.equal(sourceAudit.ok, false)
+    assert.deepEqual(sourceAudit.issues, [
+      {
+        code: 'source-conversation-id-mismatch',
+        count: 1,
+        detail: 'The output conversation id is not the canonical owner/username identity.',
+        samples: [],
+      },
+      {
+        code: 'source-message-table-mismatch',
+        count: 1,
+        detail: 'The output message table is not the UTF-8 username-derived source table.',
+        samples: [],
+      },
+    ])
+
+    const cli = spawnSync(process.execPath, [
+      '--import',
+      'tsx',
+      path.resolve(process.cwd(), 'scripts', 'auditChatIdentity.ts'),
+      '--db',
+      outputDb,
+      '--source',
+      item.sourceRoot,
+      '--strict',
+    ], { cwd: process.cwd(), encoding: 'utf8' })
+    assert.equal(cli.status, 1, cli.stderr || cli.stdout)
+    const payload = JSON.parse(cli.stdout) as {
+      ok: boolean
+      replacementCharacterReconciliation: { reconciled: boolean }
+      sourceIdentity: { issues: Array<{ code: string }> }
+    }
+    assert.equal(payload.ok, false)
+    assert.equal(payload.replacementCharacterReconciliation.reconciled, true)
+    assert.equal(
+      payload.sourceIdentity.issues.some(
+        (issue) => issue.code === 'source-conversation-id-mismatch',
+      ),
+      true,
+    )
+    assert.equal(
+      payload.sourceIdentity.issues.some(
+        (issue) => issue.code === 'source-message-table-mismatch',
+      ),
+      true,
+    )
   } finally {
     item.cleanup()
   }

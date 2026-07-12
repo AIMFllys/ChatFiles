@@ -23,6 +23,7 @@ import {
   loadMessageName2Id,
   readSourceMessages,
 } from './sourceReader.js'
+import { truncateCodePoints } from './unicodeText.js'
 
 type Contact = {
   username: string
@@ -326,10 +327,10 @@ function discoverSnapshots(decryptRoot: string, ownerFragment: string) {
 
 function safeFile(name: string) {
   const unsafeCharacters = new Set('<>:"/\\|?*')
-  return [...name]
+  const sanitized = [...name]
     .map((character) => character.charCodeAt(0) <= 0x1f || unsafeCharacters.has(character) ? '_' : character)
     .join('')
-    .slice(0, 80)
+  return truncateCodePoints(sanitized, 80)
 }
 
 function createMessageUid(owner: string, username: string, sourceDb: string, table: string, localId: number, serverId: string) {
@@ -649,7 +650,7 @@ export function runWeChatParser(root = path.resolve(process.cwd())): ParserResul
             textCount,
             firstTime,
             lastTime,
-            summary: summary.slice(0, 120),
+            summary: truncateCodePoints(summary, 120),
           })
           totalMessages += messages.length
           totalTextMessages += textCount

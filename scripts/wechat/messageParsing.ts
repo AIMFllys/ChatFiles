@@ -1,5 +1,7 @@
 import zlib from 'node:zlib'
 
+import { truncateCodePoints } from './unicodeText.js'
+
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
 
 export function strictUtf8(buffer: Uint8Array, context: string) {
@@ -85,7 +87,10 @@ export function extractText(type: number, content: string, isGroup: boolean) {
   if (type === 48) return { text: '[位置]', senderPrefix }
   if (type === 10000 || type === 10002) {
     const systemText = body.replace(/<[^>]+>/g, '').trim()
-    return { text: systemText ? `[系统] ${systemText}`.slice(0, 300) : '[系统消息]', senderPrefix }
+    return {
+      text: systemText ? truncateCodePoints(`[系统] ${systemText}`, 300) : '[系统消息]',
+      senderPrefix,
+    }
   }
   return { text: `[${typeLabel(type)}]`, senderPrefix }
 }

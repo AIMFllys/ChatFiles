@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -21,13 +22,25 @@ export type SourceIdentityAuditIssue = {
 export type SourceIdentityAuditResult = {
   ok: boolean
   metrics: {
+    outputConversations: number
+    matchedConversationDisplays: number
     outputMessages: number
     matchedMessages: number
     sourceShards: number
     sourceTables: number
     sourceRowsScanned: number
+    outputReplacementCharacters: number
+    sourceVerifiedReplacementCharacters: number
   }
   issues: SourceIdentityAuditIssue[]
+}
+
+type OutputConversation = {
+  id: string
+  sourceSnapshot: string
+  owner: string
+  username: string
+  display: string
 }
 
 type OutputMessage = {
@@ -44,6 +57,7 @@ type OutputMessage = {
   senderName: string
   senderPrefix: string
   text: string
+  conversationSnapshot: string
   owner: string
   peer: string
   isGroup: boolean
@@ -64,7 +78,7 @@ type MutableIssue = {
   samples: string[]
 }
 
-const requiredConversationColumns = ['id', 'owner', 'username', 'is_group']
+const requiredConversationColumns = ['id', 'account', 'owner', 'username', 'display', 'is_group']
 const requiredMessageColumns = [
   'conv_id',
   'message_uid',
@@ -85,10 +99,15 @@ const requiredMessageColumns = [
 const issueDetails: Readonly<Record<string, string>> = {
   'source-output-schema-missing-column': 'The output database is missing columns required for source alignment.',
   'source-conversation-missing': 'An output message does not resolve to its conversation metadata.',
+  'source-conversation-id-mismatch': 'The output conversation id is not the canonical owner/username identity.',
+  'source-conversation-snapshot-mismatch': 'A message source snapshot differs from its conversation snapshot.',
+  'source-conversation-display-mismatch': 'The conversation display differs from the source snapshot contact display.',
+  'source-contact-unreadable': 'The source snapshot contact database cannot be read for display verification.',
   'source-path-invalid': 'Output provenance contains a snapshot or shard name that is not one path segment.',
   'source-shard-missing': 'The source message database named by output provenance does not exist.',
   'source-shard-unreadable': 'The source message database or its shard-local Name2Id table cannot be read.',
   'source-table-missing': 'The message table named by output provenance is absent from its source shard.',
+  'source-message-table-mismatch': 'The output message table is not the UTF-8 username-derived source table.',
   'source-table-unreadable': 'The message table named by output provenance cannot be read as a batch.',
   'source-row-missing': 'No source row has the local_id named by the output message.',
   'source-row-ambiguous': 'More than one source row has the same local_id in one source table.',
@@ -117,11 +136,15 @@ function columnNames(db: DatabaseSync, table: string) {
 
 function emptyMetrics(): SourceIdentityAuditResult['metrics'] {
   return {
+    outputConversations: 0,
+    matchedConversationDisplays: 0,
     outputMessages: 0,
     matchedMessages: 0,
     sourceShards: 0,
     sourceTables: 0,
     sourceRowsScanned: 0,
+    outputReplacementCharacters: 0,
+    sourceVerifiedReplacementCharacters: 0,
   }
 }
 
@@ -158,6 +181,19 @@ function fieldSample(message: OutputMessage, output: string | number, source: st
   return `${evidence(message)} output=${String(output)} source=${String(source)}`
 }
 
+function countReplacementCharacters(value: string) {
+  let count = 0
+  for (const character of value) {
+    if (character === '\uFFFD') count++
+  }
+  return count
+}
+
+function sourceMessageTable(username: string) {
+  const digest = crypto.createHash('md5').update(username, 'utf8').digest('hex')
+  return `Msg_${digest}`
+}
+
 function loadSnapshotDisplayNames(snapshotDir: string) {
   const contactPath = path.join(snapshotDir, 'db_storage', 'contact', 'contact.db')
   if (!fs.existsSync(contactPath)) throw new Error(`Contact database not found: ${contactPath}`)
@@ -183,6 +219,28 @@ function loadSnapshotDisplayNames(snapshotDir: string) {
   }
 }
 
+function outputConversations(db: DatabaseSync): Iterable<OutputConversation> {
+  const rows = db.prepare(`
+    SELECT id, COALESCE(account, '') AS account, COALESCE(owner, '') AS owner,
+      COALESCE(username, '') AS username, COALESCE(display, '') AS display
+    FROM conversations
+    ORDER BY id
+  `).iterate() as Iterable<Record<string, unknown>>
+  return {
+    *[Symbol.iterator]() {
+      for (const row of rows) {
+        yield {
+          id: String(row.id ?? ''),
+          sourceSnapshot: String(row.account ?? ''),
+          owner: String(row.owner ?? ''),
+          username: String(row.username ?? ''),
+          display: String(row.display ?? ''),
+        }
+      }
+    },
+  }
+}
+
 function outputMessages(db: DatabaseSync): Iterable<OutputMessageWithRawType> {
   const statement = db.prepare(`
     SELECT
@@ -200,6 +258,7 @@ function outputMessages(db: DatabaseSync): Iterable<OutputMessageWithRawType> {
       COALESCE(m.sender_prefix, '') AS sender_prefix,
       COALESCE(m.text, '') AS text,
       CAST(m.raw_type AS TEXT) AS raw_type,
+      COALESCE(c.account, '') AS conversation_snapshot,
       COALESCE(c.owner, '') AS owner,
       COALESCE(c.username, '') AS peer,
       c.is_group AS is_group
@@ -226,8 +285,9 @@ function outputMessages(db: DatabaseSync): Iterable<OutputMessageWithRawType> {
           senderName: String(row.sender_name ?? ''),
           senderPrefix: String(row.sender_prefix ?? '').trim(),
           text: String(row.text ?? ''),
-          owner: String(row.owner ?? '').trim(),
-          peer: String(row.peer ?? '').trim(),
+          conversationSnapshot: String(row.conversation_snapshot ?? ''),
+          owner: String(row.owner ?? ''),
+          peer: String(row.peer ?? ''),
           isGroup: Number(row.is_group) === 1,
           rawType: String(row.raw_type ?? ''),
         }
@@ -245,6 +305,7 @@ function compareSourceRow(
   row: SourceMessage,
   shard: SourceShard,
   issues: Map<string, MutableIssue>,
+  metrics: SourceIdentityAuditResult['metrics'],
 ) {
   if (message.serverId !== row.serverId) {
     addIssue(issues, 'source-server-id-mismatch', 1, fieldSample(message, message.serverId, row.serverId))
@@ -282,6 +343,8 @@ function compareSourceRow(
   }
   if (message.text !== extracted.text) {
     addIssue(issues, 'source-text-mismatch', 1, fieldSample(message, message.text, extracted.text))
+  } else {
+    metrics.sourceVerifiedReplacementCharacters += countReplacementCharacters(message.text)
   }
 
   const identity = resolveSenderIdentity({
@@ -293,7 +356,8 @@ function compareSourceRow(
     privateDirection: 'unknown',
     displayNames: shard.displayNames,
   })
-  if (message.sender !== identity.sender) {
+  const senderMatches = message.sender === identity.sender
+  if (!senderMatches) {
     addIssue(
       issues,
       'source-sender-mismatch',
@@ -301,13 +365,16 @@ function compareSourceRow(
       fieldSample(message, message.sender, identity.sender || '<unknown>'),
     )
   }
-  if (message.senderName !== identity.senderName) {
+  const senderNameMatches = message.senderName === identity.senderName
+  if (!senderNameMatches) {
     addIssue(
       issues,
       'source-sender-name-mismatch',
       1,
       fieldSample(message, message.senderName, identity.senderName),
     )
+  } else if (senderMatches) {
+    metrics.sourceVerifiedReplacementCharacters += countReplacementCharacters(message.senderName)
   }
 }
 
@@ -321,6 +388,7 @@ export function auditSourceIdentity(outputDbPath: string, sourceRoot: string): S
   const output = new DatabaseSync(outputDbPath, { readOnly: true })
   const shards = new Map<string, SourceShard>()
   const displayNamesBySnapshot = new Map<string, ReadonlyMap<string, string>>()
+  const sourceTablesByUsername = new Map<string, string>()
   try {
     const conversationColumns = columnNames(output, 'conversations')
     const messageColumns = columnNames(output, 'messages')
@@ -342,6 +410,56 @@ export function auditSourceIdentity(outputDbPath: string, sourceRoot: string): S
       return { ok: false, metrics, issues: finalIssues(issues) }
     }
 
+    for (const conversation of outputConversations(output)) {
+      metrics.outputConversations++
+      const replacementCharacters = countReplacementCharacters(conversation.display)
+      metrics.outputReplacementCharacters += replacementCharacters
+      if (conversation.id !== `wx:${conversation.owner}:${conversation.username}`) {
+        addIssue(issues, 'source-conversation-id-mismatch', 1)
+      }
+      if (!isSinglePathSegment(conversation.sourceSnapshot)) {
+        addIssue(
+          issues,
+          'source-path-invalid',
+          1,
+          `${conversation.sourceSnapshot}/${conversation.id}`,
+        )
+        continue
+      }
+
+      let displayNames = displayNamesBySnapshot.get(conversation.sourceSnapshot)
+      if (!displayNames) {
+        try {
+          displayNames = loadSnapshotDisplayNames(
+            path.join(resolvedSourceRoot, conversation.sourceSnapshot),
+          )
+          displayNamesBySnapshot.set(conversation.sourceSnapshot, displayNames)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          addIssue(
+            issues,
+            'source-contact-unreadable',
+            1,
+            `${conversation.sourceSnapshot}/${conversation.id} ${reason}`,
+          )
+          continue
+        }
+      }
+
+      const sourceDisplay = displayNames.get(conversation.username) ?? conversation.username
+      if (conversation.display !== sourceDisplay) {
+        addIssue(
+          issues,
+          'source-conversation-display-mismatch',
+          1,
+          `${conversation.sourceSnapshot}/${conversation.id} output=${conversation.display} source=${sourceDisplay}`,
+        )
+      } else {
+        metrics.matchedConversationDisplays++
+        metrics.sourceVerifiedReplacementCharacters += replacementCharacters
+      }
+    }
+
     let currentKey = ''
     let group: OutputMessageWithRawType[] = []
     const auditGroup = (messages: readonly OutputMessageWithRawType[]) => {
@@ -352,6 +470,22 @@ export function auditSourceIdentity(outputDbPath: string, sourceRoot: string): S
       for (const message of messages) {
         if (!message.owner && !message.peer) {
           addIssue(issues, 'source-conversation-missing', 1, evidence(message))
+        }
+        if (message.conversationSnapshot !== message.sourceSnapshot) {
+          addIssue(
+            issues,
+            'source-conversation-snapshot-mismatch',
+            1,
+            fieldSample(message, message.conversationSnapshot, message.sourceSnapshot),
+          )
+        }
+        let expectedSourceTable = sourceTablesByUsername.get(message.peer)
+        if (!expectedSourceTable) {
+          expectedSourceTable = sourceMessageTable(message.peer)
+          sourceTablesByUsername.set(message.peer, expectedSourceTable)
+        }
+        if (message.sourceTable !== expectedSourceTable) {
+          addIssue(issues, 'source-message-table-mismatch', 1)
         }
       }
 
@@ -438,12 +572,14 @@ export function auditSourceIdentity(outputDbPath: string, sourceRoot: string): S
           continue
         }
         metrics.matchedMessages++
-        compareSourceRow(message, matches[0], shard, issues)
+        compareSourceRow(message, matches[0], shard, issues, metrics)
       }
     }
 
     for (const message of outputMessages(output)) {
       metrics.outputMessages++
+      metrics.outputReplacementCharacters += countReplacementCharacters(message.text)
+        + countReplacementCharacters(message.senderName)
       const key = groupKey(message)
       if (currentKey && key !== currentKey) {
         auditGroup(group)

@@ -20,14 +20,14 @@ function md5(value: string) {
   return crypto.createHash('md5').update(value, 'utf8').digest('hex')
 }
 
-function createContactDatabase(snapshotDir: string) {
+function createContactDatabase(snapshotDir: string, peerDisplay = '陈同学') {
   const targetDir = path.join(snapshotDir, 'db_storage', 'contact')
   fs.mkdirSync(targetDir, { recursive: true })
   const db = new DatabaseSync(path.join(targetDir, 'contact.db'))
   db.exec(`
     CREATE TABLE contact(username TEXT, nick_name TEXT, remark TEXT, alias TEXT, local_type INTEGER);
     INSERT INTO contact VALUES ('${owner}', '机主', '', '', 0);
-    INSERT INTO contact VALUES ('${peer}', '陈同学', '', '', 0);
+    INSERT INTO contact VALUES ('${peer}', '${peerDisplay}', '', '', 0);
     INSERT INTO contact VALUES ('${room}', '中文项目群', '', '', 0);
     INSERT INTO contact VALUES ('wxid_member', '群成员甲', '', '', 0);
     CREATE TABLE chat_room(username TEXT);
@@ -36,13 +36,13 @@ function createContactDatabase(snapshotDir: string) {
   db.close()
 }
 
-function createSessionDatabase(snapshotDir: string) {
+function createSessionDatabase(snapshotDir: string, peerSummary = '中文私聊摘要') {
   const targetDir = path.join(snapshotDir, 'db_storage', 'session')
   fs.mkdirSync(targetDir, { recursive: true })
   const db = new DatabaseSync(path.join(targetDir, 'session.db'))
   db.exec(`
     CREATE TABLE SessionTable(username TEXT, summary TEXT, last_timestamp INTEGER);
-    INSERT INTO SessionTable VALUES ('${peer}', '中文私聊摘要', 1700000000);
+    INSERT INTO SessionTable VALUES ('${peer}', '${peerSummary}', 1700000000);
     INSERT INTO SessionTable VALUES ('${room}', '中文群聊摘要', 1700000001);
   `)
   db.close()
@@ -104,14 +104,18 @@ function createFixtureRoot(options: {
   duplicateExactEvidence?: boolean
   repeatedFoldedEvidence?: boolean
   changedSharedMessage?: boolean
+  boundaryUnicode?: boolean
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-parser-'))
   fs.writeFileSync(path.join(root, '.env.local'), 'VITE_OWNER_WXID=owner_fragment\n', 'utf8')
   const oldSnapshot = path.join(root, 'work', 'decrypted', 'wechat', 'snapshot-old')
   const newSnapshot = path.join(root, 'work', 'decrypted', 'wechat', 'snapshot-new')
+  const boundaryEmoji = String.fromCodePoint(0x1f600)
+  const peerDisplay = options.boundaryUnicode ? `${'陈'.repeat(79)}${boundaryEmoji}tail` : undefined
+  const peerSummary = options.boundaryUnicode ? `${'摘'.repeat(119)}${boundaryEmoji}tail` : undefined
   for (const snapshot of [oldSnapshot, newSnapshot]) {
-    createContactDatabase(snapshot)
-    createSessionDatabase(snapshot)
+    createContactDatabase(snapshot, peerDisplay)
+    createSessionDatabase(snapshot, peerSummary)
   }
 
   const oldDb = createMessageDatabase(oldSnapshot, 'message_0.db', [[7, owner]], [
@@ -323,6 +327,31 @@ test('builds a non-destructive identity-aligned next database from strict snapsh
     assert.notEqual(second.status, 0)
     assert.match(second.stderr, /already exists/i)
     assert.deepEqual(fs.readFileSync(dbPath), before)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('keeps transcript filenames and index summaries on Unicode code-point boundaries', () => {
+  const root = createFixtureRoot({ boundaryUnicode: true })
+  try {
+    const result = runParser(root)
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const bundleDir = path.join(root, 'data', 'wechat.next')
+    const index = JSON.parse(fs.readFileSync(path.join(bundleDir, 'index.json'), 'utf8')) as {
+      conversations: Array<{ username: string, summary: string }>
+    }
+    const peerEntry = index.conversations.find((entry) => entry.username === peer)
+    const emoji = String.fromCodePoint(0x1f600)
+    assert.equal(peerEntry?.summary, `${'摘'.repeat(119)}${emoji}`)
+    assert.equal(peerEntry?.summary.includes('\uFFFD'), false)
+
+    const transcriptFiles = fs.readdirSync(path.join(bundleDir, 'transcripts'))
+    const peerSuffix = `__${md5(peer).slice(0, 8)}.txt`
+    const peerTranscript = transcriptFiles.find((name) => name.endsWith(peerSuffix))
+    assert.equal(peerTranscript, `${'陈'.repeat(79)}${emoji}${peerSuffix}`)
+    assert.equal(peerTranscript?.includes('\uFFFD'), false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
