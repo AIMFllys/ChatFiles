@@ -1,4 +1,7 @@
 import type { LibraryFile } from './files'
+import type { WechatMessage } from './chatIdentity'
+
+export type { WechatMessage } from './chatIdentity'
 
 export type SummaryInsight = {
   id: string
@@ -272,16 +275,6 @@ export type WechatConversationList = {
     messages: number
     textMessages?: number
   }
-}
-
-export type WechatMessage = {
-  seq: number
-  time: number
-  sender: string
-  sender_name: string
-  type: number
-  type_label: string
-  text: string
 }
 
 export type WechatMessagePage = {

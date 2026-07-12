@@ -1,18 +1,16 @@
 import { Router } from 'express'
-import fs from 'node:fs'
-import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { root } from '../utils/helpers.js'
+import { openValidatedWechatDatabase } from '../wechat/databaseOpener.js'
+import { readConversationMessages } from '../wechat/messageQuery.js'
 
-const wechatDbPath = path.join(root, 'data', 'wechat.db')
+export function wechatDatabaseResolution(projectRoot = root) {
+  const opened = openValidatedWechatDatabase(projectRoot)
+  opened.db?.close()
+  return opened.resolution
+}
 
-export function wechatDb() {
-  if (!fs.existsSync(wechatDbPath)) return null
-  try {
-    return new DatabaseSync(wechatDbPath, { readOnly: true })
-  } catch {
-    return null
-  }
+export function wechatDb(projectRoot = root) {
+  return openValidatedWechatDatabase(projectRoot).db
 }
 
 const router = Router()
@@ -41,9 +39,12 @@ router.get('/api/wechat/conversation/:id/messages', (req, res) => {
     const q = String(req.query.q ?? '').trim()
     const meta = db.prepare(`SELECT * FROM conversations WHERE id=?`).get(id)
     if (!meta) return res.status(404).json({ error: 'conversation not found' })
-    const messages = q
-      ? db.prepare(`SELECT seq,time,sender,sender_name,type,type_label,text FROM messages WHERE conv_id=? AND text LIKE ? ORDER BY time LIMIT ? OFFSET ?`).all(id, `%${q}%`, limit, offset)
-      : db.prepare(`SELECT seq,time,sender,sender_name,type,type_label,text FROM messages WHERE conv_id=? ORDER BY time LIMIT ? OFFSET ?`).all(id, limit, offset)
+    const { messages } = readConversationMessages(db, {
+      conversationId: id,
+      query: q,
+      limit,
+      offset,
+    })
     res.json({ meta, messages, offset, limit })
   } finally {
     db.close()

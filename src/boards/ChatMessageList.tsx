@@ -1,4 +1,5 @@
 import type { WechatMessage } from '../types'
+import { messageRenderKey, resolveMessageOwnership } from '../utils/chatOwnership'
 
 // Owner identity is supplied via env (set in the gitignored .env.local), so the
 // repo carries no personal wxid / display name. Falls back to neutral values.
@@ -19,12 +20,6 @@ function fmtTime(unixSeconds: number) {
 function dayKey(unixSeconds: number) {
   const d = new Date(unixSeconds * 1000)
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-}
-
-function isOwn(m: WechatMessage) {
-  if (OWNER_RE && OWNER_RE.test(m.sender || '')) return true
-  if (OWNER_NAME && (m.sender_name || '').includes(OWNER_NAME)) return true
-  return false
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -69,13 +64,13 @@ export function MessageList({ messages }: { messages: WechatMessage[] }) {
       lastDay = dk
       lastSender = ''
     }
-    const own = isOwn(m)
+    const own = resolveMessageOwnership(m, { ownerWxidPattern: OWNER_RE, ownerName: OWNER_NAME })
     const newGroup = m.sender !== lastSender || groupStartIdx === -1
     if (newGroup) groupStartIdx = i
     lastSender = m.sender
 
     blocks.push(
-      <div className={`msg ${own ? 'msg-own' : 'msg-other'} ${newGroup ? 'msg-lead' : 'msg-cont'}`} key={`${m.seq}-${i}`}>
+      <div className={`msg ${own ? 'msg-own' : 'msg-other'} ${newGroup ? 'msg-lead' : 'msg-cont'}`} key={messageRenderKey(m, i)}>
         {newGroup && (
           <div className="msg-head">
             <span className="msg-name">{own ? (OWNER_NAME ? `我 · ${OWNER_NAME}` : '我') : m.sender_name || m.sender}</span>

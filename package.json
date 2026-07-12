@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "tsx --test \"scripts/**/*.test.ts\"",
+    "test": "tsx --test \"scripts/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\"",
     "audit:chat": "tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.next/wechat.db --strict",
     "dev": "npm run build && tsx server/index.ts",
     "dev:vite": "vite --host 127.0.0.1 --port 3456",
