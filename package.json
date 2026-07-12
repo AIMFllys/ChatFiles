@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test": "tsx --test \"scripts/**/*.test.ts\"",
+    "audit:chat": "tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.next/wechat.db --strict",
     "dev": "npm run build && tsx server/index.ts",
     "dev:vite": "vite --host 127.0.0.1 --port 3456",
     "ingest:files": "tsx scripts/archiveFiles.ts",

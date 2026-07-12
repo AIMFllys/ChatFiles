@@ -1,419 +1,384 @@
-# 04 · 解析规格：微信 4.0 schema → `data/wechat.db`
+# 04 · 微信解密副本解析与身份审计
 
-> 本文是 **午夜书斋 / ChatFiles** 复刻规格的「解析」分册。读者对象是另一台机器上的复刻 AI / 工程师。
-> 目标：把**已解密**的微信 4.0 数据库（SQLCipher 解密后的明文 SQLite 副本）规范化成**一个明文 SQLite**（`data/wechat.db`，三张表）+ 一份会话索引 JSON + 每会话可读逐字记录，供后续归档、提炼、前端消费。
-> 权威实现：`scripts/parseWeChat.ts`（用 `tsx` 运行）。本文描述的是**代码实际做了什么**，不是理想化设计。凡与代码冲突，以代码为准。
-> 规模锚点（本项目实测，复刻时数量会因机主数据不同而变）：**980 会话 / 738,511 消息 / 427,803 文本消息**，源 `message_0.db` 约 **1154** 张会话表。
-
-本文用 RFC 2119 关键词（**MUST / MUST NOT / SHOULD / SHOULD NOT / MAY**）标注强制级别。机器/账号相关的值一律用 `{{占位符}}`。
-
-关联文档：
-- 解密如何产出输入：见 [`03_decryption.md`](./03_decryption.md)。
-- 解析产物如何被提炼成洞察：见 [`06_insights.md`](./06_insights.md)。
-- 数据产品边界（QQ 未解密、`.dat` 加密图等）：见 [`10_data-products-and-boundaries.md`](./10_data-products-and-boundaries.md)。
-- 端到端运行顺序与命令：见 [`../RUNBOOK.md`](../RUNBOOK.md)。
+> 本章规定从微信 4.x 解密副本生成候选明文库的完整契约。关键词 **MUST / MUST NOT / SHOULD** 按 RFC 2119 理解。所有中文、路径和 JSON 均使用 UTF-8。
 
 ---
 
-## 1. 前置条件与不变量（Invariants）
+## 1. 安全边界与默认产物
 
-### 1.1 输入只读、原库不动
+解析器入口为 `scripts/parseWeChat.ts`，核心实现位于 `scripts/wechat/parserRunner.ts`。它 **MUST** 只读取：
 
-- 解析器 **MUST** 只读取**解密后的副本**，根目录固定为 `work/decrypted/wechat/<account>/`（`<account>` 为账号目录名，形如 `{{wxid}}_{{short}}`）。
-- 解析器 **MUST NOT** 触碰机主真实微信存储（`{{微信存储根}}`，本项目被迁移到 `D:\{{微信迁移目录}}\xwechat_files\`，详见 [`03_decryption.md`](./03_decryption.md) 与 [`05_archiving.md`](./05_archiving.md)）。
-- 解析器 **MUST** 用 `readOnly: true` 打开所有源 `.db`（`new DatabaseSync(p, { readOnly: true })`），避免对解密副本产生任何写入（包括 WAL/SHM 副作用）。
-- 输出目录 `data/`、`work/chat-text/` **MUST** 在写入前用 `fs.mkdirSync(..., { recursive: true })` 确保存在。
+```text
+work/decrypted/wechat/<snapshot>/db_storage/
+```
 
-### 1.2 技术栈约束
+默认一次运行只允许新建以下产物：
 
-- 运行时 **MUST** 是 Node 24+（解析依赖两个内置能力）：
-  - `node:sqlite` 的 `DatabaseSync`（同步 SQLite，免原生编译依赖）。
-  - `zlib.zstdDecompressSync`（解 zstd 压缩的文本正文，见 §3.3）。
-- **MUST NOT** 引入第三方 SQLite/zstd 包；整个解析器仅用 `node:fs / node:path / node:crypto / node:zlib / node:sqlite`。
-- 时间戳一律为 **unix 秒**（见 §6）。
+```text
+data/wechat.next/
+├── wechat.db
+├── index.json
+└── transcripts/
+```
 
-### 1.3 幂等
+其中 `runId` 默认为 UTC 时间戳加进程号；测试或受控运行可通过安全字符组成的 `CHATFILES_RUN_ID` 固定。解析器：
 
-- 每次运行 **MUST** 先 `fs.rmSync(outDbPath, { force: true })` 删除旧 `data/wechat.db` 再重建，使解析可重复执行且结果确定。
-- 会话索引 JSON 与逐字记录 **SHOULD** 直接覆盖写。
+- **MUST NOT** 删除、截断、改名或覆盖任何现有文件；
+- **MUST NOT** 写 `data/wechat.db`、`data/wechat/index.json` 或 `work/chat-text/`；
+- **MUST** 在启动时检查最终 `data/wechat.next/` bundle；已存在即非零退出；
+- **MUST** 先在 `data/` 下独占创建隐藏的 `.wechat.next.<token>.staging/` 完整 bundle；
+- **MUST** 只在 staging DB 已关闭、WAL 已 checkpoint、index 已完整写入、transcript 全部写完且 `parse_runs` 完成记录已落库后，才用一次同卷目录 `rename` 发布整个 bundle；
+- 任一构建或发布步骤失败时，最终 `data/wechat.next/` **MUST** 不存在；staging bundle 可保留供诊断；
+- **MUST NOT** 在源代码中调用 `rmSync`、`unlinkSync` 等删除 API。
+
+next 产物只有通过严格审计后才能由人工或单独的受控切换步骤提升为活动库。解析器本身不做提升。
 
 ---
 
-## 2. 解密副本的目录结构（解析器看到的输入）
+## 2. Canonical Owner 与快照选择
 
-每个账号目录 `work/decrypted/wechat/<account>/` 下 **MUST** 含一个 `db_storage/` 子树（解析器正是以此判定「这是一个有效账号」）：
+### 2.1 Owner 唯一解析
 
-```
-work/decrypted/wechat/<account>/
-└─ db_storage/
-   ├─ message/
-   │  ├─ message_0.db          主聊天库（本项目 ~1154 张 Msg_* 表，原始 ~673MB）
-   │  ├─ message_1.db          溢出/分片聊天库（可能不存在）
-   │  └─ …（media_0.db / message_fts.db / biz_message_*.db —— 本解析器不读）
-   ├─ contact/
-   │  └─ contact.db            联系人、群、name2id 发送人映射
-   └─ session/
-      └─ session.db            会话摘要 + 最后时间戳
+项目根 `.env.local` **MUST** 提供：
+
+```dotenv
+VITE_OWNER_WXID=<机主 wxid 的唯一片段>
 ```
 
-- 账号发现规则（`findAccounts`）：解析器 **MUST** 遍历 `work/decrypted/wechat/` 下的一级目录，**仅**保留同时存在 `db_storage/` 子目录者，作为账号集合。若 `work/decrypted/wechat/` 不存在，**MUST** 返回空集（不报错）。
-- 解析器 **MUST** 容忍任一可选库缺失：`contact.db`、`session.db`、`message_1.db` 缺失时 **MUST** 优雅降级（用 `openIf` 包裹，缺失返回 `null`），而非崩溃。
-- `openIf(p)` 语义 **MUST** 为：文件存在则 `new DatabaseSync(p, { readOnly: true })`，否则或抛错则返回 `null`。
+对每个一级快照目录，解析器从该快照自己的 `contact.db.contact.username` 中查找包含此片段、且不是 `@chatroom` 的 username：
+
+- 恰好一个匹配：该完整 username 是快照的 `canonical owner`；
+- 零个或多个匹配：立即失败；
+- 目录名、昵称、备注和数字 sender id **MUST NOT** 代替 canonical owner。
+
+所有会话 ID 使用稳定 owner：
+
+```text
+wx:<canonical-owner>:<conversation-username>
+```
+
+`conversations.account` 保留被选择的快照目录名，`conversations.owner` 保存 canonical owner。
+
+### 2.2 严格子集证明
+
+解析器先扫描全部快照，不创建输出。每条消息的覆盖键由“稳定身份 + 语义证据”共同组成：
+
+1. 稳定身份：非零 `server_id`，否则为 `source_db + source_table + local_id`；
+2. 原始 `raw_type`；
+3. `create_time`；
+4. `real_sender_id` 经该消息所在分片自己的 Name2Id 解析出的 username（缺失则空）；
+5. `message_content` 原始字节 SHA-256；正文为空时改用 `compress_content` 原始字节 SHA-256。
+
+覆盖判断 **MUST NOT** 只比较 server/local id。同一个稳定 ID 只要类型、时间、sender 或原始正文哈希变化，就不是同一覆盖键，旧/新快照不得据此建立严格子集关系。
+
+只有同时满足以下条件，旧快照 A 才能被新快照 B 排除：
+
+- A 与 B 的 canonical owner 完全相同；
+- B 的消息库更新时间晚于 A；
+- A 的每个会话都存在于 B；
+- 每个会话中 A 的所有消息覆盖键都存在于 B；
+- B 至少多一个会话、消息键，或覆盖到更早的首条消息。
+
+选择逻辑复用 `chooseAccountSnapshots`。相同 owner 下只要剩余两个无法证明严格覆盖关系的快照，就 **MUST** 全部保留在内存并以“歧义”失败，禁止静默拼接。不同 owner 的快照永不互相排除。
 
 ---
 
-## 3. 微信 4.0 message schema（核心）
+## 3. 源数据库契约
 
-### 3.1 「每会话一张表」模型
+### 3.1 联系人与会话
 
-微信 4.0 **不是**「一张大 message 表」，而是 **每个会话一张表**，表名为：
-
-```
-Msg_<md5(username)>
-```
-
-- `username` 是会话对端的标识：私聊为对方 `wxid_*`（或自定义微信号），群聊为 `{{房间号}}@chatroom`。
-- `md5` **MUST** 取 `username` 的 **UTF-8 字节** 的 MD5 十六进制小写串：
-  ```ts
-  crypto.createHash('md5').update(username, 'utf8').digest('hex')
-  ```
-- 本项目 `message_0.db` 含约 **1154** 张 `Msg_*` 表。会话可能分布在 `message_0.db` 与 `message_1.db` **两个库**中（同一会话的同名表可能在两库各有一部分），解析器 **MUST** 跨库合并（见 §4.3）。
-
-解析器 **MUST** 通过 `sqlite_master` 枚举每个库里真实存在的 `Msg_*` 表，再据 `username` 计算目标表名去匹配，**MUST NOT** 盲目 `SELECT` 一个未确认存在的表名（否则报错）：
+`contact.db`：
 
 ```sql
-SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%'
+SELECT username, nick_name, remark, alias FROM contact;
 ```
 
-### 3.2 单条消息的列
+显示名统一为：
 
-每张 `Msg_*` 表的列包含（解析器实际 `SELECT` 的子集已加粗）：
-
-```
-local_id, server_id, local_type, sort_seq, real_sender_id,
-create_time, status, …, message_content, compress_content, …
+```text
+remark || nick_name || alias || username
 ```
 
-解析器 **MUST** 只取必要列并按时间排序：
+群聊仅由 `username.endsWith('@chatroom')` 判定。`chat_room` 表可缺失；存在时用于补齐群 username。
+
+`session.db` 可选读取：
 
 ```sql
-SELECT create_time, real_sender_id, local_type, message_content
-FROM "Msg_<md5(username)>"
-ORDER BY sort_seq
+SELECT username, summary, last_timestamp FROM SessionTable;
 ```
 
-- 列名 **MUST** 用双引号包裹表名（表名含哈希、合法但保守起见加引号）。
-- 排序 **MUST** 用 `sort_seq`（微信的逻辑序），**不是** `local_id`；随后在内存里再按 `create_time` 做一次稳定排序（见 §4.3），以便跨库合并后时间单调。
-- 单表 `SELECT` 抛错（如某分片表结构异常）时，解析器 **MUST** `continue` 跳过该来源、不影响其他来源。
+summary 仅作元数据，不参与消息数量。
 
-### 3.3 `message_content` 解码（zstd / utf8）
+### 3.2 消息表与分片 Name2Id
 
-`message_content` 在 `node:sqlite` 中可能以 `string`、`Uint8Array`（BLOB）或 `null` 返回。解码规则 `decodeContent(value)`：
+候选表名仍为：
 
-- `null` / `undefined` → 空串 `''`。
-- `string` → 原样返回。
-- `Uint8Array`（BLOB）：
-  - 若前 4 字节为 **zstd 魔数** `28 b5 2f fd`（`buf[0]===0x28 && buf[1]===0xb5 && buf[2]===0x2f && buf[3]===0xfd`），则 **MUST** 用 `zlib.zstdDecompressSync(buf).toString('utf8')` 解压；解压失败 **MUST** 回退为空串 `''`（包在 try/catch，绝不抛出）。
-  - 否则按 `utf8` 直接 `buf.toString('utf8')`。
-- 其他类型 → `String(value)`。
+```text
+Msg_<md5(UTF-8(username))>
+```
 
-> 工程要点：文本类消息（`local_type=1`）的正文几乎都是 zstd 压缩的。**MUST** 在 BLOB 路径上先判魔数，否则会把压缩字节误当 UTF-8 而得到乱码。
+`message_0.db` 与 `message_1.db` **MUST** 被当作两个独立 sender 命名空间。每个分片打开后分别读取自己的：
 
-### 3.4 `local_type` → 粗粒度标签
+```sql
+SELECT rowid AS id, user_name FROM Name2Id;
+```
 
-`typeLabel(localType)` **MUST** 按下表映射；表外类型 **MUST** 落到 `type_<n>`：
+禁止读取 `contact.db.name2id`，也禁止把一个消息分片的 `Name2Id` 用到另一个分片。
 
-| `local_type` | `type_label` | 含义 |
-|---|---|---|
-| 1 | `text` | 文本 |
-| 3 | `image` | 图片 |
-| 34 | `voice` | 语音 |
-| 43 | `video` | 视频 |
-| 47 | `sticker` | 表情/动图 |
-| 42 | `card` | 名片 |
-| 48 | `location` | 位置 |
-| 49 | `app` | 应用消息（XML：文件 / 链接 / 引用 / 转账 / 小程序…） |
-| 50 | `voip` | 音视频通话 |
-| 10000 | `system` | 系统消息 |
-| 10002 | `system` | 系统消息 |
-| 其它 | `type_<n>` | 未知类型（保留原值） |
+`sourceReader.ts` 读取：
 
-> 注意：`typeLabel` 含 `50→voip`，但人类可读文本提取（§3.6）的 `extractText` **不**为 50 单列分支，会落到通用兜底分支 `[voip]`。这是代码现状，复刻 **MUST** 与之一致。
+```sql
+SELECT
+  local_id,
+  CAST(server_id AS TEXT) AS server_id,
+  CAST(local_type AS TEXT) AS raw_type,
+  sort_seq,
+  real_sender_id,
+  create_time,
+  message_content,
+  compress_content
+FROM "<Msg_table>"
+ORDER BY sort_seq, local_id;
+```
 
-### 3.5 群消息发送人前缀
-
-群聊（`username` 以 `@chatroom` 结尾，`isGroup === true`）的正文 **MUST** 先剥离发送人前缀：正文形如 `<sender_wxid>:\n<真正内容>`。
-
-- 提取正则 **MUST** 为：`/^([0-9A-Za-z_@.\-]+):\n/`。命中则 `sender = m[1]`，`body = content.slice(m[0].length)`。
-- 该 `sender`（来自正文前缀）**优先于** `real_sender_id` 解析结果（见 §4.2）。
-- 私聊（非 `@chatroom`）**MUST NOT** 做前缀剥离。
-
-### 3.6 人类可读文本提取 `extractText(localType, content, isGroup)`
-
-返回 `{ text, sender? }`。规则（**MUST** 逐条照实现）：
-
-1. 先按 §3.5 处理群前缀，得到 `body` 与可选 `sender`。
-2. **文本（`localType===1`）**：`text = body.trim()`。
-3. **应用消息**：`localType===49` **或** `body.includes('<appmsg')` 时，从 XML 抽取字段（用 `xmlTag`，见 §3.7）并拼装：
-   - 取 `title`、`des`、`url`、`appname`（优先 `sourcedisplayname`，回退 `appname`）、`fileext`。
-   - 组装顺序：`title` →（`des` 且 `des !== title` 时加 `des`）→（有 `fileext` 时加 `[文件 .<fileext>]`）→（有 `url` 时加 `url`）→（有 `appname` 时加 `(<appname>)`）。
-   - 以 ` — `（空格-破折号-空格）连接、`trim()`；若结果为空，**MUST** 兜底为 `[链接/应用消息]`。
-4. **图片 `3`** → `[图片]`；**语音 `34`** → `[语音]`；**视频 `43`** → `[视频]`；**表情 `47`** → `[表情]`；**位置 `48`** → `[位置]`。
-5. **名片 `42`** → `` `[名片] ${xmlTag(body,'nickname')}`.trim() ``。
-6. **系统 `10000` / `10002`**：去标签 `body.replace(/<[^>]+>/g, '').trim()`，非空则 `` `[系统] ${sys}`.slice(0, 300) ``（**MUST** 截断到 300 字符），空则 `[系统消息]`。
-7. **兜底**：其它类型 → `` `[${typeLabel(localType)}]` ``（如 `[voip]`、`[type_999]`）。
-
-`sender`（若群前缀命中）**MUST** 随 `{ text, sender }` 一并返回。
-
-### 3.7 XML 字段抽取 `xmlTag(xml, tag)`
-
-- 正则 **MUST** 为 `new RegExp('<' + tag + '[^>]*>([\\s\\S]*?)</' + tag + '>', 'i')`（大小写不敏感、跨行非贪婪、容忍标签属性）。
-- 命中后 **MUST** 去 CDATA 包裹：`.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')` 再 `.trim()`。
-- 未命中 **MUST** 返回空串。
+- `server_id` **MUST** 全程保持 TEXT，不能经过 JavaScript Number；
+- `raw_type` 先按十进制字符串读取，写 SQLite 时用 BigInt，避免 64 位精度损坏；
+- `local_id`、`sort_seq` 与来源分片/表必须保留。
 
 ---
 
-## 4. 联系人 / 发送人 / 会话元数据解析
+## 4. 正文、类型与人物解析
 
-### 4.1 `contact.db` → 显示名与分组
+### 4.1 UTF-8 与压缩
 
-解析器 **MUST** 从 `contact` 表读取并构建 `username → 显示信息` 映射：
+`message_content` / `compress_content` 可能为字符串、BLOB 或空值。BLOB 若以 `28 b5 2f fd` 开头，使用 zstd 解压。所有字节到文字的转换 **MUST** 使用 fatal UTF-8 解码：
 
-```sql
-SELECT username, nick_name, remark, alias, local_type FROM contact
-```
+- 非法 UTF-8：解析失败；
+- zstd 解压失败：解析失败；
+- 禁止用 U+FFFD 替换后继续；
+- transcript 和 JSON 显式用 `encoding: 'utf8'` 写入。
 
-- **显示名计算（关键，全项目统一）**：`display = remark || nick_name || alias || username`（即备注 > 昵称 > 别名 > 原始 username 的优先级，取第一个非空）。
-- `isGroup` **MUST** 由 `username.endsWith('@chatroom')` 判定（**不**依赖 `local_type`）。
-- 每条 **MUST** 写入输出 `contacts` 表（见 §5.1）。
-- 空 `username` 行 **MUST** 跳过。
+### 4.2 64 位原始类型
 
-补充群名（`chat_room` 表，可能不存在，**MUST** 用 try/catch 容错）：
-
-```sql
-SELECT username FROM chat_room
-```
-对其中尚未在映射里的 `username`，**MUST** 以 `display = username`、`isGroup = true` 占位补入（保证群有条目，即使无好名字）。
-
-### 4.2 `name2id` → 发送人还原
-
-群消息要把数字 `real_sender_id` 还原成 `username`，**MUST** 读 `contact.db` 的 `name2id` 表，建 `rowid → username` 映射。列名在不同版本不一致，**MUST** 依次尝试两种 schema（前者失败回退后者，均失败则空映射）：
-
-```sql
--- 首选
-SELECT rowid AS id, user_name FROM name2id
--- 回退
-SELECT rowid AS id, username  FROM name2id
-```
-
-发送人解析优先级（`extractText` 与主循环共同决定），解析器 **MUST** 按此顺序：
-1. 群正文前缀里的 `sender`（§3.5）；
-2. 否则 `idToName.get(Number(real_sender_id))`；
-3. 否则空串 `''`。
-
-得到 `senderUser` 后，`sender_name = dispName(senderUser)`（即用 §4.1 的显示名映射；查不到则回落 `senderUser` 本身）。
-
-### 4.3 跨库合并与时间排序
-
-对每个候选 `username`：
-1. 计算 `table = Msg_<md5(username)>`，在 `message_0.db` / `message_1.db` 的「该库实有 `Msg_*` 表集合」里筛出**含此表的库**（`sources`）。
-2. 若 `sources` 为空 **MUST** 跳过该 `username`（它只是个联系人/会话条目，没有消息表）。
-3. 对每个 source 库执行 §3.2 的 `SELECT ... ORDER BY sort_seq`，逐行解码（§3.3）+ 提取（§3.6）+ 解析发送人（§4.2），收集到 `collected[]`。
-4. 合并后 **MUST** 再做一次稳定排序 `collected.sort((a,b) => a.time - b.time)`（按 `create_time` 升序），保证跨库后时间单调。
-5. 若 `collected` 为空 **MUST** 跳过（不产生空会话）。
-
-### 4.4 候选会话集合
-
-候选 `username` 集合 **MUST** 为 `contact.db` 联系人键 ∪ `session.db` 会话键的并集：
+`raw_type` 保存原始 64 位整数，基础类型为：
 
 ```ts
-const usernames = new Set([...contactMap.keys(), ...sessionMap.keys()])
+type = Number(BigInt.asUintN(32, BigInt(raw_type)))
 ```
-（这样既覆盖有联系人记录的对话，也覆盖只在会话表里出现的对话；最终是否产出仍取决于是否存在对应 `Msg_*` 表且有消息。）
 
-### 4.5 `session.db` → 会话摘要
+即取低 32 位。标签映射：
 
-**MUST**（容错）读取 `SessionTable`：
+| type | type_label |
+|---:|---|
+| 1 | text |
+| 3 | image |
+| 34 | voice |
+| 42 | card |
+| 43 | video |
+| 47 | sticker |
+| 48 | location |
+| 49 | app |
+| 50 | voip |
+| 10000 / 10002 | system |
+| 其它 | type_<n> |
 
-```sql
-SELECT username, summary, last_timestamp FROM SessionTable
+### 4.3 群正文前缀与 Name2Id
+
+群正文可含：
+
+```text
+<sender_wxid>:
+<正文>
 ```
-- `summary` **MUST** 经 `decodeContent` 解码（它可能也是压缩/二进制）。
-- 建 `username → { summary, lastTime }` 映射，供写 `conversations.summary`（见 §5.1）。摘要 **MUST** 仅作为元数据，**不**参与消息计数。
 
-### 4.6 机主身份
+前缀正则固定为 `/^([0-9A-Za-z_@.\-]+):\n/`。人物优先级为：
 
-- 机主自己的 `username` **MUST** 通过含子串 `{{机主标识}}` 识别。真实 wxid / 显示名**不入仓库**——前端经环境变量 `VITE_OWNER_WXID` / `VITE_OWNER_NAME`（写在项目根 gitignored 的 `.env.local`）注入，仓库内只留中性占位（见 [`08_frontend.md`](./08_frontend.md)）。
-- 解析阶段**不强制**标注机主到每条消息；机主判定主要供前端把「我」的气泡靠右、染金色（见 [`08_frontend.md`](./08_frontend.md) / 前端规格）。复刻 **MAY** 在解析阶段额外落一个机主标记字段，但**当前实现未落**——保持一致即可。
+1. 同一个 message DB 分片的 `real_sender_id -> Name2Id`；
+2. 映射缺失时，可信群正文前缀；
+3. 两者都缺失时，明确未知。
+
+若 Name2Id 与正文前缀同时存在且不同：
+
+- `sender` 保留 Name2Id 的权威值；
+- `sender_prefix` 保留正文值；
+- `sender_audit = 'group-prefix-mismatch'`；
+- 严格审计必须失败。
+
+### 4.4 私聊不得猜身份
+
+私聊中：
+
+- 同源 Name2Id 有值时，使用该 username；
+- Name2Id 缺失时，`sender=''`、`sender_name='未知发送人'`、`sender_source='unknown'`；
+- 禁止根据气泡顺序、会话对端、文本内容或目录名猜“本人/对方”；
+- 已解析 sender 若既不是 canonical owner 也不是会话 peer，严格审计失败；
+- `is_own=1` 当且仅当 `sender === canonical owner`。
 
 ---
 
-## 5. 输出产物
+## 5. 排序、去重与稳定 ID
 
-### 5.1 `data/wechat.db`（明文 SQLite，三张表）
+每个会话合并两个消息分片后，**MUST** 按以下键稳定升序：
 
-解析器 **MUST** 用如下精确 DDL 重建（含一个消息索引）：
+```text
+time, sort_seq, source_db, local_id
+```
+
+写入前依次保护：
+
+1. `(source_db, source_table, local_id)` evidence key 重复；
+2. 同会话非零 `server_id` 重复；
+3. `message_uid` 重复。
+
+exact evidence key 重复无论内容是否相同都 **MUST** 立即失败。只有跨不同 evidence 的非零 `server_id` 或 `message_uid` 重复，才允许在以下语义指纹完全一致时折叠：
+
+```text
+create_time + raw_type + resolved sender + extracted text
+```
+
+若任一字段不同，解析器 **MUST** 抛出 `Conflicting duplicate` 并停止 staging 构建，禁止静默保留第一条。允许折叠且完全一致时保留稳定排序后的第一条，并计入 `deduplicated_message_count`。
+
+`message_uid` 基于：
+
+```text
+canonical owner + conversation username
++ (非零 server_id；否则 source_db + source_table + local_id)
+```
+
+生成稳定 SHA-256。输出库再以唯一索引约束 message_uid、evidence key 和非零 server_id，形成第二道保护。去重完成后 `seq` 从 0 连续编号。
+
+---
+
+## 6. next 数据库 Schema
 
 ```sql
-PRAGMA journal_mode=WAL;
-
 CREATE TABLE contacts(
-  account TEXT, username TEXT, display TEXT,
-  nick TEXT, remark TEXT, alias TEXT, is_group INTEGER
+  account TEXT,
+  owner TEXT,
+  username TEXT,
+  display TEXT,
+  nick TEXT,
+  remark TEXT,
+  alias TEXT,
+  is_group INTEGER
 );
 
 CREATE TABLE conversations(
-  id TEXT PRIMARY KEY, account TEXT, username TEXT, display TEXT, is_group INTEGER,
-  msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
+  id TEXT PRIMARY KEY,
+  account TEXT,
+  owner TEXT,
+  username TEXT,
+  display TEXT,
+  is_group INTEGER,
+  msg_count INTEGER,
+  text_count INTEGER,
+  first_time INTEGER,
+  last_time INTEGER,
+  summary TEXT
 );
 
 CREATE TABLE messages(
-  conv_id TEXT, seq INTEGER, time INTEGER, sender TEXT, sender_name TEXT,
-  type INTEGER, type_label TEXT, text TEXT
+  conv_id TEXT,
+  message_uid TEXT,
+  seq INTEGER,
+  source_snapshot TEXT,
+  source_db TEXT,
+  source_table TEXT,
+  local_id INTEGER,
+  server_id TEXT,
+  sort_seq INTEGER,
+  time INTEGER,
+  sender TEXT,
+  sender_name TEXT,
+  sender_prefix TEXT,
+  is_own INTEGER,
+  sender_source TEXT,
+  sender_audit TEXT,
+  raw_type INTEGER,
+  type INTEGER,
+  type_label TEXT,
+  text TEXT
 );
 
-CREATE INDEX idx_msg_conv ON messages(conv_id, time);
+CREATE TABLE parse_runs(
+  run_id TEXT PRIMARY KEY,
+  status TEXT,
+  completed_at TEXT,
+  selected_snapshot_count INTEGER,
+  selected_source_count INTEGER,
+  source_conversation_count INTEGER,
+  source_message_count INTEGER,
+  output_conversation_count INTEGER,
+  output_message_count INTEGER,
+  output_text_count INTEGER,
+  deduplicated_message_count INTEGER
+);
 ```
 
-字段语义与填值规则：
+必要索引：
 
-**`conversations`**（每会话一行）
-- `id` **MUST** = `wx:<account>:<username>`（全局唯一会话 ID，前端/服务端据此取消息）。
-- `account` = 账号目录名 `<account>`。
-- `username` = 对端标识（私聊 wxid / 群 `*@chatroom`）。
-- `display` = §4.1 显示名。
-- `is_group` = `username.endsWith('@chatroom') ? 1 : 0`。
-- `msg_count` = `collected.length`（**所有**类型消息计数，含图片/系统等）。
-- `text_count` = 其中 `type===1 && text` 非空的条数（**纯文本**计数）。
-- `first_time` / `last_time` = `collected` 排序后首/末条 `time`（unix 秒）。
-- `summary` = §4.5 的会话摘要（无则空串）。
-
-**`messages`**（每消息一行）
-- `conv_id` = 上面的会话 `id`。
-- `seq` = 0 起递增的会话内序号（按 §4.3 排序后顺序赋值）。
-- `time` = `create_time`（unix 秒）。
-- `sender` = `senderUser`（解析出的发送人 username，可能为空）。
-- `sender_name` = 发送人显示名（`dispName(senderUser)`，回落 `senderUser`）。
-- `type` = `local_type` 原始数值。
-- `type_label` = §3.4 标签。
-- `text` = §3.6 人类可读文本。
-
-**`contacts`**（每联系人/群一行）
-- 列：`account, username, display, nick, remark, alias, is_group`，取值见 §4.1。
-
-写入约束：
-- 三张表 **MUST** 用预编译 `prepare(...).run(...)` 批量插入。
-- 每个账号的会话插入 **MUST** 包在事务里（`out.exec('BEGIN')` … `out.exec('COMMIT')`），以保证性能与原子性。
-- 完成后 **MUST** `out.close()`，并 `close()` 所有打开的源库句柄（`contactDb` / `sessionDb` / 各 `Msg_*` 来源库）。
-
-### 5.2 `data/wechat/index.json`（会话索引）
-
-**MUST** 写一个 JSON，结构：
-
-```json
-{
-  "generatedAt": "<ISO 时间>",
-  "totalConversations": <number>,
-  "totalMessages": <number>,
-  "conversations": [
-    {
-      "id": "wx:<account>:<username>",
-      "account": "<account>",
-      "username": "<username>",
-      "display": "<显示名>",
-      "isGroup": <boolean>,
-      "msgCount": <number>,
-      "textCount": <number>,
-      "firstTime": <unix 秒>,
-      "lastTime": <unix 秒>,
-      "summary": "<摘要前 120 字>"
-    }
-  ]
-}
-```
-- `conversations` 数组 **MUST** 按 `lastTime` **倒序**（最近活跃在前）。
-- 每条 `summary` **MUST** 截断到 120 字（`summary.slice(0, 120)`）。
-- 该索引主要供概览/调试；前端会话列表实际走服务端实时读 `data/wechat.db`（见服务端/前端分册）。
-
-### 5.3 `work/chat-text/*.txt`（逐字记录，供提炼）
-
-**仅**对 `text_count >= 5` 的「有实质文本内容」的会话产出（**MUST** 用该阈值过滤，避免给纯媒体/系统会话生成垃圾文件）：
-
-- 文件名 **MUST** = `safeFile(\`${display}__${username}\`) + '.txt'`，其中 `safeFile(name)` **MUST** 为 `name.replace(/[<>:"/\\|?* -]/g, '_').slice(0, 80)`（清非法文件名字符、含空格与连字符，截 80 字）。
-- 内容 **MUST** 为：
-  - 头部：
-    ```
-    # <display>（群聊）            ← 群聊才加「（群聊）」
-    username: <username>
-    messages: <总数> (text <文本数>)
-
-    ```
-  - 正文：对**有 `text` 的**消息逐行 `\`[<YYYY-MM-DD HH:MM>] <who>: <text>\``。
-    - 时间 **MUST** 为 `new Date(time*1000).toISOString().slice(0,16).replace('T',' ')`（即 `YYYY-MM-DD HH:MM`，UTC）。
-    - `who` **MUST** = `senderName || sender || (isGroup ? '群成员' : display)`。
-- 编码 **MUST** 为 `utf8`。
-
-> 这些 `.txt` 是 [`06_insights.md`](./06_insights.md) 提炼管线（digest → 扇出 agent）的上游输入；其稳定的文件名与格式是契约的一部分。
-
-### 5.4 控制台汇总
-
-运行结束 **MUST** 打印：会话数、消息数（千分位）、三个产物的相对路径，便于核对规模锚点（§0）。
-
----
-
-## 6. 时间戳约定
-
-- 所有 `*_time` / `time` / `firstTime` / `lastTime` **MUST** 是 **unix 秒**（非毫秒）。
-- 渲染为可读串时 **MUST** 乘 1000 再 `new Date(...)`（见 §5.3）。
-- 解析器**不**做时区归一，逐字记录用 `toISOString()`（UTC）；前端展示时区策略另见前端分册。复刻 **MUST** 保持解析层用 UTC、不在此处本地化。
-
----
-
-## 7. 验证与自检
-
-复刻完成后 **SHOULD** 用 Python 侧独立核对（不依赖 Node，交叉验证），例如：
-
-```bash
-python -X utf8 -c "import sqlite3,collections,os; \
-db=sqlite3.connect('data/wechat.db'); c=db.cursor(); \
-print('conversations', c.execute('select count(*) from conversations').fetchone()[0]); \
-print('messages', c.execute('select count(*) from messages').fetchone()[0]); \
-print('text', c.execute('select count(*) from messages where type=1 and text<>\"\"').fetchone()[0])"
+```sql
+CREATE INDEX idx_msg_conv_order
+  ON messages(conv_id, time, sort_seq, source_db, local_id);
+CREATE UNIQUE INDEX idx_msg_uid ON messages(message_uid);
+CREATE UNIQUE INDEX idx_msg_evidence
+  ON messages(conv_id, source_db, source_table, local_id);
+CREATE UNIQUE INDEX idx_msg_server
+  ON messages(conv_id, server_id)
+  WHERE server_id IS NOT NULL AND trim(server_id)<>'' AND server_id<>'0';
 ```
 
-期望量级（本项目实测，复刻数字随机主数据变化）：
-- `conversations` ≈ **980**
-- `messages` ≈ **738,511**
-- 文本消息（`type=1` 非空）≈ **427,803**
+`msg_count` 与 `text_count` 必须从最终去重消息重新计算。候选 DB 完成时必须恰好插入一条 `parse_runs`，且：
 
-排查指引：
-- 若**消息为 0** → 多半是 `Msg_*` 表名 md5 没用 UTF-8、或没枚举 `sqlite_master` 实有表；先确认 `message_0.db` 里确有 `Msg_%` 表。
-- 若**正文乱码** → 漏判 zstd 魔数（§3.3），把压缩字节当成了 UTF-8。
-- 若**群消息发送人全空** → `name2id` 列名走错分支（§4.2），或群前缀正则不匹配（§3.5）。
-- 若**显示名全是 wxid** → `contact.db` 没读到 / 显示名优先级写反（应 `remark||nick_name||alias||username`）。
+- `status='complete'`，`completed_at` 非空；
+- selected snapshot/source 数为正；
+- `source_conversation_count = output_conversation_count`；
+- `source_message_count = output_message_count + deduplicated_message_count`；
+- output 三项计数与实际 conversations/messages/文本消息查询完全相等；
+- 会话或消息为零时禁止写完成记录、禁止发布最终路径。
 
 ---
 
-## 8. 安全与边界
+## 7. Index 与版本化 Transcript
 
-- 解析器 **MUST** 全程只读解密副本，**MUST NOT** 写回、移动或删除任何原始微信库或机主存储。
-- 产物 `data/`、`work/chat-text/` 属本地敏感数据，**MUST** 在 `.gitignore` 内，**MUST NOT** 上传。
-- 本解析器**只处理微信**。QQ 聊天正文（`nt_msg.db`，自定义 `QQ_NT DB` 格式）**未在本规格范围内解密**，原因与边界见 [`10_data-products-and-boundaries.md`](./10_data-products-and-boundaries.md)；QQ 的**明文附件**由归档管线处理，见 [`05_archiving.md`](./05_archiving.md)。
-- 微信 `.dat` 加密图（本项目 69,820 个）**不**在解析/归档范围（需单独图片密钥），留作增强，记录于边界分册。
+`data/wechat.next/index.json` 至少保存：
+
+- `generatedAt`、`runId`；
+- 被选择的 `account + owner`；
+- 被严格排除的快照及其替代者；
+- 总会话/总消息数；
+- 每个会话的 owner、account、首末时间与计数。
+
+每个含文本的会话在 `data/wechat.next/transcripts/` 生成一个 UTF-8 文件。文件名由安全化 display/username 加 username hash 组成，使用独占创建，避免截断后重名覆盖。Header 必须同时保留 owner 与 username；对应 `runId` 保存在同 bundle 的 index 与 `parse_runs` 中。
 
 ---
 
-## 9. 复刻检查清单（Definition of Done）
+## 8. 运行与严格验收
 
-- [ ] 仅读取 `work/decrypted/wechat/<account>/db_storage/...`，原库零写入。
-- [ ] 账号发现以 `db_storage/` 存在为准；缺库优雅降级。
-- [ ] `Msg_<md5(utf8(username))>` 表名；枚举 `sqlite_master` 实有表后再查。
-- [ ] `message_content` BLOB 先判 zstd 魔数 `28 b5 2f fd` 再 `zstdDecompressSync`，否则 utf8。
-- [ ] `local_type` 映射与 `extractText` 各分支与 §3.4/§3.6 完全一致（含系统消息 300 字截断、应用消息 ` — ` 拼装、群前缀剥离）。
-- [ ] 发送人解析优先级：群前缀 → `name2id` → 空。
-- [ ] 显示名 = `remark||nick_name||alias||username`。
-- [ ] 跨 `message_0/1.db` 合并并按 `create_time` 升序；空会话不产出。
-- [ ] `data/wechat.db` 三表 DDL + `idx_msg_conv` 索引，字段填值如 §5.1；事务批插。
-- [ ] `data/wechat/index.json` 按 `lastTime` 倒序、`summary` 截 120。
-- [ ] `work/chat-text/*.txt` 仅 `text_count>=5`，文件名 `safeFile`、头部+逐行格式如 §5.3。
-- [ ] Python 交叉核对量级符合 §7。
+仅在已备份当前活动库并确认 next 路径为空后运行：
+
+```powershell
+npx tsx scripts/parseWeChat.ts
+npx tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.next/wechat.db --strict
+```
+
+严格审计至少检查：
+
+- canonical owner 唯一；
+- 同 owner 只剩一个已选择快照；
+- `parse_runs` 恰好一条且状态为 complete；
+- source/output/deduplicated 计数闭合，输出会话与消息均非零；
+- message_uid、evidence key、非零 server_id 无重复；
+- message provenance 字段完整；
+- 每条输出消息必须从 provenance 指定的源行重新派生，并与源 `server_id/raw_type/create_time/sort_seq`、规范化 `text` 完全一致；
+- `sender` 必须来自同一 message shard 的 Name2Id/群前缀规则，`sender_name` 必须与该 snapshot 的 contact 显示名规则完全一致；
+- 私聊 sender 仅为 owner、peer 或空；
+- 群前缀与同源 Name2Id 冲突数为 0；
+- `type` 等于 `raw_type` 低 32 位；
+- `seq` 连续且排序不回退；
+- `is_own` 与 canonical owner 一致；
+- 会话计数与消息表一致；
+- 中文无 U+FFFD，抽样 UTF-8 往返一致；
+- 旧活动 DB/index/transcript 的 hash 未改变。
+
+通过审计前，**MUST NOT** 将 next 文件提升为活动产物。
