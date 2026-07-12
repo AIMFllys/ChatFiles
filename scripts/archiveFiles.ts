@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { LibraryFile, LibraryManifest } from '../src/types.js'
+import { appendHash8, planAppendOnlyArchive } from './archivePlan.js'
 import {
   archiveDir,
   classify,
@@ -77,101 +78,110 @@ function isSyncableChatAsset(filePath: string) {
   return true
 }
 
-function removePreviousArchive() {
-  const manifestPath = path.join(dataDir, 'library.json')
-  if (!fs.existsSync(manifestPath)) return
-  const archiveRoot = path.resolve(archiveDir)
-  try {
-    const previous = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as LibraryManifest
-    const dirs = new Set<string>()
-    for (const item of previous.files) {
-      const target = path.resolve(root, item.archivePath)
-      if (!target.startsWith(`${archiveRoot}${path.sep}`)) continue
-      if (fs.existsSync(target) && fs.statSync(target).isFile()) {
-        dirs.add(path.dirname(target))
-        fs.unlinkSync(target)
-      }
-    }
-    for (const dir of [...dirs].sort((a, b) => b.length - a.length)) {
-      let cursor = dir
-      while (cursor.startsWith(archiveRoot) && cursor !== archiveRoot) {
-        try {
-          fs.rmdirSync(cursor)
-        } catch {
-          break
-        }
-        cursor = path.dirname(cursor)
-      }
-    }
-  } catch {
-    return
+function readPreviousManifest(manifestPath: string) {
+  if (!fs.existsSync(manifestPath)) return undefined
+  const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as LibraryManifest
+  if (!Array.isArray(parsed.files) || !Array.isArray(parsed.roots)) {
+    throw new Error(`旧归档清单格式无效，已停止更新以避免覆盖：${manifestPath}`)
   }
+  return parsed
+}
+
+function resolveArchiveTarget(archivePath: string) {
+  const archiveRoot = path.resolve(archiveDir)
+  const target = path.resolve(root, archivePath)
+  if (!target.startsWith(`${archiveRoot}${path.sep}`)) {
+    throw new Error(`拒绝访问 archive 目录外的归档路径：${archivePath}`)
+  }
+  return target
 }
 
 ensureDir(archiveDir)
 ensureDir(dataDir)
-removePreviousArchive()
+const manifestPath = path.join(dataDir, 'library.json')
+const previousManifest = readPreviousManifest(manifestPath)
 
 const sourceRoots = syncRoots.filter((dir) => fs.existsSync(dir))
 const discovered = sourceRoots.flatMap((dir) => walkFiles(dir))
 const eligible = chooseLatestSerial(discovered.filter(isSyncableChatAsset))
 
-const seenHashes = new Set<string>()
-const files: LibraryFile[] = []
-let duplicateCount = discovered.length - eligible.length
-let totalBytes = 0
+const candidates: LibraryFile[] = []
 
 for (const file of eligible) {
   const stat = fs.statSync(file)
   if (stat.size === 0) continue
   const hash = sha256(file)
-  if (seenHashes.has(hash)) {
-    duplicateCount += 1
-    continue
-  }
-  seenHashes.add(hash)
   const { category, subcategory } = classify(file)
   const ext = path.extname(file).toLowerCase()
   const cleanName = safeName(path.basename(file))
-  const destDir = path.join(archiveDir, category, ...subcategory)
-  ensureDir(destDir)
-  let dest = path.join(destDir, cleanName)
-  if (fs.existsSync(dest) && sha256(dest) !== hash) {
-    dest = path.join(destDir, `${path.basename(cleanName, ext)}-${hash.slice(0, 8)}${ext}`)
-  }
-  if (!fs.existsSync(dest)) fs.copyFileSync(file, dest)
-  fs.utimesSync(dest, stat.atime, stat.mtime)
-  totalBytes += stat.size
-  files.push({
+  const preferredDest = path.join(archiveDir, category, ...subcategory, cleanName)
+  candidates.push({
     id: hash.slice(0, 20),
-    name: path.basename(dest),
+    name: cleanName,
     ext,
-    mime: mimeFor(dest),
+    mime: mimeFor(preferredDest),
     size: stat.size,
     modified: stat.mtime.toISOString(),
     category,
     subcategory,
-    archivePath: path.relative(root, dest).replace(/\\/g, '/'),
+    archivePath: path.relative(root, preferredDest).replace(/\\/g, '/'),
     sourcePath: file,
     sourceApp: sourceApp(file),
-    preview: previewFor(dest),
+    preview: previewFor(preferredDest),
     sha256: hash,
   })
 }
 
-const manifest: LibraryManifest = {
-  generatedAt: new Date().toISOString(),
-  roots: sourceRoots,
-  files: files.sort((a, b) => a.category.localeCompare(b.category, 'zh-CN') || a.name.localeCompare(b.name, 'zh-CN')),
-  stats: {
-    discovered: discovered.length,
-    archived: files.length,
-    duplicatesSkipped: duplicateCount,
-    bytes: totalBytes,
-  },
+const pathsToInspect = new Set(previousManifest?.files.map((file) => file.archivePath) ?? [])
+for (const candidate of candidates) {
+  pathsToInspect.add(candidate.archivePath)
+  pathsToInspect.add(appendHash8(candidate.archivePath, candidate.sha256))
 }
 
-writeJson(path.join(dataDir, 'library.json'), manifest)
+const existingCopies: Array<{ archivePath: string; sha256: string }> = []
+for (const archivePath of pathsToInspect) {
+  let target: string
+  try {
+    target = resolveArchiveTarget(archivePath)
+  } catch {
+    continue
+  }
+  if (!fs.existsSync(target) || !fs.lstatSync(target).isFile()) continue
+  existingCopies.push({ archivePath, sha256: sha256(target) })
+}
+
+const plan = planAppendOnlyArchive({
+  previousManifest,
+  candidates,
+  existingCopies,
+  generatedAt: new Date().toISOString(),
+  roots: sourceRoots,
+  discovered: discovered.length,
+  duplicatesSkipped: discovered.length - eligible.length,
+})
+
+for (const operation of plan.copyOperations) {
+  const target = resolveArchiveTarget(operation.archivePath)
+  ensureDir(path.dirname(target))
+  fs.copyFileSync(operation.sourcePath, target, fs.constants.COPYFILE_EXCL)
+  const modified = new Date(operation.modified)
+  fs.utimesSync(target, modified, modified)
+}
+
+const manifest = plan.manifest
+writeJson(manifestPath, manifest)
+
+const issueReport = plan.integrityIssues
+  .map((issue) => {
+    if (issue.kind === 'missing-previous-copy') {
+      return `- 旧清单副本缺失（仅报告）：${issue.archivePath}`
+    }
+    if (issue.kind === 'changed-previous-copy') {
+      return `- 旧清单副本内容异常（仅报告）：${issue.archivePath}`
+    }
+    return `- 目标路径冲突，未覆盖也未归档：${issue.archivePath}`
+  })
+  .join('\n')
 
 const report = `# 微信 / QQ 文件深度同步报告
 
@@ -186,15 +196,22 @@ ${manifest.roots.map((item) => `- ${item}`).join('\n') || '- 未找到可用根�
 - 原始微信/QQ文件没有删除，脚本只复制到本项目 archive 目录。
 - 源目录从部分候选目录升级为所有已知微信/QQ根：Tencent Files、Roaming QQ、Tencent/QQ、xwechat、WeChat、临时 WeChat Files。
 - 文件名形如 name、name(1)、name(2) 时，在同一目录内保留序号最高的版本。
-- 相同 SHA-256 的文件只保留一份。
+- 归档采用只追加策略：旧清单条目与旧副本不删除、不覆盖；相同 SHA-256 直接复用。
+- 同名不同内容追加 SHA-256 前 8 位；新增副本使用排他复制，目标已存在时拒绝覆盖。
 - 排除数据库、日志、程序缓存、安装组件、前端包、头像/表情资源和明显应用资源；保留图片、视频、语音、文档、表格、演示、压缩包、代码/文本等可预览资产。
 
 ## 结果
 
 - 扫描源文件：${manifest.stats.discovered}
-- 同步文件：${manifest.stats.archived}
+- 清单累计文件：${manifest.stats.archived}
+- 本轮新增副本：${plan.copyOperations.length}
+- 本轮复用旧哈希：${plan.reusedHashes.length}
 - 去重/跳过：${manifest.stats.duplicatesSkipped}
 - 同步体积：${(manifest.stats.bytes / 1024 / 1024).toFixed(2)} MB
+
+## 完整性报告
+
+${issueReport || '- 未发现缺失、内容异常或目标冲突。'}
 `
 
 fs.writeFileSync(path.join(dataDir, 'discovery.md'), report, 'utf8')
