@@ -283,3 +283,64 @@ export type WechatMessagePage = {
   offset: number
   limit: number
 }
+
+export type ChatArtifactTab = 'all' | 'work' | 'document' | 'skill' | 'link' | 'chatText'
+
+export type ChatArtifactAvailability =
+  | 'ready'
+  | 'thumbnail_only'
+  | 'missing_source'
+  | 'decrypt_failed'
+  | 'source_ambiguous'
+  | 'hash_mismatch'
+  | 'unsupported_codec'
+  | 'source_unavailable'
+
+export type ChatArtifactCounts = Record<ChatArtifactTab, number>
+
+export type ChatArtifactItem = {
+  id: string
+  itemType: 'artifact'
+  conversationId: string | null
+  category: Exclude<ChatArtifactTab, 'all' | 'chatText'>
+  kind: string
+  name: string
+  preview: string
+  url: string | null
+  createdAt: number
+  senderName: string
+  availability: ChatArtifactAvailability
+  metadataUrl: string
+}
+
+export type ChatTextItem = {
+  id: string
+  itemType: 'chatText'
+  conversationId: string
+  messageUid: string
+  createdAt: number
+  senderName: string
+  content: string
+}
+
+export type ChatArtifactListItem = ChatArtifactItem | ChatTextItem
+
+export type ChatArtifactPage = {
+  tab: ChatArtifactTab
+  counts: ChatArtifactCounts
+  total: number
+  matchingTotal: number
+  offset: number
+  limit: number
+  items: ChatArtifactListItem[]
+}
+
+export type ChatArtifactCapability = {
+  metadata: string
+  content?: string
+  thumbnail?: string
+}
+
+export type ChatArtifactMetadata = ChatArtifactItem & {
+  capabilities: ChatArtifactCapability
+}

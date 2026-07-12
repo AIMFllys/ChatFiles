@@ -35,6 +35,15 @@ export type {
   WechatConversationList,
   WechatMessage,
   WechatMessagePage,
+  ChatArtifactTab,
+  ChatArtifactAvailability,
+  ChatArtifactCounts,
+  ChatArtifactItem,
+  ChatTextItem,
+  ChatArtifactListItem,
+  ChatArtifactPage,
+  ChatArtifactCapability,
+  ChatArtifactMetadata,
 } from './chat'
 
 export type {

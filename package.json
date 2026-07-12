@@ -27,6 +27,7 @@
     "ingest:summary": "tsx scripts/buildSummary.ts",
     "ingest": "npm run ingest:courses && npm run ingest:discover && npm run ingest:deep && npm run ingest:databases && npm run ingest:binary-text && npm run ingest:logs && npm run ingest:source-text && npm run ingest:files && npm run ingest:chat-exports && npm run ingest:chat-clues && npm run ingest:chat-synthesis && npm run ingest:value-candidates && npm run ingest:promote-candidates && npm run ingest:value-candidates && npm run ingest:knowledge && npm run ingest:audit && npm run ingest:summary",
     "build": "tsc -b && vite build",
+    "typecheck:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 3456",
     "start": "tsx server/index.ts"
@@ -36,7 +37,6 @@
     "@tiptap/extension-typography": "^3.24.0",
     "@tiptap/react": "^3.24.0",
     "@tiptap/starter-kit": "^3.24.0",
-    "cors": "^2.8.6",
     "docx-preview": "^0.3.7",
     "express": "^5.2.1",
     "gray-matter": "^4.0.3",
@@ -55,7 +55,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
