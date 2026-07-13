@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
-import { Shapes } from 'lucide-react'
+import { MessageSquareText, Shapes } from 'lucide-react'
 import type {
   ChatArtifactCounts,
   ChatArtifactListItem,
@@ -14,6 +14,7 @@ import { artifactRequestUrl, safeExternalUrl, type ChatLibrarySelection } from '
 import { canLoadMoreArtifacts, isArtifactPageRequestCurrent } from './artifactPagination'
 import { ArtifactWorkspaceHeader } from './ArtifactWorkspaceHeader'
 import { mergeUnique } from './artifactWorkspaceModel'
+import { ChatTimeline } from '../chat-timeline/ChatTimeline'
 
 const PAGE_SIZE = 120
 const emptyCounts: ChatArtifactCounts = {
@@ -70,6 +71,7 @@ export function ArtifactWorkspace({
   }, [activeRequestScope])
 
   useEffect(() => {
+    if (tab === 'chatText') return
     const controller = new AbortController()
     const requestScope = artifactRequestUrl({
       selection,
@@ -217,12 +219,18 @@ export function ArtifactWorkspace({
 
       <div
         aria-labelledby={`artifact-tab-${tab}`}
-        className="artifact-scroll"
+        className={tab === 'chatText' ? 'artifact-scroll is-timeline' : 'artifact-scroll'}
         id="artifact-tab-panel"
         ref={scrollRef}
         role="tabpanel"
       >
-        {loading ? (
+        {tab === 'chatText' ? (
+          selection.kind === 'conversation' ? (
+            <ChatTimeline conversationId={selection.id} query={deferredQuery} />
+          ) : (
+            <div className="artifact-empty"><MessageSquareText size={30} /><p>选择一个会话后查看聊天时间轴</p></div>
+          )
+        ) : loading ? (
           <div className="artifact-empty"><span className="library-loader" /><p>正在载入...</p></div>
         ) : error && items.length === 0 ? (
           <div className="artifact-empty"><p>{error}</p></div>

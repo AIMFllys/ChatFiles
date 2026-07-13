@@ -4,6 +4,7 @@ import { queryArtifacts } from '../wechat/artifactQuery.js'
 import { openValidatedWechatDatabase } from '../wechat/databaseOpener.js'
 import { readConversationMessages } from '../wechat/messageQuery.js'
 import { registerWechatArtifactRoutes } from './wechatArtifactRoutes.js'
+import { registerWechatTimelineRoutes } from './wechatTimelineRoutes.js'
 import {
   canonicalWechatDatabase,
   defaultDependencies,
@@ -103,6 +104,7 @@ export function createWechatRouter(
     collection(request.params.id, request.query as Record<string, unknown>, response)
   ))
 
+  registerWechatTimelineRoutes(router, deps)
   registerWechatArtifactRoutes(router, deps)
   return router
 }

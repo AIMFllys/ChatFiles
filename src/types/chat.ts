@@ -1,4 +1,12 @@
 export type { WechatMessage } from './chatIdentity'
+export type {
+  TimelineBucket,
+  TimelineCursor,
+  TimelineMessage,
+  TimelinePage,
+  TimelinePageInfo,
+  TimelineParticipant,
+} from './chatTimeline'
 
 export type {
   SummaryInsight,

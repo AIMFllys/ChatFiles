@@ -44,6 +44,12 @@ export type {
   ChatArtifactPage,
   ChatArtifactCapability,
   ChatArtifactMetadata,
+  TimelineBucket,
+  TimelineCursor,
+  TimelineMessage,
+  TimelinePage,
+  TimelinePageInfo,
+  TimelineParticipant,
 } from './chat'
 
 export type {
