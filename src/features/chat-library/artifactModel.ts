@@ -134,6 +134,9 @@ export function artifactRequestUrl(input: {
     ? `/api/wechat/conversation/${encodeURIComponent(input.selection.id)}/artifacts`
     : '/api/wechat/artifacts'
   const params = new URLSearchParams({ tab: input.tab })
+  if (input.selection.kind === 'collection' && input.selection.id === 'library') {
+    params.set('collection', 'library')
+  }
   if (input.query) params.set('q', input.query)
   params.set('offset', String(input.offset))
   params.set('limit', String(input.limit))

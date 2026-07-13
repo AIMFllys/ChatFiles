@@ -124,7 +124,10 @@ test('serves global and conversation collections and strictly validates query pa
     assert.equal(conversation.status, 200)
     assert.equal((await conversation.json() as { counts: { all: number } }).counts.all, 1)
 
-    for (const query of ['tab=other', 'limit=0', 'limit=201', 'limit=1.5', 'offset=-1', `q=${'x'.repeat(201)}`]) {
+    for (const query of [
+      'tab=other', 'collection=other', 'collection=library&collection=outputs',
+      'limit=0', 'limit=201', 'limit=1.5', 'offset=-1', `q=${'x'.repeat(201)}`,
+    ]) {
       const response = await fetch(`${baseUrl}/api/wechat/artifacts?${query}`)
       assert.equal(response.status, 400, query)
       assert.deepEqual(Object.keys(await response.json()).sort(), ['code', 'error'])
@@ -134,6 +137,40 @@ test('serves global and conversation collections and strictly validates query pa
     const empty = await fetch(`${baseUrl}/api/wechat/artifacts?offset=2`)
     assert.equal(empty.status, 200)
     assert.deepEqual((await empty.json() as { items: unknown[] }).items, [])
+  })
+})
+
+test('serves a distinct ready-only library collection with coherent pagination', async (t) => {
+  const fixtureData = fixture(t)
+  fixtureData.addAsset({ name: '可预览.pdf', preview: 'pdf', content: 'ready' })
+  fixtureData.addAsset({
+    name: '待解密.pdf', preview: 'pdf', materialization: 'decrypt_failed', previewStatus: 'decrypt_failed',
+  })
+  fixtureData.addAsset({ name: '全局可预览.docx', preview: 'docx', content: 'ready', convId: null })
+
+  await withServer(createWechatRouter(fixtureData.dependencies), async (baseUrl) => {
+    const library = await fetch(`${baseUrl}/api/wechat/artifacts?collection=library&tab=all`)
+    assert.equal(library.status, 200)
+    const body = await library.json() as {
+      counts: { all: number; document: number; chatText: number }
+      matchingTotal: number
+      items: Array<{ name: string }>
+    }
+    assert.deepEqual(body.counts, {
+      all: 2, work: 0, document: 2, skill: 0, link: 0, chatText: 0,
+    })
+    assert.equal(body.matchingTotal, 2)
+    assert.deepEqual(body.items.map((item) => item.name), ['可预览.pdf', '全局可预览.docx'])
+
+    const text = await fetch(`${baseUrl}/api/wechat/artifacts?collection=library&tab=chatText`)
+    assert.equal(text.status, 200)
+    assert.deepEqual(await text.json(), {
+      tab: 'chatText',
+      counts: { all: 2, work: 0, document: 2, skill: 0, link: 0, chatText: 0 },
+      total: 0, matchingTotal: 0, offset: 0, limit: 60, items: [],
+    })
+    assert.equal((await fetch(`${baseUrl}/api/wechat/artifacts?collection=library&offset=2`)).status, 200)
+    assert.equal((await fetch(`${baseUrl}/api/wechat/artifacts?collection=library&offset=3`)).status, 416)
   })
 })
 

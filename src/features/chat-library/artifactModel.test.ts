@@ -87,6 +87,16 @@ test('defines all as four output kinds and excludes chat text', () => {
 test('serializes global and conversation artifact requests with literal query values', () => {
   assert.equal(
     artifactRequestUrl({
+      selection: { kind: 'collection', id: 'library' },
+      tab: 'work',
+      query: '',
+      offset: 0,
+      limit: 60,
+    }),
+    '/api/wechat/artifacts?tab=work&collection=library&offset=0&limit=60',
+  )
+  assert.equal(
+    artifactRequestUrl({
       selection: { kind: 'collection', id: 'outputs' },
       tab: 'all',
       query: '中文 & 100%',

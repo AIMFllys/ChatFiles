@@ -39,6 +39,7 @@ export type WechatRouterDependencies = {
 }
 
 const tabs = new Set<ChatArtifactTab>(['all', 'work', 'document', 'skill', 'link', 'chatText'])
+const collections = new Set(['outputs', 'library'] as const)
 
 function defaultWechatLease(projectRoot: string): DatabaseLease {
   const opened = openValidatedWechatDatabase(projectRoot)
@@ -79,15 +80,18 @@ function singleQueryValue(value: unknown, fallback: string) {
 
 function parseCollectionQuery(query: Record<string, unknown>) {
   const tabValue = singleQueryValue(query.tab, 'all')
+  const collectionValue = singleQueryValue(query.collection, 'outputs')
   const queryValue = singleQueryValue(query.q, '')
   const limitValue = singleQueryValue(query.limit, '60')
   const offsetValue = singleQueryValue(query.offset, '0')
   if (
     tabValue === null
+    || collectionValue === null
     || queryValue === null
     || limitValue === null
     || offsetValue === null
     || !tabs.has(tabValue as ChatArtifactTab)
+    || !collections.has(collectionValue as 'outputs' | 'library')
     || queryValue.length > 200
     || !/^[1-9][0-9]*$/u.test(limitValue)
     || !/^(?:0|[1-9][0-9]*)$/u.test(offsetValue)
@@ -95,7 +99,13 @@ function parseCollectionQuery(query: Record<string, unknown>) {
   const limit = Number(limitValue)
   const offset = Number(offsetValue)
   if (!Number.isSafeInteger(limit) || limit > 200 || !Number.isSafeInteger(offset)) return null
-  return { tab: tabValue as ChatArtifactTab, query: queryValue.trim(), limit, offset }
+  return {
+    collection: collectionValue as 'outputs' | 'library',
+    tab: tabValue as ChatArtifactTab,
+    query: queryValue.trim(),
+    limit,
+    offset,
+  }
 }
 
 function canonicalWechatDatabase(db: DatabaseSync) {

@@ -10,6 +10,7 @@ import type {
 } from '../../src/types/chat.js'
 
 export type ArtifactQueryInput = {
+  collection?: 'outputs' | 'library'
   conversationId?: string
   tab: ChatArtifactTab
   query: string
@@ -75,13 +76,20 @@ function scopeParams(conversationId: string | undefined) {
   return conversationId === undefined ? [] : [conversationId]
 }
 
-function readCounts(assetDb: DatabaseSync, wechatDb: DatabaseSync, conversationId: string | undefined) {
-  const scoped = scopeClause(conversationId)
-  const params = scopeParams(conversationId)
+function readCounts(
+  assetDb: DatabaseSync,
+  wechatDb: DatabaseSync,
+  input: Pick<ArtifactQueryInput, 'collection' | 'conversationId'>,
+) {
+  const libraryOnly = input.collection === 'library'
+    ? " AND materialization='exported' AND preview_status='ready'"
+    : ''
+  const scoped = scopeClause(input.conversationId)
+  const params = scopeParams(input.conversationId)
   const rows = assetDb.prepare(`
     SELECT category, count(*) AS count
     FROM artifacts
-    WHERE category IN ('work', 'document', 'skill', 'link')${scoped}
+    WHERE category IN ('work', 'document', 'skill', 'link')${libraryOnly}${scoped}
     GROUP BY category
   `).all(...params) as CountRow[]
   const counts: ChatArtifactCounts = { all: 0, work: 0, document: 0, skill: 0, link: 0, chatText: 0 }
@@ -91,16 +99,21 @@ function readCounts(assetDb: DatabaseSync, wechatDb: DatabaseSync, conversationI
       counts.all += Number(row.count)
     }
   }
-  const textRow = wechatDb.prepare(`
-    SELECT count(*) AS count FROM messages WHERE type=1${scoped}
-  `).get(...params) as { count: number } | undefined
-  counts.chatText = Number(textRow?.count ?? 0)
+  if (!libraryOnly) {
+    const textRow = wechatDb.prepare(`
+      SELECT count(*) AS count FROM messages WHERE type=1${scoped}
+    `).get(...params) as { count: number } | undefined
+    counts.chatText = Number(textRow?.count ?? 0)
+  }
   return counts
 }
 
 function artifactWhere(input: ArtifactQueryInput) {
   const clauses = ["category IN ('work', 'document', 'skill', 'link')"]
   const params: Array<string | number> = []
+  if (input.collection === 'library') {
+    clauses.push("materialization='exported'", "preview_status='ready'")
+  }
   if (input.tab !== 'all' && input.tab !== 'chatText') {
     clauses.push('category=?')
     params.push(input.tab)
@@ -186,9 +199,11 @@ export function queryArtifacts(
   wechatDb: DatabaseSync,
   input: ArtifactQueryInput,
 ): ChatArtifactPage {
-  const counts = readCounts(assetDb, wechatDb, input.conversationId)
+  const counts = readCounts(assetDb, wechatDb, input)
   const result = input.tab === 'chatText'
-    ? queryChatTextItems(wechatDb, input)
+    ? input.collection === 'library'
+      ? { matchingTotal: 0, items: [] }
+      : queryChatTextItems(wechatDb, input)
     : queryArtifactItems(assetDb, input)
   return {
     tab: input.tab,

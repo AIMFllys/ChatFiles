@@ -48,6 +48,44 @@ test('reports exact six-tab global counts while all contains only the four artif
   wechatDb.close()
 })
 
+test('defines library as ready exported artifacts and excludes chat text and failure states', () => {
+  const { assetDb, wechatDb } = fixtureDatabases()
+  const all = queryArtifacts(assetDb, wechatDb, {
+    collection: 'library', tab: 'all', query: '', limit: 60, offset: 0,
+  })
+  const text = queryArtifacts(assetDb, wechatDb, {
+    collection: 'library', tab: 'chatText', query: '', limit: 60, offset: 0,
+  })
+  const failedSearch = queryArtifacts(assetDb, wechatDb, {
+    collection: 'library', tab: 'all', query: '说明书', limit: 60, offset: 0,
+  })
+
+  assert.deepEqual(all.counts, { all: 3, work: 1, document: 0, skill: 1, link: 1, chatText: 0 })
+  assert.deepEqual(all.items.map((item) => item.id), ['a'.repeat(64), 'c'.repeat(64), 'd'.repeat(64)])
+  assert.equal(all.matchingTotal, 3)
+  assert.equal(text.total, 0)
+  assert.equal(text.matchingTotal, 0)
+  assert.deepEqual(text.items, [])
+  assert.equal(failedSearch.matchingTotal, 0)
+  assetDb.close()
+  wechatDb.close()
+})
+
+test('fails closed when a nominally ready artifact has an invalid evidence-state pair', () => {
+  const { assetDb, wechatDb } = fixtureDatabases()
+  assetDb.prepare('UPDATE artifacts SET materialization=?, preview_status=? WHERE asset_id=?')
+    .run('missing_source', 'ready', 'a'.repeat(64))
+
+  const page = queryArtifacts(assetDb, wechatDb, {
+    collection: 'library', tab: 'all', query: '', limit: 60, offset: 0,
+  })
+  assert.deepEqual(page.items.map((item) => item.id), ['c'.repeat(64), 'd'.repeat(64)])
+  assert.equal(page.counts.all, 2)
+  assert.equal(page.matchingTotal, 2)
+  assetDb.close()
+  wechatDb.close()
+})
+
 test('scopes conversation artifacts and text while excluding null-conversation artifacts', () => {
   const { assetDb, wechatDb } = fixtureDatabases()
   const page = queryArtifacts(assetDb, wechatDb, {
