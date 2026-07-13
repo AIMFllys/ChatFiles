@@ -27,6 +27,10 @@ export type ArtifactCounts = Record<ArtifactKind, number> & {
   missing: number
 }
 
+export function firstCodePoint(value: string, fallback: string) {
+  return [...value.trim()][0] ?? fallback
+}
+
 const documentPreviews = new Set(['pdf', 'docx', 'sheet', 'presentation', 'markdown', 'text', 'json'])
 const workPreviews = new Set(['image', 'video', 'audio', 'voice', 'html', 'code'])
 const documentExtensions = /\.(?:pdf|docx?|pptx?|ppsx|xlsx?|csv|md|markdown|txt|rtf)$/i

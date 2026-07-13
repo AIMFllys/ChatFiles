@@ -24,6 +24,7 @@ import { ArtifactCard } from './ArtifactCard'
 import { ArtifactPreviewDialog } from './ArtifactPreviewDialog'
 import {
   artifactRequestUrl,
+  firstCodePoint,
   nextArtifactTab,
   safeExternalUrl,
   type ChatLibrarySelection,
@@ -222,7 +223,7 @@ export function ArtifactWorkspace({
         <div className="workspace-title-row">
           <button className="mobile-back" onClick={onBack} title="返回会话列表" type="button"><ArrowLeft size={19} /></button>
           <span className={`workspace-avatar ${conversation?.is_group ? 'is-group' : ''}`}>
-            {title.trim().slice(0, 1) || '库'}
+            {firstCodePoint(title, '库')}
           </span>
           <div className="workspace-title">
             <small>{selection.kind === 'conversation' ? (conversation?.is_group ? '群聊素材' : '私聊素材') : '跨会话资料库'}</small>

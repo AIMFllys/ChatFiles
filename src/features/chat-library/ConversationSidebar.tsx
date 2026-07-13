@@ -2,7 +2,7 @@ import { useMemo, useState, type Ref } from 'react'
 import { Archive, FolderHeart, Pin, PinOff, Search } from 'lucide-react'
 import type { InsightSummary, WechatConversation } from '../../types'
 import { fmtDate } from '../../utils/format'
-import type { ChatLibrarySelection } from './artifactModel'
+import { firstCodePoint, type ChatLibrarySelection } from './artifactModel'
 import { orderConversationsPinnedFirst } from './pins'
 
 type Props = {
@@ -103,7 +103,7 @@ export function ConversationSidebar({
                     type="button"
                   >
                     <span className={`conversation-avatar ${conversation.is_group ? 'is-group' : 'is-private'}`}>
-                      {conversation.display.trim().slice(0, 1) || (conversation.is_group ? '群' : '聊')}
+                      {firstCodePoint(conversation.display, conversation.is_group ? '群' : '聊')}
                     </span>
                     <span className="conversation-copy">
                       <span className="conversation-line">

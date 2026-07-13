@@ -4,11 +4,18 @@ import {
   artifactRequestUrl,
   classifyArtifact,
   countArtifacts,
+  firstCodePoint,
   nextArtifactTab,
   previewForArtifactName,
   safeExternalUrl,
   type ChatArtifact,
 } from './artifactModel.js'
+
+test('keeps an emoji avatar as one Unicode code point', () => {
+  assert.equal(firstCodePoint('📜 自律者联盟', '聊'), '📜')
+  assert.equal(firstCodePoint('  网站制作小组', '聊'), '网')
+  assert.equal(firstCodePoint('   ', '聊'), '聊')
+})
 
 test('classifies mutually exclusive output kinds with skill precedence', () => {
   assert.equal(classifyArtifact({ name: 'apple-design SKILL.md', preview: 'markdown' }), 'skill')
