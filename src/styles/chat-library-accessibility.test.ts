@@ -4,7 +4,13 @@ import path from 'node:path'
 import test from 'node:test'
 
 const indexCss = fs.readFileSync(path.resolve(process.cwd(), 'src/index.css'), 'utf8')
-const libraryCss = fs.readFileSync(path.resolve(process.cwd(), 'src/styles/chat-library.css'), 'utf8')
+const libraryCss = [
+  'chat-library-shell.css',
+  'chat-library-workspace.css',
+  'chat-library-cards.css',
+  'chat-library-dialog.css',
+  'chat-library-responsive.css',
+].map((name) => fs.readFileSync(path.resolve(process.cwd(), 'src/styles', name), 'utf8')).join('\n')
 const layoutCss = fs.readFileSync(path.resolve(process.cwd(), 'src/styles/layout.css'), 'utf8')
 const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 const artifactCardSource = fs.readFileSync(

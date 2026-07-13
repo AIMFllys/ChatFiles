@@ -7,7 +7,13 @@ const sidebarSource = fs.readFileSync(
   path.resolve(process.cwd(), 'src/features/chat-library/ConversationSidebar.tsx'),
   'utf8',
 )
-const libraryCss = fs.readFileSync(path.resolve(process.cwd(), 'src/styles/chat-library.css'), 'utf8')
+const libraryCss = [
+  'chat-library-shell.css',
+  'chat-library-workspace.css',
+  'chat-library-cards.css',
+  'chat-library-dialog.css',
+  'chat-library-responsive.css',
+].map((name) => fs.readFileSync(path.resolve(process.cwd(), 'src/styles', name), 'utf8')).join('\n')
 
 test('renders only the fixed-list virtual window with complete list semantics', () => {
   assert.match(sidebarSource, /useFixedListVirtualizer\(/u)

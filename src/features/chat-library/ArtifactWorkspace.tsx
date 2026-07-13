@@ -1,17 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
-import {
-  ArrowLeft,
-  Bot,
-  FileText,
-  FolderOpen,
-  Link2,
-  MessageSquareText,
-  Pin,
-  PinOff,
-  Search,
-  Shapes,
-  Wrench,
-} from 'lucide-react'
+import { Shapes } from 'lucide-react'
 import type {
   ChatArtifactCounts,
   ChatArtifactListItem,
@@ -22,14 +10,10 @@ import type {
 import { useGridVirtualizer } from '../../hooks/useGridVirtualizer'
 import { ArtifactCard } from './ArtifactCard'
 import { ArtifactPreviewDialog } from './ArtifactPreviewDialog'
-import {
-  artifactRequestUrl,
-  firstCodePoint,
-  nextArtifactTab,
-  safeExternalUrl,
-  type ChatLibrarySelection,
-} from './artifactModel'
+import { artifactRequestUrl, safeExternalUrl, type ChatLibrarySelection } from './artifactModel'
 import { canLoadMoreArtifacts, isArtifactPageRequestCurrent } from './artifactPagination'
+import { ArtifactWorkspaceHeader } from './ArtifactWorkspaceHeader'
+import { mergeUnique } from './artifactWorkspaceModel'
 
 const PAGE_SIZE = 120
 const emptyCounts: ChatArtifactCounts = {
@@ -39,25 +23,6 @@ const emptyCounts: ChatArtifactCounts = {
   skill: 0,
   link: 0,
   chatText: 0,
-}
-
-const tabs: Array<{ id: ChatArtifactTab; label: string; icon: typeof Shapes }> = [
-  { id: 'all', label: '全部', icon: Shapes },
-  { id: 'work', label: '作品', icon: FolderOpen },
-  { id: 'document', label: '文档', icon: FileText },
-  { id: 'skill', label: 'Skills 工具', icon: Wrench },
-  { id: 'link', label: '链接', icon: Link2 },
-  { id: 'chatText', label: '聊天文字', icon: MessageSquareText },
-]
-
-function selectionTitle(selection: ChatLibrarySelection, conversation?: WechatConversation) {
-  if (selection.kind === 'conversation') return conversation?.display ?? '会话素材'
-  return selection.id === 'library' ? '我的素材库' : '全部产出'
-}
-
-function mergeUnique(current: ChatArtifactListItem[], incoming: ChatArtifactListItem[]) {
-  const ids = new Set(current.map((item) => item.id))
-  return [...current, ...incoming.filter((item) => !ids.has(item.id))]
 }
 
 export function ArtifactWorkspace({
@@ -205,7 +170,6 @@ export function ArtifactWorkspace({
     overscan: 3,
   })
   const visibleItems = useMemo(() => items.slice(virtual.start, virtual.end), [items, virtual.end, virtual.start])
-  const title = selectionTitle(selection, conversation)
   const openItem = (item: ChatArtifactListItem) => {
     if (item.itemType === 'artifact' && item.category === 'link' && item.url) {
       const externalUrl = safeExternalUrl(item.url)
@@ -219,94 +183,37 @@ export function ArtifactWorkspace({
 
   return (
     <section className="artifact-workspace">
-      <header className="artifact-workspace-header">
-        <div className="workspace-title-row">
-          <button className="mobile-back" onClick={onBack} title="返回会话列表" type="button"><ArrowLeft size={19} /></button>
-          <span className={`workspace-avatar ${conversation?.is_group ? 'is-group' : ''}`}>
-            {firstCodePoint(title, '库')}
-          </span>
-          <div className="workspace-title">
-            <small>{selection.kind === 'conversation' ? (conversation?.is_group ? '群聊素材' : '私聊素材') : '跨会话资料库'}</small>
-            <h1 ref={titleRef} tabIndex={-1}>{title}</h1>
-          </div>
-          <div className="workspace-actions">
-            {selection.kind === 'conversation' && (
-              <>
-                <button aria-label={pinned ? '取消置顶' : '置顶会话'} aria-pressed={pinned} onClick={onTogglePin} title={pinned ? '取消置顶' : '置顶会话'} type="button">
-                  {pinned ? <PinOff size={18} /> : <Pin size={18} />}
-                </button>
-                <button aria-label="AI 分析会话" onClick={onAnalyze} title="AI 分析" type="button"><Bot size={19} /></button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="artifact-stats" aria-label="素材统计">
-          <span><strong>{counts.all.toLocaleString()}</strong> 产出</span>
-          <span className="stat-work">作品 <strong>{counts.work.toLocaleString()}</strong></span>
-          <span className="stat-document">文档 <strong>{counts.document.toLocaleString()}</strong></span>
-          <span className="stat-skill">Skills <strong>{counts.skill.toLocaleString()}</strong></span>
-          <span className="stat-link">链接 <strong>{counts.link.toLocaleString()}</strong></span>
-          <span className="stat-text">文字 <strong>{counts.chatText.toLocaleString()}</strong></span>
-        </div>
-
-        <div className="artifact-controls">
-          <div className="artifact-tabs" role="tablist" aria-label="素材分类">
-            {tabs.map((item) => {
-              const Icon = item.icon
-              return (
-                <button
-                  aria-controls="artifact-tab-panel"
-                  aria-selected={tab === item.id}
-                  className={tab === item.id ? 'is-active' : ''}
-                  id={`artifact-tab-${item.id}`}
-                  key={item.id}
-                  onKeyDown={(event) => {
-                    const next = nextArtifactTab(tab, event.key)
-                    if (next === tab && !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-                    event.preventDefault()
-                    if (next !== tab) {
-                      setLoading(true)
-                      setError('')
-                      setTab(next)
-                    }
-                    requestAnimationFrame(() => document.getElementById(`artifact-tab-${next}`)?.focus())
-                  }}
-                  onClick={() => {
-                    if (tab === item.id) return
-                    setLoading(true)
-                    setLoadingMore(false)
-                    setError('')
-                    setLoadMoreError('')
-                    setTab(item.id)
-                  }}
-                  role="tab"
-                  tabIndex={tab === item.id ? 0 : -1}
-                  type="button"
-                >
-                  <Icon size={16} /><span>{item.label}</span><strong>{counts[item.id].toLocaleString()}</strong>
-                </button>
-              )
-            })}
-          </div>
-          <label className="artifact-search">
-            <Search size={16} aria-hidden="true" />
-            <input
-              aria-label="检索当前素材"
-              maxLength={200}
-              onChange={(event) => {
-                setLoading(true)
-                setLoadingMore(false)
-                setError('')
-                setLoadMoreError('')
-                setQuery(event.target.value)
-              }}
-              placeholder="检索当前素材"
-              value={query}
-            />
-          </label>
-        </div>
-      </header>
+      <ArtifactWorkspaceHeader
+        conversation={conversation}
+        counts={counts}
+        onAnalyze={onAnalyze}
+        onBack={onBack}
+        onKeyboardTabChange={(next) => {
+          setLoading(true)
+          setError('')
+          setTab(next)
+        }}
+        onQueryChange={(next) => {
+          setLoading(true)
+          setLoadingMore(false)
+          setError('')
+          setLoadMoreError('')
+          setQuery(next)
+        }}
+        onTabChange={(next) => {
+          setLoading(true)
+          setLoadingMore(false)
+          setError('')
+          setLoadMoreError('')
+          setTab(next)
+        }}
+        onTogglePin={onTogglePin}
+        pinned={pinned}
+        query={query}
+        selection={selection}
+        tab={tab}
+        titleRef={titleRef}
+      />
 
       <div
         aria-labelledby={`artifact-tab-${tab}`}
