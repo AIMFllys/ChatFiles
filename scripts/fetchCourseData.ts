@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { chromium } from 'playwright'
-import type { CourseItem } from '../src/types.js'
+import type { CourseItem } from '../shared/contracts/index.js'
 import { dataDir, ensureDir, writeJson } from './shared.js'
 
 // Course site + owner identity are injected locally (gitignored .env.local) — see

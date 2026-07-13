@@ -11,7 +11,7 @@ import type {
   SourceDiscovery,
   SourceTextIndex,
   TextExtract,
-} from '../../src/types.js'
+} from '../../shared/contracts/index.js'
 
 export type ExtractionBoundary = {
   generatedAt: string

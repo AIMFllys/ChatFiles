@@ -1,6 +1,11 @@
 import express, { Router } from 'express'
-import type { AgentClientTurn, AgentRequestConfig, AgentStreamEvent, AgentStreamRequest } from '../../src/types/aiAgent.js'
-import { parseAgentContextSummary } from '../../src/utils/aiSummaryValidation.js'
+import {
+  parseAgentContextSummary,
+  type AgentClientTurn,
+  type AgentRequestConfig,
+  type AgentStreamEvent,
+  type AgentStreamRequest,
+} from '../../shared/contracts/aiAgent.js'
 import { AgentLoopError } from '../services/agent/agentLoop.js'
 
 type AgentExecutor = (

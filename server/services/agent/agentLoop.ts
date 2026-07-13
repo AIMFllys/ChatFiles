@@ -3,7 +3,7 @@ import type {
   AgentClientTurn,
   AgentContextSummary,
   AgentStreamEvent,
-} from '../../../src/types/aiAgent.js'
+} from '../../../shared/contracts/aiAgent.js'
 import type { AgentToolName } from './toolSchemas.js'
 
 export type AgentToolCall = { id: string; name: string; arguments: string }

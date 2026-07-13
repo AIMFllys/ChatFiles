@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { BinaryTextSnippet, DeepFileIndex, LogTextIndex } from '../src/types.js'
+import type { BinaryTextSnippet, DeepFileIndex, LogTextIndex } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 
 function readJson<T>(filePath: string, fallback: T): T {

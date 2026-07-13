@@ -1,4 +1,4 @@
-import type { ChatSummary } from '../../src/types.js'
+import type { ChatSummary } from '../../shared/contracts/index.js'
 import { buildChatBoards } from './boardSections/chat.js'
 import { buildCoverageBoards } from './boardSections/coverage.js'
 import { buildMiscBoards } from './boardSections/misc.js'

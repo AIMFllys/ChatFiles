@@ -97,7 +97,9 @@ function stateForMatch(
   if (match.status === 'missing') {
     return createAssetEvidenceState('missing_source', 'missing_source', 'local_source_not_found')
   }
-  const extension = path.extname(match.candidate.name).toLowerCase()
+  const candidate = match.candidate
+  if (!candidate) throw new Error('Matched resource must include one local candidate')
+  const extension = path.extname(candidate.name).toLowerCase()
   if (extension === '.dat' && preview === 'image') {
     return createAssetEvidenceState(
       'decrypt_failed',
@@ -151,12 +153,12 @@ export function createResourceArtifact(input: {
     resource_hash: input.messageHashes[0] ?? null,
   })
   const evidenceState = stateForMatch(input.fileMatch, preview)
-  const failureReason = 'reason' in evidenceState ? evidenceState.reason : null
+  const failureReason = 'reason' in evidenceState ? evidenceState.reason ?? null : null
 
   return {
     asset_id: createAssetId(signatureMessageUid, evidenceSignature, input.resourceId),
     conv_id: input.message?.conv_id ?? null,
-    message_uid: input.alignment.message_uid,
+    message_uid: input.alignment.message_uid ?? null,
     resource_message_id: input.resourceMessageId,
     resource_id: input.resourceId,
     category,

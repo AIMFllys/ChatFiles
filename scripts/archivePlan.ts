@@ -1,4 +1,4 @@
-import type { LibraryFile, LibraryManifest } from '../src/types.js'
+import type { LibraryFile, LibraryManifest } from '../shared/contracts/index.js'
 
 export type ExistingArchiveCopy = {
   archivePath: string

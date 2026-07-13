@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { LibraryManifest } from '../src/types.js'
+import type { LibraryManifest } from '../shared/contracts/index.js'
 import type { ArchiveIntegrityIssue } from './archivePlan.js'
 import type { ArchiveSourceIssue } from './archiveSources.js'
 import { validateLibraryManifest } from './libraryManifestValidation.js'

@@ -9,7 +9,7 @@ import type {
   ChatArtifactMetadata,
   ChatArtifactTab,
   LinkPreview,
-} from '../../src/types/chat.js'
+} from '../../shared/contracts/chat.js'
 import { imageThumb, videoPoster } from '../utils/thumbs.js'
 import { openValidatedArtifactDatabase } from '../wechat/artifactDatabase.js'
 import {

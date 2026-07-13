@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { AgentRequestConfig, AgentStreamEvent, AgentStreamRequest } from '../../../src/types/aiAgent.js'
+import type { AgentRequestConfig, AgentStreamEvent, AgentStreamRequest } from '../../../shared/contracts/aiAgent.js'
 import { openValidatedArtifactDatabase } from '../../wechat/artifactDatabase.js'
 import { createArtifactAccountRootProvider, createArtifactSourceResolver } from '../../wechat/artifactSourceResolver.js'
 import { openValidatedWechatDatabase } from '../../wechat/databaseOpener.js'

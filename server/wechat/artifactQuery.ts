@@ -7,7 +7,7 @@ import type {
   ChatArtifactPage,
   ChatArtifactTab,
   ChatTextItem,
-} from '../../src/types/chat.js'
+} from '../../shared/contracts/chat.js'
 
 export type ArtifactQueryInput = {
   collection?: 'outputs' | 'library'

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { LibraryFile } from '../src/types.js'
+import type { LibraryFile } from '../shared/contracts/index.js'
 import { appendHash8, planAppendOnlyArchive } from './archivePlan.js'
 import type { ArchiveSourceIssue } from './archiveSources.js'
 import {

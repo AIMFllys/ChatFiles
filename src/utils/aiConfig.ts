@@ -1,4 +1,11 @@
-export type AIContextStrategy = 'recent' | 'summary'
+import {
+  MAX_CONTEXT_WINDOW,
+  MIN_CONTEXT_WINDOW,
+} from '../../shared/ai/context'
+import type { AIContextStrategy } from '../../shared/ai/context'
+
+export { MAX_CONTEXT_WINDOW, MIN_CONTEXT_WINDOW, estimateTokens } from '../../shared/ai/context'
+export type { AIContextStrategy } from '../../shared/ai/context'
 
 export interface EmbeddingConfig {
   enabled: boolean
@@ -28,8 +35,6 @@ export interface ChatTurn {
 
 const KEY = 'chatfiles.ai.config'
 
-export const MIN_CONTEXT_WINDOW = 8_000
-export const MAX_CONTEXT_WINDOW = 2_000_000
 export const MIN_THRESHOLD = Math.floor(MIN_CONTEXT_WINDOW * 0.7)
 export const MAX_THRESHOLD = Math.floor(MAX_CONTEXT_WINDOW * 0.7)
 
@@ -169,22 +174,6 @@ export function saveDockSize(size: DockSize): void {
   } catch {
     /* ignore */
   }
-}
-
-/**
- * Conservative token estimate. CJK glyphs cost ~1 token each; Latin/whitespace
- * pack ~3.5 chars per token. Deliberately over-estimates so the threshold gate
- * errs on the safe side. Uses code-point ranges (CJK / compat / fullwidth).
- */
-export function estimateTokens(text: string): number {
-  let cjk = 0
-  let other = 0
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text.charCodeAt(i)
-    if ((c >= 0x3000 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xff00 && c <= 0xffef)) cjk += 1
-    else other += 1
-  }
-  return Math.ceil(cjk + other / 3.5)
 }
 
 /**

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AgentStreamRequest } from '../../src/types/aiAgent.js'
+import type { AgentStreamRequest } from '../../shared/contracts/aiAgent.js'
 import { withServer } from './wechatRouteTestFixtures.js'
 import { createAiAgentRouter } from './aiAgent.js'
 

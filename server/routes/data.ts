@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import path from 'node:path'
-import type { ChatClueDossier, ChatSynthesis, DatabaseAnalysis, ValueCandidateIndex } from '../../src/types.js'
+import type { ChatClueDossier, ChatSynthesis, DatabaseAnalysis, ValueCandidateIndex } from '../../shared/contracts/index.js'
 import { library, readJson, root, sourceLibrary } from '../utils/helpers.js'
 
 const router = Router()

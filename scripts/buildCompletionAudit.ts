@@ -12,7 +12,7 @@ import type {
   LogTextIndex,
   SourceDiscovery,
   SourceTextIndex,
-} from '../src/types.js'
+} from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 
 function readJson<T>(filePath: string, fallback: T): T {

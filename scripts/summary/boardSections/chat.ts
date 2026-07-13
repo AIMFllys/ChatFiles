@@ -1,4 +1,4 @@
-import type { ChatSummary } from '../../../src/types.js'
+import type { ChatSummary } from '../../../shared/contracts/index.js'
 import type { SummaryContext } from '../types.js'
 import { formatMb } from '../utils.js'
 

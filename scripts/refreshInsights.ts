@@ -15,7 +15,7 @@ export function parseInsightRefreshArgs(argv: string[]) {
   if (!command || !new Set(['prepare', 'distill', 'boards', 'audit', 'activate']).has(command)) {
     throw new Error('Usage: refreshInsights <prepare|distill|boards|audit|activate> [options]')
   }
-  const names = new Map([
+  const names: ReadonlyMap<string, string> = new Map([
     ['--run-id', 'runId'],
     ['--source', 'sourceDir'],
     ['--bundle', 'bundleDir'],
@@ -26,7 +26,7 @@ export function parseInsightRefreshArgs(argv: string[]) {
   for (let index = 1; index < argv.length; index += 2) {
     const flag = argv[index]
     const value = argv[index + 1]
-    const name = flag ? names.get(flag as keyof typeof names) : undefined
+    const name = flag ? names.get(flag) : undefined
     if (!name) throw new Error(`Unknown option: ${flag ?? ''}`)
     if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`)
     values[name] = value

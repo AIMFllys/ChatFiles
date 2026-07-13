@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync, type DatabaseSync as Database } from 'node:sqlite'
-import type { AgentRequestConfig } from '../../../src/types/aiAgent.js'
+import type { AgentRequestConfig } from '../../../shared/contracts/aiAgent.js'
 import { hybridSearch, type HybridSearchResult } from './hybridSearch.js'
 import { keywordSearch } from './keywordSearch.js'
 import { liveMessageSearch } from './liveMessageSearch.js'

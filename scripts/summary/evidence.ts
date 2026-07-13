@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { LibraryFile, TextExtract } from '../../src/types.js'
+import type { LibraryFile, TextExtract } from '../../shared/contracts/index.js'
 import { root } from '../shared.js'
 import type { SummaryData } from './types.js'
 import { auditStatusLabel, formatMb, qualityLabel } from './utils.js'

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { ChatClueDossier, ChatClueGroup, ChatSynthesis, ChatSynthesisItem, ChatSynthesisSection } from '../src/types.js'
+import type { ChatClueDossier, ChatClueGroup, ChatSynthesis, ChatSynthesisItem, ChatSynthesisSection } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 
 const dossier = JSON.parse(fs.readFileSync(path.join(dataDir, 'chat-clue-dossier.json'), 'utf8')) as ChatClueDossier

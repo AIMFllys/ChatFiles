@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { LinkPreview } from '../../../src/types/chat.js'
+import type { LinkPreview } from '../../../shared/contracts/chat.js'
 import { queryTimeline, encodeTimelineCursor } from '../chatTimeline.js'
 import type { DocumentReadResult } from '../documents/documentTypes.js'
 import type { HybridSearchResult } from '../search/hybridSearch.js'

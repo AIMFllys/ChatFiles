@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { CourseItem, KnowledgeBase, LibraryManifest, SourceDiscovery } from '../src/types.js'
+import type { CourseItem, KnowledgeBase, LibraryManifest, SourceDiscovery } from '../shared/contracts/index.js'
 import { dataDir, root, writeJson } from './shared.js'
 
 const home = process.env.USERPROFILE ?? ''

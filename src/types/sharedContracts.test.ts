@@ -1,0 +1,115 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import test from 'node:test'
+
+const contractsRoot = path.resolve(process.cwd(), 'shared', 'contracts')
+
+async function contracts() {
+  const entrypoint = path.join(contractsRoot, 'index.ts')
+  assert.equal(fs.existsSync(entrypoint), true, 'shared/contracts/index.ts must exist')
+  if (!fs.existsSync(entrypoint)) return null
+  return import('../../shared/contracts/index.js')
+}
+
+function sourceFiles(root: string): string[] {
+  if (!fs.existsSync(root)) return []
+  return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(root, entry.name)
+    if (entry.isDirectory()) return sourceFiles(target)
+    return entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [target] : []
+  })
+}
+
+test('defines UTF-8 safe stable ID and time primitives', async () => {
+  const shared = await contracts()
+  if (!shared) return
+
+  assert.equal(shared.stableIdSchema.parse('会话-张三-🙂'), '会话-张三-🙂')
+  assert.equal(shared.sha256IdSchema.parse('a'.repeat(64)), 'a'.repeat(64))
+  assert.throws(() => shared.stableIdSchema.parse('含\u0000空字节'))
+  assert.throws(() => shared.sha256IdSchema.parse('A'.repeat(64)))
+
+  assert.equal(shared.unixSecondsSchema.parse(1_700_000_000), 1_700_000_000)
+  assert.equal(shared.isoTimestampSchema.parse('2026-07-13T12:34:56.000Z'), '2026-07-13T12:34:56.000Z')
+  assert.equal(shared.timeZoneSchema.parse('America/Los_Angeles'), 'America/Los_Angeles')
+  assert.throws(() => shared.unixSecondsSchema.parse(1.5))
+  assert.throws(() => shared.isoTimestampSchema.parse('2026/07/13'))
+})
+
+test('normalizes the shared API error DTO', async () => {
+  const shared = await contracts()
+  if (!shared) return
+
+  const error = shared.makeApiError('database_unavailable', { resource: '微信数据库' })
+  assert.deepEqual(shared.apiErrorSchema.parse(error), {
+    error: 'Request failed',
+    code: 'database_unavailable',
+    details: { resource: '微信数据库' },
+  })
+  assert.throws(() => shared.makeApiError('Bad-Code'))
+  assert.throws(() => shared.apiErrorSchema.parse({ error: '失败', code: 'Bad-Code' }))
+})
+
+test('validates and de-duplicates an agent context summary without damaging Chinese', async () => {
+  const shared = await contracts()
+  if (!shared) return
+
+  const emptySections = {
+    facts: [], people: [], dates: [], quotes: [], decisions: [], disputes: [], openItems: [],
+  }
+  const parsed = shared.parseAgentContextSummary({
+    version: 1,
+    sourceHash: 'b'.repeat(64),
+    sourceRange: { firstUid: '消息-一', lastUid: '消息-二', count: 2 },
+    sections: {
+      ...emptySections,
+      facts: [{ text: '中文🙂保持完整', sourceUids: ['消息-一', '消息-一', '消息-二'] }],
+    },
+  })
+  assert.deepEqual(parsed?.sections.facts, [{
+    text: '中文🙂保持完整',
+    sourceUids: ['消息-一', '消息-二'],
+  }])
+  assert.equal(shared.parseAgentContextSummary({ version: 1, sourceHash: 'bad' }), undefined)
+})
+
+test('validates the bounded timeline DTO with explicit monthly buckets', async () => {
+  const shared = await contracts()
+  if (!shared) return
+
+  const page = shared.timelinePageSchema.parse({
+    conversationId: '会话-一',
+    limit: 120,
+    messages: [{
+      message_uid: '消息-一', seq: 1, time: 1_700_000_000, sender: 'wxid-张三',
+      sender_name: '张三', type: 1, type_label: '文本', text: '你好🙂',
+    }],
+    participants: [{ id: 'wxid-张三', name: '张三', messageCount: 1, lastTime: 1_700_000_000 }],
+    buckets: [{
+      key: '2026-07', label: '2026年7月', startTime: 1_700_000_000,
+      endTime: 1_700_000_000, messageCount: 1, cursor: 'cursor-一',
+    }],
+    pageInfo: { olderCursor: null, newerCursor: 'cursor-一', hasOlder: false, hasNewer: true },
+  })
+  assert.equal(page.messages[0].text, '你好🙂')
+  assert.throws(() => shared.timelinePageSchema.parse({ ...page, buckets: [{ ...page.buckets[0], key: '2026-7' }] }))
+})
+
+test('keeps shared contracts environment-neutral and removes server imports from src', () => {
+  const sharedSource = sourceFiles(path.resolve(process.cwd(), 'shared'))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n')
+  assert.doesNotMatch(
+    sharedSource,
+    /(?:from\s+['"](?:node:|react|express)|\b(?:window|document|localStorage)\s*(?:\.|\[))/u,
+  )
+
+  const serverSource = sourceFiles(path.resolve(process.cwd(), 'server'))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n')
+  assert.doesNotMatch(
+    serverSource,
+    /from\s+['"][^'"]*src\/(?:types|utils\/(?:aiConfig|aiContext|aiSummaryValidation))/u,
+  )
+})

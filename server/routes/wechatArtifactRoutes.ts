@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import type { Router } from 'express'
-import type { ChatArtifactCapability } from '../../src/types/chat.js'
+import type { ChatArtifactCapability } from '../../shared/contracts/chat.js'
 import { inspectArchive, inspectFile } from '../utils/inspect.js'
 import { createArtifactSourceResolver, type ArtifactSourceResolution } from '../wechat/artifactSourceResolver.js'
 import {

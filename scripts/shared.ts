@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import mime from 'mime'
-import type { Category, LibraryFile } from '../src/types.js'
+import type { Category, LibraryFile } from '../shared/contracts/index.js'
 import { loadLocalEnv } from './localEnv.js'
 
 export const root = path.resolve(process.cwd())

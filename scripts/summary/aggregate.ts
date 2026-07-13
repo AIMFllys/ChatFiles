@@ -11,7 +11,7 @@ import type {
   SourceDiscovery,
   SourceTextIndex,
   TextExtract,
-} from '../../src/types.js'
+} from '../../shared/contracts/index.js'
 import { dataDir, root } from '../shared.js'
 import { buildEvidenceTexts, readTextExtract } from './evidence.js'
 import type { ExtractionBoundary, PriorityChatDatabase, SummaryContext, SummaryData } from './types.js'
@@ -221,7 +221,6 @@ export function buildSummaryContext(): SummaryContext {
     blockedDbs,
     highSignalBinarySnippets,
     valuableTextExtracts,
-    chatExportCandidates: evidence.chatExportCandidates,
     acceptedChatExportCandidates,
     uniquePriorityChatDatabases,
     coverageDatabaseText,

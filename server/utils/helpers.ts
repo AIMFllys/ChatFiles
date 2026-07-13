@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import mime from 'mime'
-import type { DeepFileIndex, LibraryManifest, SourceFileManifest } from '../../src/types.js'
+import type { DeepFileIndex, LibraryManifest, SourceFileManifest } from '../../shared/contracts/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)

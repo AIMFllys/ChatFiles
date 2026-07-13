@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 
 import { loadLocalEnv, type LocalEnvironment } from '../../scripts/localEnv.js'
-import type { ChatArtifactAvailability } from '../../src/types/chat.js'
+import type { ChatArtifactAvailability } from '../../shared/contracts/chat.js'
 import { root } from '../utils/helpers.js'
 
 export type ArtifactSourcePurpose = 'content' | 'thumbnail'

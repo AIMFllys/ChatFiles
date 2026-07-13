@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { VoicePreview } from '../../src/types.js'
+import type { VoicePreview } from '../../shared/contracts/index.js'
 import { audioCacheDir, printableAscii } from './helpers.js'
 
 export function isVoiceFile(filePath: string) {

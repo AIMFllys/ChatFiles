@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { LibraryFile, LibraryManifest, ValueCandidateIndex } from '../src/types.js'
+import type { LibraryFile, LibraryManifest, ValueCandidateIndex } from '../shared/contracts/index.js'
 import { archiveDir, classify, dataDir, ensureDir, mimeFor, previewFor, root, safeName, sha256File, writeJson } from './shared.js'
 
 const manifestPath = path.join(dataDir, 'library.json')

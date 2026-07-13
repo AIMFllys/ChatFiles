@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { LibraryFile, LibraryManifest } from '../src/types.js'
+import type { LibraryFile, LibraryManifest } from '../shared/contracts/index.js'
 import { planAppendOnlyArchive } from './archivePlan.js'
 
 const oldHash = 'a'.repeat(64)

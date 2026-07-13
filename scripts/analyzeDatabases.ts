@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { DatabaseAnalysis, DatabaseTableAnalysis, DatabaseTextSample, DeepFileIndex } from '../src/types.js'
+import type { DatabaseAnalysis, DatabaseTableAnalysis, DatabaseTextSample, DeepFileIndex } from '../shared/contracts/index.js'
 import { dataDir, sourceApp, writeJson } from './shared.js'
 
 function readJson<T>(filePath: string, fallback: T): T {

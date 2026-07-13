@@ -4,7 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import mime from 'mime'
 import JSZip from 'jszip'
-import type { ArchivePreview, DatabasePreview, FileInspection } from '../../src/types.js'
+import type { ArchivePreview, DatabasePreview, FileInspection } from '../../shared/contracts/index.js'
 import { printableAscii } from './helpers.js'
 
 function fileHeader(filePath: string) {

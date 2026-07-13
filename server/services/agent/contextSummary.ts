@@ -3,7 +3,7 @@ import type {
   AgentContextSummary as ContextSummary,
   AgentSummaryItem as SummaryItem,
   AgentSummarySections as SummarySections,
-} from '../../../src/types/aiAgent.js'
+} from '../../../shared/contracts/aiAgent.js'
 
 export type SummarySourceMessage = { messageUid: string; time: number; text: string }
 export type { ContextSummary, SummaryItem, SummarySections }

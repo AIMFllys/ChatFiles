@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { ChatExportMessage } from '../../src/types.js'
+import type { ChatExportMessage } from '../../shared/contracts/index.js'
 import { candidateName, signalRules } from './constants.js'
 
 export type ParsedMessage = Omit<ChatExportMessage, 'id' | 'sourcePath' | 'conversation' | 'signals'>

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { DeepFileIndex, LibraryManifest, ValueCandidate, ValueCandidateIndex } from '../src/types.js'
+import type { DeepFileIndex, LibraryManifest, ValueCandidate, ValueCandidateIndex } from '../shared/contracts/index.js'
 import { classify, dataDir, sha256File, writeJson } from './shared.js'
 
 const deepIndex = JSON.parse(fs.readFileSync(path.join(dataDir, 'deep-index.json'), 'utf8')) as DeepFileIndex

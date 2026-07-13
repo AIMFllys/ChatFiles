@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ChatSummary } from '../src/types.js'
+import type { ChatSummary } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 import { buildSummaryContext } from './summary/aggregate.js'
 import { buildBoards, buildCoverage } from './summary/boards.js'

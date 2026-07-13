@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { LinkPreview } from '../../../src/types/chat.js'
+import type { LinkPreview } from '../../../shared/contracts/chat.js'
 import { parseHtmlMetadata } from './htmlMetadata.js'
 import { validatePublicUrl, type HostResolver } from './urlPolicy.js'
 

@@ -10,7 +10,7 @@ import type {
   LibraryFile,
   LogTextIndex,
   SourceTextIndex,
-} from '../src/types.js'
+} from '../shared/contracts/index.js'
 import { dataDir, sourceApp, writeJson } from './shared.js'
 
 type DraftGroup = Omit<ChatClueGroup, 'score' | 'value' | 'signals' | 'snippetCount' | 'verdict' | 'next' | 'excerpts'> & {

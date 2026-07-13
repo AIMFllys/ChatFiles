@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ChatExportConversation, ChatExportIndex, ChatExportMessage } from '../src/types.js'
+import type { ChatExportConversation, ChatExportIndex, ChatExportMessage } from '../shared/contracts/index.js'
 import { candidateExt, candidateName, excludePath, maxCandidateBytes } from './ingest/constants.js'
 import {
   acceptReason,

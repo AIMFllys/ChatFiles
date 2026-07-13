@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { SourceDiscovery } from '../src/types.js'
+import type { SourceDiscovery } from '../shared/contracts/index.js'
 import { candidateRoots, dataDir, ensureDir, home, isEligibleAttachment, root, sourceApp, walkFiles, writeJson } from './shared.js'
 
 type RootNote = {

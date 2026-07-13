@@ -3,10 +3,9 @@ import type {
   AgentClientTurn,
   AgentContextSummary,
   AgentSummarySections,
-} from '../../../src/types/aiAgent.js'
-import { estimateTokens } from '../../../src/utils/aiConfig.js'
-import { planContextBudget, takeWholeMessages } from '../../../src/utils/aiContext.js'
-import { parseAgentContextSummary } from '../../../src/utils/aiSummaryValidation.js'
+} from '../../../shared/contracts/aiAgent.js'
+import { parseAgentContextSummary } from '../../../shared/contracts/aiAgent.js'
+import { estimateTokens, planContextBudget, takeWholeMessages } from '../../../shared/ai/context.js'
 import type { AgentUpstream } from './agentLoop.js'
 import {
   createContextSummary,

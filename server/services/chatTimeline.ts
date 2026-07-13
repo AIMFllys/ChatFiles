@@ -5,7 +5,7 @@ import type {
   TimelineMessage,
   TimelinePage,
   TimelineParticipant,
-} from '../../src/types/chat.js'
+} from '../../shared/contracts/chat.js'
 
 export type TimelineQueryInput = {
   conversationId: string

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { DeepFileIndex, LibraryFile, SourceTextExtract, SourceTextIndex } from '../src/types.js'
+import type { DeepFileIndex, LibraryFile, SourceTextExtract, SourceTextIndex } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 
 const maxReadBytes = 2 * 1024 * 1024

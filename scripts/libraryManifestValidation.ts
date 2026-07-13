@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { LibraryFile, LibraryManifest } from '../src/types.js'
+import type { LibraryFile, LibraryManifest } from '../shared/contracts/index.js'
 
 const categories = new Set([
   '过去', '创业', 'AI', '树林', '学业', '专业', '比赛', '生活', '健康',

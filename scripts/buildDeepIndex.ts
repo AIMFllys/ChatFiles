@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { DeepFileIndex } from '../src/types.js'
+import type { DeepFileIndex } from '../shared/contracts/index.js'
 import { dataDir, ensureDir, explorationRoots, isEligibleAttachment, previewFor, sourceApp, walkFiles, writeJson } from './shared.js'
 
 type FileEntry = {
