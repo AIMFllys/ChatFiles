@@ -36,6 +36,7 @@ export function fixture(t: TestContext) {
   const insert = assetDb.prepare('INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
   let sequence = 0
   const addAsset = (options: {
+    category?: string
     kind?: string
     name?: string
     preview?: string
@@ -57,7 +58,7 @@ export function fixture(t: TestContext) {
       sourceSize = fs.statSync(target).size
     }
     insert.run(
-      id, options.convId === undefined ? 'conv-a' : options.convId, 'document', options.kind ?? 'resource',
+      id, options.convId === undefined ? 'conv-a' : options.convId, options.category ?? 'document', options.kind ?? 'resource',
       options.name ?? path.basename(relativePath ?? 'missing'), options.preview ?? 'text', options.url ?? null,
       relativePath, sourceSize, 100, '张三', 'private full text',
       options.materialization ?? 'exported', options.previewStatus ?? 'ready', 'private failure detail',
@@ -70,6 +71,10 @@ export function fixture(t: TestContext) {
     accountRootProvider: () => accountRoot,
     imageThumbnail: (target) => target,
     videoThumbnail: (target) => target,
+    resolveLinkPreview: async (_artifactId, url) => ({
+      status: 'fallback', url, domain: new URL(url).hostname, title: '', description: '',
+      siteName: '', iconUrl: '', updatedAt: new Date(0).toISOString(),
+    }),
   }
   t.after(() => {
     assetDb.close()

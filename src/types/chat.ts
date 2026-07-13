@@ -7,6 +7,7 @@ export type {
   TimelinePageInfo,
   TimelineParticipant,
 } from './chatTimeline'
+export type { LinkPreview, LinkPreviewStatus } from './linkPreview'
 
 export type {
   SummaryInsight,

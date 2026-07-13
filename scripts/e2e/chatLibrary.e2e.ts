@@ -118,6 +118,9 @@ const wechatRouter = createWechatRouter({
   accountRootProvider: () => accountRoot,
   imageThumbnail: (target) => target,
   videoThumbnail: (target) => target,
+  resolveLinkPreview: async (_artifactId, url) => ({ status: 'ready', url, domain: 'example.test', title: '经过验证的链接介绍',
+    description: '这是只使用脱敏测试数据生成的两行链接摘要。', siteName: '测试站点', iconUrl: '', updatedAt: '2026-07-13T00:00:00.000Z',
+  }),
 })
 const server = createApp({ wechatRouter }).listen(0, '127.0.0.1')
 let browser: Browser | undefined
@@ -181,12 +184,12 @@ try {
   assert.ok(await page.locator('.conversation-row').count() < 40)
 
   await page.getByRole('button', { name: '我的素材库 作品与可浏览创作', exact: true }).click()
-  await page.waitForFunction(() => document.querySelector('.artifact-stats strong')?.textContent === '3')
+  await page.waitForFunction(() => document.querySelector('.workspace-title-counts strong')?.textContent === '3')
   assert.equal(await page.locator('.artifact-card').count(), 1)
   assert.equal(await page.locator('.artifact-card[data-availability="ready"]').count(), 1)
 
   await page.getByRole('button', { name: '全部产出 跨会话汇总', exact: true }).click()
-  await page.waitForFunction(() => document.querySelector('.artifact-stats strong')?.textContent === '4')
+  await page.waitForFunction(() => document.querySelector('.workspace-title-counts strong')?.textContent === '4')
   assert.equal(await page.locator('.artifact-card').count(), 4)
   assert.equal(await page.locator('.artifact-card[data-availability="decrypt_failed"]').count(), 1)
 
@@ -196,7 +199,6 @@ try {
     { id: 'document', name: '文档 1', count: 1 },
     { id: 'skill', name: 'Skills 工具 1', count: 1 },
     { id: 'link', name: '链接 1', count: 1 },
-    { id: 'chatText', name: '聊天文字 120', count: 60 },
   ]
   for (const tabCase of tabCases) {
     const tab = page.getByRole('tab', { name: tabCase.name, exact: true })
@@ -221,7 +223,12 @@ try {
       throw new Error(`tab ${tabCase.id} did not settle: ${JSON.stringify(state)}`, { cause: error })
     }
   }
-  assert.ok(await page.locator('.chat-text-card').count() > 0)
+  await page.getByRole('tab', { name: '链接 1', exact: true }).click()
+  await page.locator('.link-preview[data-status="ready"]').waitFor()
+  assert.match(await page.locator('.link-preview').innerText(), /经过验证的链接介绍.*两行链接摘要.*测试站点/su)
+
+  await page.getByRole('tab', { name: '聊天文字 120', exact: true }).click()
+  await page.getByText('选择一个会话后查看聊天时间轴', { exact: true }).waitFor()
 
   const allTab = page.getByRole('tab', { name: '全部 4', exact: true })
   await allTab.click()
@@ -249,10 +256,10 @@ try {
   const desktopScreenshot = await page.screenshot()
   assert.ok(desktopScreenshot.byteLength > 10_000)
 
-  await page.getByRole('button', { name: '浅色模式', exact: true }).click()
+  await page.getByRole('button', { name: '当前跟随系统，切换到浅色模式', exact: true }).click()
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light')
-  await page.getByRole('button', { name: '深色模式', exact: true }).click()
+  await page.getByRole('button', { name: '当前浅色模式，切换到深色模式', exact: true }).click()
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark')
 
@@ -266,9 +273,12 @@ try {
   const firstConversation = page.locator('.conversation-main').filter({ hasText: '会话 001' })
   assert.equal(await firstConversation.count(), 1)
   await firstConversation.click()
-  await page.getByRole('heading', { name: '会话 001', exact: true }).waitFor()
-  assert.equal(await page.locator('.chat-library').getAttribute('data-mobile-pane'), 'workspace')
+  await page.waitForFunction(() => document.querySelector('.chat-library')?.getAttribute('data-mobile-pane') === 'workspace')
+  await page.locator('.artifact-workspace h1').filter({ hasText: '会话 001' }).waitFor()
   assert.equal(await page.locator('.artifact-grid-window').evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1)
+  await page.getByRole('tab', { name: '聊天文字 1', exact: true }).click()
+  await page.locator('.timeline-message').waitFor()
+  assert.match(await page.locator('.timeline-message').innerText(), /发送者 001.*测试消息 001/su)
   const mobileScreenshot = await page.screenshot()
   assert.ok(mobileScreenshot.byteLength > 10_000)
 

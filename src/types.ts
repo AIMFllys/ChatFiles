@@ -47,6 +47,8 @@ export type {
   TimelinePage,
   TimelinePageInfo,
   TimelineParticipant,
+  LinkPreview,
+  LinkPreviewStatus,
   ValueCandidate,
   ValueCandidateIndex,
   DatabaseTextSample,

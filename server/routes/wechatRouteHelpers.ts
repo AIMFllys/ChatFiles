@@ -8,6 +8,7 @@ import type {
   ChatArtifactCapability,
   ChatArtifactMetadata,
   ChatArtifactTab,
+  LinkPreview,
 } from '../../src/types/chat.js'
 import { imageThumb, videoPoster } from '../utils/thumbs.js'
 import { openValidatedArtifactDatabase } from '../wechat/artifactDatabase.js'
@@ -17,6 +18,7 @@ import {
   type ArtifactSourceResolution,
 } from '../wechat/artifactSourceResolver.js'
 import { openValidatedWechatDatabase } from '../wechat/databaseOpener.js'
+import { createLinkPreviewService } from '../services/linkPreview/linkPreviewService.js'
 
 export type DatabaseLease = {
   db: DatabaseSync | null
@@ -29,6 +31,7 @@ export type WechatRouterDependencies = {
   accountRootProvider: (assetDb: DatabaseSync) => string | null
   imageThumbnail: (target: string, width: number) => string
   videoThumbnail: (target: string, width: number) => string
+  resolveLinkPreview: (artifactId: string, url: string) => Promise<LinkPreview>
 }
 
 const tabs = new Set<ChatArtifactTab>(['all', 'work', 'document', 'skill', 'link', 'chatText'])
@@ -45,12 +48,14 @@ function defaultArtifactLease(projectRoot: string): DatabaseLease {
 }
 
 export function defaultDependencies(projectRoot: string): WechatRouterDependencies {
+  const linkPreviews = createLinkPreviewService({ cacheDir: path.join(projectRoot, 'work', 'link-preview-cache') })
   return {
     openWechatDatabase: () => defaultWechatLease(projectRoot),
     openArtifactDatabase: () => defaultArtifactLease(projectRoot),
     accountRootProvider: createArtifactAccountRootProvider({ projectRoot }),
     imageThumbnail: imageThumb,
     videoThumbnail: videoPoster,
+    resolveLinkPreview: (artifactId, url) => linkPreviews.resolve(artifactId, url),
   }
 }
 

@@ -50,6 +50,8 @@ export type {
   TimelinePage,
   TimelinePageInfo,
   TimelineParticipant,
+  LinkPreview,
+  LinkPreviewStatus,
 } from './chat'
 
 export type {

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { ChatArtifactListItem } from '../../types'
 import { formatBytes } from '../../utils/format'
+import { LinkPreviewCard } from '../link-preview/LinkPreviewCard'
 import { artifactAvailabilityLabel, previewForArtifactName } from './artifactModel'
 
 const previewLabels: Record<string, string> = {
@@ -91,20 +92,28 @@ export function ArtifactCard({
       onClick={() => onOpen(item)}
       type="button"
     >
-      <span className="artifact-card-preview">
-        {canThumbnail && !failedThumbnail ? (
-          <img
-            alt=""
-            loading="lazy"
-            onError={() => setFailedThumbnail(true)}
-            src={`/api/wechat/artifact/${item.id}/thumbnail?w=360`}
-          />
-        ) : (
-          <span className="artifact-preset"><PreviewIcon preview={preview} /></span>
-        )}
-        <span className="artifact-type">{previewLabels[preview] ?? preview}</span>
-        <span className="artifact-state">{artifactAvailabilityLabel(item.availability)}</span>
-      </span>
+      {item.category === 'link' ? (
+        <LinkPreviewCard
+          artifactId={item.id}
+          stateLabel={artifactAvailabilityLabel(item.availability)}
+          url={item.url}
+        />
+      ) : (
+        <span className="artifact-card-preview">
+          {canThumbnail && !failedThumbnail ? (
+            <img
+              alt=""
+              loading="lazy"
+              onError={() => setFailedThumbnail(true)}
+              src={`/api/wechat/artifact/${item.id}/thumbnail?w=360`}
+            />
+          ) : (
+            <span className="artifact-preset"><PreviewIcon preview={preview} /></span>
+          )}
+          <span className="artifact-type">{previewLabels[preview] ?? preview}</span>
+          <span className="artifact-state">{artifactAvailabilityLabel(item.availability)}</span>
+        </span>
+      )}
       <span className="artifact-card-copy">
         <strong>{item.name}</strong>
         <span className="artifact-card-meta">
