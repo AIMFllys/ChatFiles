@@ -11,8 +11,9 @@
   --accent: #0677d8;
   --accent-strong: #005eb8;
   --accent-contrast: #ffffff;
+  --chromatic-contrast: #ffffff;
   --success: #13835f;
-  --warning: #b76500;
+  --warning: #a65300;
   --danger: #c53d37;
   --violet: #7657c7;
   --surface-material: rgba(255, 255, 255, 0.82);
@@ -34,6 +35,7 @@
   --accent: #64a9ff;
   --accent-strong: #8ec1ff;
   --accent-contrast: #07182b;
+  --chromatic-contrast: #101012;
   --success: #4bd69a;
   --warning: #ffad33;
   --danger: #ff6961;

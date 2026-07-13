@@ -102,6 +102,7 @@ function App() {
     <nav className={`rail-nav${label === '配置' ? ' secondary' : ''}`} aria-label={label}>
       {items.map((item) => (
         <button
+          aria-current={activeTab === item.id ? 'page' : undefined}
           key={item.id}
           className={activeTab === item.id ? 'rail-button active' : 'rail-button'}
           onClick={() => setActiveTab(item.id)}
@@ -134,6 +135,7 @@ function App() {
         <div className="rail-div" />
         <nav className="rail-nav secondary" aria-label="配置">
           <button
+            aria-current={isConfig ? 'page' : undefined}
             className={isConfig ? 'rail-button active' : 'rail-button'}
             onClick={() => setActiveTab(lastConfig)}
             title="配置"
@@ -144,6 +146,7 @@ function App() {
           </button>
           {LOWER_NAV.map((item) => (
             <button
+              aria-current={activeTab === item.id ? 'page' : undefined}
               key={item.id}
               className={activeTab === item.id ? 'rail-button active' : 'rail-button'}
               onClick={() => setActiveTab(item.id)}

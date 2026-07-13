@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import type { ChatArtifactListItem } from '../../types'
 import { formatBytes } from '../../utils/format'
-import { previewForArtifactName } from './artifactModel'
+import { artifactAvailabilityLabel, previewForArtifactName } from './artifactModel'
 
 const previewLabels: Record<string, string> = {
   archive: '压缩包',
@@ -103,7 +103,7 @@ export function ArtifactCard({
           <span className="artifact-preset"><PreviewIcon preview={preview} /></span>
         )}
         <span className="artifact-type">{previewLabels[preview] ?? preview}</span>
-        <span className="artifact-state" aria-label={item.availability} />
+        <span className="artifact-state">{artifactAvailabilityLabel(item.availability)}</span>
       </span>
       <span className="artifact-card-copy">
         <strong>{item.name}</strong>

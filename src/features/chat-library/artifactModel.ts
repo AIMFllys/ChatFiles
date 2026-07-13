@@ -27,6 +27,21 @@ export type ArtifactCounts = Record<ArtifactKind, number> & {
   missing: number
 }
 
+const artifactAvailabilityLabels: Record<string, string> = {
+  ready: '可预览',
+  thumbnail_only: '仅可预览缩略图',
+  missing_source: '未找到源文件',
+  decrypt_failed: '待解密',
+  source_ambiguous: '来源待确认',
+  hash_mismatch: '文件校验不一致',
+  unsupported_codec: '格式暂不支持',
+  source_unavailable: '源文件不可用',
+}
+
+export function artifactAvailabilityLabel(availability: string) {
+  return artifactAvailabilityLabels[availability] ?? '状态未知'
+}
+
 export function firstCodePoint(value: string, fallback: string) {
   return [...value.trim()][0] ?? fallback
 }

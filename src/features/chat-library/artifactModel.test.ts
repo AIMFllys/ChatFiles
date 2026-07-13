@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   artifactRequestUrl,
+  artifactAvailabilityLabel,
   classifyArtifact,
   countArtifacts,
   firstCodePoint,
@@ -15,6 +16,13 @@ test('keeps an emoji avatar as one Unicode code point', () => {
   assert.equal(firstCodePoint('📜 自律者联盟', '聊'), '📜')
   assert.equal(firstCodePoint('  网站制作小组', '聊'), '网')
   assert.equal(firstCodePoint('   ', '聊'), '聊')
+})
+
+test('presents artifact availability as readable Chinese status text', () => {
+  assert.equal(artifactAvailabilityLabel('ready'), '可预览')
+  assert.equal(artifactAvailabilityLabel('source_ambiguous'), '来源待确认')
+  assert.equal(artifactAvailabilityLabel('decrypt_failed'), '待解密')
+  assert.equal(artifactAvailabilityLabel('unexpected'), '状态未知')
 })
 
 test('classifies mutually exclusive output kinds with skill precedence', () => {
