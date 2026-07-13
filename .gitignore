@@ -9,6 +9,7 @@ data/
 archive/
 work/
 imports/
+secrets/
 .uploads/
 docs/tmp/
 
@@ -19,6 +20,38 @@ scripts/batch_*_insights_data.json
 scripts/missing*_overrides.json
 scripts/tmp/
 scripts/_test_*.png
+
+# ===== 一次性洞察批处理 / 恢复脚本（本机审计留档，不入仓） =====
+scripts/_checkGrownRecovery.mjs
+scripts/aggregateInsightsByCategory.ts
+scripts/bootstrapInsightState.ts
+scripts/checkBatch3.mjs
+scripts/checkBatch3Quality.mjs
+scripts/computeUpdateDelta.ts
+scripts/countBatch3.mjs
+scripts/extractBatch3Remaining.mjs
+scripts/find_image_key.py
+scripts/find_image_key2.py
+scripts/generateBatch1Insights.mjs
+scripts/generateBatch8Insights.mjs
+scripts/generateMissing282_499.mjs
+scripts/mergeInsightDelta.ts
+scripts/processBatch6.mjs
+scripts/processDeltaInsights.mjs
+scripts/processMissing282.mjs
+scripts/recoverConvFiles.mjs
+scripts/runBatch4Insights.mjs
+scripts/summarizePendingBatch3.mjs
+scripts/updateInsightState.ts
+scripts/validateBatch8.mjs
+scripts/validateDeltaInsights.mjs
+scripts/verifyBatch4.mjs
+scripts/writeBatch1Insights.mjs
+scripts/writeBatch3Insights.mjs
+scripts/writeBatch5Insights.ts
+scripts/writeBatch6Insights.mjs
+scripts/writeBatch7Insights.mjs
+scripts/writeBatch8Insights.mjs
 
 # ===== 构建产物 =====
 node_modules/
