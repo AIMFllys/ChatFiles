@@ -15,6 +15,7 @@ export type InsightConversation = {
   topics: string[]
   keyPeople: string[]
   nuggets: InsightNugget[]
+  legacySummaries?: Array<{ convId: string; summary: string }>
 }
 
 export type InsightState = {
@@ -22,6 +23,7 @@ export type InsightState = {
   analyzedTextCount: number
   analyzedLastTime: number
   analyzedAt: string
+  analyzedLastMessageUid?: string
 }
 
 export type CurrentInsightConversation = {
@@ -34,15 +36,23 @@ export type CurrentInsightConversation = {
 }
 
 export type InsightMessage = {
+  messageUid?: string
   time: number
   senderName: string
   text: string
+}
+
+export type InsightBoardRecord = {
+  convId: string
+  conversationName: string
+  nugget: InsightNugget
 }
 
 type ReconcileInput = {
   current: CurrentInsightConversation[]
   legacy: InsightConversation[]
   states: InsightState[]
+  ownerAliases: Record<string, string>
 }
 
 function conversationUsername(convId: string) {
@@ -51,6 +61,14 @@ function conversationUsername(convId: string) {
     throw new Error(`Invalid WeChat conversation id: ${convId}`)
   }
   return parts.slice(2).join(':')
+}
+
+function conversationOwner(convId: string) {
+  const parts = convId.split(':')
+  if (parts.length < 3 || parts[0] !== 'wx' || !parts[1] || !parts[2]) {
+    throw new Error(`Invalid WeChat conversation id: ${convId}`)
+  }
+  return parts[1]
 }
 
 function groupByUsername<T>(items: T[], id: (item: T) => string) {
@@ -68,8 +86,15 @@ function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))]
 }
 
-function nuggetKey(nugget: InsightNugget) {
-  return `${nugget.title.trim()}|${nugget.content.trim()}`
+export function insightNuggetEvidenceKey(nugget: InsightNugget) {
+  return JSON.stringify([
+    nugget.category,
+    nugget.title.trim(),
+    nugget.content.trim(),
+    [...(nugget.people ?? [])].sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    nugget.date ?? '',
+    nugget.importance ?? null,
+  ])
 }
 
 function preferredState(states: InsightState[]) {
@@ -99,6 +124,13 @@ export function reconcileLegacyInsights(input: ReconcileInput) {
     const username = conversationUsername(current.id)
     const legacyMatches = legacyByUsername.get(username) ?? []
     if (legacyMatches.length === 0) continue
+    const canonicalOwner = conversationOwner(current.id)
+    for (const legacyConversation of legacyMatches) {
+      const legacyOwner = conversationOwner(legacyConversation.convId)
+      if (legacyOwner !== canonicalOwner && input.ownerAliases[legacyOwner] !== canonicalOwner) {
+        throw new Error(`Legacy owner alias is not mapped to the canonical owner: ${legacyOwner}`)
+      }
+    }
 
     const state = preferredState(statesByUsername.get(username) ?? [])
     const preferred = legacyMatches.find((conversation) => conversation.convId === state?.convId)
@@ -108,7 +140,7 @@ export function reconcileLegacyInsights(input: ReconcileInput) {
     const nuggets: InsightNugget[] = []
     for (const conversation of ordered) {
       for (const nugget of conversation.nuggets ?? []) {
-        const key = nuggetKey(nugget)
+        const key = insightNuggetEvidenceKey(nugget)
         if (seenNuggets.has(key)) continue
         seenNuggets.add(key)
         nuggets.push(nugget)
@@ -116,6 +148,15 @@ export function reconcileLegacyInsights(input: ReconcileInput) {
     }
 
     canonicalNuggets += nuggets.length
+    const legacySummaries = ordered.flatMap((conversation) => [
+      { convId: conversation.convId, summary: conversation.summary },
+      ...(conversation.legacySummaries ?? []),
+    ]).filter((entry, index, entries) =>
+      Boolean(entry.summary?.trim())
+      && entries.findIndex((candidate) =>
+        candidate.convId === entry.convId && candidate.summary === entry.summary,
+      ) === index,
+    )
     conversations.push({
       convId: current.id,
       name: current.display,
@@ -124,6 +165,7 @@ export function reconcileLegacyInsights(input: ReconcileInput) {
       topics: uniqueStrings(ordered.flatMap((conversation) => conversation.topics ?? [])),
       keyPeople: uniqueStrings(ordered.flatMap((conversation) => conversation.keyPeople ?? [])),
       nuggets,
+      legacySummaries,
     })
     if (state) states.push({ ...state, convId: current.id })
   }
@@ -158,6 +200,7 @@ export function planInsightDelta(
     conversation: CurrentInsightConversation
     kind: 'new' | 'grown'
     since: number
+    sinceMessageUid: string
     previousTextCount: number
   }> = []
   const metrics = { new: 0, grown: 0, accumulated: 0, unchanged: 0 }
@@ -165,7 +208,7 @@ export function planInsightDelta(
   for (const conversation of conversations) {
     const state = stateById.get(conversation.id)
     if (!state) {
-      entries.push({ conversation, kind: 'new', since: 0, previousTextCount: 0 })
+      entries.push({ conversation, kind: 'new', since: 0, sinceMessageUid: '', previousTextCount: 0 })
       metrics.new++
       continue
     }
@@ -176,6 +219,7 @@ export function planInsightDelta(
         conversation,
         kind: 'grown',
         since: state.analyzedLastTime,
+        sinceMessageUid: state.analyzedLastMessageUid ?? '',
         previousTextCount: state.analyzedTextCount,
       })
       metrics.grown++
@@ -263,12 +307,12 @@ export function distillInsightMessages(input: {
         keyPeople: [],
         nuggets: [],
       }
-  const selected = input.messages
-    .filter(isDistillableMessage)
+  const eligible = input.messages.filter(isDistillableMessage)
+  const selected = eligible
     .map((message) => ({ message, score: messageScore(message) }))
     .sort((a, b) => b.score - a.score || a.message.time - b.message.time)
     .slice(0, 5)
-  const seen = new Set(base.nuggets.map(nuggetKey))
+  const seen = new Set(base.nuggets.map(insightNuggetEvidenceKey))
   let addedNuggets = 0
 
   for (const { message, score } of selected) {
@@ -281,7 +325,7 @@ export function distillInsightMessages(input: {
       date: new Date(message.time * 1000).toISOString().slice(0, 7),
       importance: Math.max(1, Math.min(5, Math.round(score / 50))),
     }
-    const key = nuggetKey(nugget)
+    const key = insightNuggetEvidenceKey(nugget)
     if (seen.has(key)) continue
     seen.add(key)
     base.nuggets.push(nugget)
@@ -304,7 +348,16 @@ export function distillInsightMessages(input: {
     const last = new Date(lastTime * 1000).toISOString().slice(0, 10)
     base.summary = `${input.conversation.display}${input.conversation.isGroup ? '群聊' : '私聊'}，覆盖 ${first} 至 ${last}，本轮提炼 ${addedNuggets} 条长期价值记录。`
   }
-  return { conversation: base, addedNuggets }
+  return {
+    conversation: base,
+    addedNuggets,
+    metrics: {
+      inputRows: input.messages.length,
+      eligibleRows: eligible.length,
+      selectedRows: selected.length,
+      addedNuggets,
+    },
+  }
 }
 
 export function formatInsightDigest(
@@ -325,4 +378,60 @@ export function formatInsightDigest(
     return `[${time}] ${sender}: ${text}`
   })
   return truncateCodePoints(`${header}${lines.join('\n')}`, cap)
+}
+
+function boardText(value: string) {
+  return value.replace(/[\r\n]+/gu, ' ').replace(/\s+/gu, ' ').trim()
+}
+
+function escapeBoardMarkdown(value: string) {
+  return boardText(value)
+    .replace(/\\/gu, '\\\\')
+    .replace(/([`*_[\]{}()<>#+!|>~])/gu, '\\$1')
+    .replace(/^([+-])(?=\s)/u, '\\$1')
+}
+
+export function renderInsightBoard(
+  category: string,
+  records: InsightBoardRecord[],
+  maximumEntries = 36,
+) {
+  const sorted = [...records].sort((a, b) =>
+    Number(b.nugget.importance ?? 0) - Number(a.nugget.importance ?? 0)
+    || String(b.nugget.date ?? '').localeCompare(String(a.nugget.date ?? ''))
+    || a.nugget.title.localeCompare(b.nugget.title, 'zh-CN'),
+  )
+  const visible = sorted.slice(0, maximumEntries)
+  const conversations = new Set(records.map((record) => record.convId)).size
+  const sections = [
+    { title: '重点记录', matches: (importance: number) => importance >= 4 },
+    { title: '值得关注', matches: (importance: number) => importance === 3 },
+    { title: '补充记录', matches: (importance: number) => importance <= 2 },
+  ]
+  const lines = [
+    `# ${boardText(category)} 主题板`,
+    '',
+    `本板汇总 ${records.length} 条可追溯要点，覆盖 ${conversations} 个会话，并优先展示重要度更高、日期更新的记录。`,
+  ]
+  for (const section of sections) {
+    const matches = visible.filter((record) => section.matches(Number(record.nugget.importance ?? 0)))
+    if (matches.length === 0) continue
+    lines.push('', `## ${section.title}`)
+    for (const record of matches) {
+      const rawTitle = boardText(record.nugget.title).replace(/^#+\s*/u, '') || '未命名记录'
+      const title = escapeBoardMarkdown(rawTitle)
+      const content = escapeBoardMarkdown(record.nugget.content)
+      const source = escapeBoardMarkdown(record.conversationName || record.convId)
+      const date = escapeBoardMarkdown(record.nugget.date ?? '') || '日期未标注'
+      lines.push('', `### ${title}`, '', `> ${content}`, '', `来源：${source} · ${date}`)
+    }
+  }
+  lines.push(
+    '',
+    '---',
+    '',
+    `本板基于 ${records.length} 条要点，覆盖 ${conversations} 个会话；展示 ${visible.length} 条。`,
+    '',
+  )
+  return lines.join('\n')
 }

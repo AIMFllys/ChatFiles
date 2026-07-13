@@ -25,3 +25,24 @@ test('parses explicit insight refresh paths without changing Chinese characters'
 test('rejects unknown insight refresh flags', () => {
   assert.throws(() => parseInsightRefreshArgs(['audit', '--force']), /Unknown option/u)
 })
+
+test('accepts the explicit board rebuild command', () => {
+  assert.deepEqual(parseInsightRefreshArgs(['boards', '--run-id', 'fixture']), {
+    command: 'boards',
+    runId: 'fixture',
+  })
+})
+
+test('parses an explicit audited owner alias map', () => {
+  assert.deepEqual(parseInsightRefreshArgs([
+    'prepare',
+    '--run-id',
+    'fixture',
+    '--alias-map',
+    'work/audits/insight-owner-aliases.json',
+  ]), {
+    command: 'prepare',
+    runId: 'fixture',
+    aliasMapPath: 'work/audits/insight-owner-aliases.json',
+  })
+})

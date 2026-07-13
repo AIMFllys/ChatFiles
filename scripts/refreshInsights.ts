@@ -5,20 +5,22 @@ import {
   auditInsightRefresh,
   distillInsightRefresh,
   prepareInsightRefresh,
+  rebuildInsightBoards,
 } from './insights/insightRefreshRunner.js'
 
-type InsightRefreshCommand = 'prepare' | 'distill' | 'audit' | 'activate'
+type InsightRefreshCommand = 'prepare' | 'distill' | 'boards' | 'audit' | 'activate'
 
 export function parseInsightRefreshArgs(argv: string[]) {
   const command = argv[0] as InsightRefreshCommand | undefined
-  if (!command || !new Set(['prepare', 'distill', 'audit', 'activate']).has(command)) {
-    throw new Error('Usage: refreshInsights <prepare|distill|audit|activate> [options]')
+  if (!command || !new Set(['prepare', 'distill', 'boards', 'audit', 'activate']).has(command)) {
+    throw new Error('Usage: refreshInsights <prepare|distill|boards|audit|activate> [options]')
   }
   const names = new Map([
     ['--run-id', 'runId'],
     ['--source', 'sourceDir'],
     ['--bundle', 'bundleDir'],
     ['--db', 'databasePath'],
+    ['--alias-map', 'aliasMapPath'],
   ] as const)
   const values: Record<string, string> = {}
   for (let index = 1; index < argv.length; index += 2) {
@@ -35,6 +37,7 @@ export function parseInsightRefreshArgs(argv: string[]) {
     sourceDir?: string
     bundleDir?: string
     databasePath?: string
+    aliasMapPath?: string
   }
 }
 
@@ -54,11 +57,14 @@ export function runInsightRefreshCli(argv: string[]) {
   }
   if (!parsed.runId) throw new Error(`--run-id is required for ${parsed.command}`)
   const options = { ...common, runId: parsed.runId }
+  if (parsed.aliasMapPath) Object.assign(options, { aliasMapPath: parsed.aliasMapPath })
   const result = parsed.command === 'prepare'
     ? prepareInsightRefresh(options)
     : parsed.command === 'distill'
       ? distillInsightRefresh(options)
-      : activateInsightRefresh(options)
+      : parsed.command === 'boards'
+        ? rebuildInsightBoards(options)
+        : activateInsightRefresh(options)
   console.log(JSON.stringify(result, null, 2))
   return result
 }

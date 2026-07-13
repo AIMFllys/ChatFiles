@@ -5,6 +5,7 @@ import {
   formatInsightDigest,
   planInsightDelta,
   reconcileLegacyInsights,
+  renderInsightBoard,
   type CurrentInsightConversation,
   type InsightConversation,
   type InsightState,
@@ -52,7 +53,15 @@ const states: InsightState[] = [
 ]
 
 test('reconciles legacy account aliases into one canonical insight without losing unique nuggets', () => {
-  const result = reconcileLegacyInsights({ current: [current], legacy, states })
+  const result = reconcileLegacyInsights({
+    current: [current],
+    legacy,
+    states,
+    ownerAliases: {
+      'owner-short': 'wxid_owner',
+      'wxid_owner_old': 'wxid_owner',
+    },
+  })
 
   assert.equal(result.conversations.length, 1)
   assert.deepEqual(result.conversations[0], {
@@ -62,7 +71,11 @@ test('reconciles legacy account aliases into one canonical insight without losin
     summary: '较新的总结',
     topics: ['新主题', '旧主题'],
     keyPeople: ['乙', '甲'],
-    nuggets: [legacy[1]!.nuggets[0], legacy[1]!.nuggets[1], legacy[0]!.nuggets[1]],
+    nuggets: [legacy[1]!.nuggets[0], legacy[1]!.nuggets[1], legacy[0]!.nuggets[0], legacy[0]!.nuggets[1]],
+    legacySummaries: [
+      { convId: legacy[1]!.convId, summary: '较新的总结' },
+      { convId: legacy[0]!.convId, summary: '较旧的总结' },
+    ],
   })
   assert.deepEqual(result.states, [
     {
@@ -78,8 +91,8 @@ test('reconciles legacy account aliases into one canonical insight without losin
     canonicalConversations: 1,
     mergedAliasFiles: 1,
     legacyNuggets: 4,
-    canonicalNuggets: 3,
-    duplicateNuggetsRemoved: 1,
+    canonicalNuggets: 4,
+    duplicateNuggetsRemoved: 0,
   })
 })
 
@@ -91,7 +104,7 @@ test('plans only new and materially grown conversations while preserving small i
     { ...current, id: 'wx:wxid_owner:same-peer', display: '未变化', textCount: 40 },
   ]
   const currentStates: InsightState[] = [
-    { ...states[0]!, convId: current.id },
+    { ...states[0]!, convId: current.id, analyzedLastMessageUid: 'message-30' },
     { ...states[1]!, convId: 'wx:wxid_owner:small-peer' },
     { ...states[1]!, convId: 'wx:wxid_owner:same-peer' },
   ]
@@ -99,8 +112,14 @@ test('plans only new and materially grown conversations while preserving small i
   const result = planInsightDelta(conversations, currentStates, 8)
 
   assert.deepEqual(result.entries, [
-    { conversation: current, kind: 'grown', since: states[0]!.analyzedLastTime, previousTextCount: 30 },
-    { conversation: conversations[1], kind: 'new', since: 0, previousTextCount: 0 },
+    {
+      conversation: current,
+      kind: 'grown',
+      since: states[0]!.analyzedLastTime,
+      sinceMessageUid: 'message-30',
+      previousTextCount: 30,
+    },
+    { conversation: conversations[1], kind: 'new', since: 0, sinceMessageUid: '', previousTextCount: 0 },
   ])
   assert.deepEqual(result.metrics, {
     new: 1,
@@ -116,6 +135,10 @@ test('refuses ambiguous canonical usernames instead of guessing across accounts'
       current: [current, { ...current, id: 'wx:other-owner:room@chatroom' }],
       legacy,
       states,
+      ownerAliases: {
+        'owner-short': 'wxid_owner',
+        'wxid_owner_old': 'wxid_owner',
+      },
     }),
     /ambiguous/u,
   )
@@ -143,6 +166,14 @@ test('distills a grown tail into bounded Chinese nuggets without replacing the e
   assert.equal(result.conversation.nuggets.at(-1)?.people?.[0], '孔德羽')
   assert.equal(Array.from(result.conversation.nuggets.at(-1)?.content ?? '').length <= 140, true)
   assert.match(result.conversation.nuggets.at(-1)?.content ?? '', /中文内容/u)
+  assert.deepEqual(result.metrics, { inputRows: 3, eligibleRows: 1, selectedRows: 1, addedNuggets: 1 })
+})
+
+test('refuses legacy owners without an explicit canonical alias mapping', () => {
+  assert.throws(
+    () => reconcileLegacyInsights({ current: [current], legacy, states, ownerAliases: {} }),
+    /owner alias/u,
+  )
 })
 
 test('formats a bounded UTF-8 digest without splitting emoji or Chinese text', () => {
@@ -171,4 +202,43 @@ test('creates an evidence-bounded summary and topics for a new conversation', ()
   assert.match(result.conversation.summary, /新会话.*2023-11-14.*1 条/u)
   assert.deepEqual(result.conversation.topics, ['资源工具'])
   assert.deepEqual(result.conversation.keyPeople, ['乙'])
+})
+
+test('renders a deterministic board from exact nuggets with source and coverage counts', () => {
+  const board = renderInsightBoard('AI', [
+    {
+      convId: current.id,
+      conversationName: '中文测试群',
+      nugget: { category: 'AI', title: '重要方法', content: '先审计来源，再推进高水位。', date: '2026-07', importance: 5 },
+    },
+    {
+      convId: 'wx:canonical:other',
+      conversationName: '另一个会话',
+      nugget: { category: 'AI', title: '次要记录', content: '这条不进入展示上限。', date: '2026-06', importance: 2 },
+    },
+  ], 1)
+
+  assert.match(board, /^# AI 主题板/u)
+  assert.match(board, /> 先审计来源，再推进高水位。/u)
+  assert.match(board, /来源：中文测试群 · 2026-07/u)
+  assert.match(board, /基于 2 条要点，覆盖 2 个会话；展示 1 条/u)
+  assert.doesNotMatch(board, /这条不进入展示上限/u)
+})
+
+test('escapes nugget Markdown so quoted source text cannot change the board structure', () => {
+  const board = renderInsightBoard('技术', [{
+    convId: current.id,
+    conversationName: '含#符号的群',
+    nugget: {
+      category: '技术',
+      title: '# 配置 `nvm`',
+      content: '# 标题 [链接](https://example.com) 与 `代码`',
+      date: '2026-07',
+      importance: 5,
+    },
+  }])
+
+  assert.match(board, /### 配置 \\`nvm\\`/u)
+  assert.equal(board.includes('> \\# 标题 \\[链接\\]\\(https://example.com\\) 与 \\`代码\\`'), true)
+  assert.match(board, /来源：含\\#符号的群/u)
 })
