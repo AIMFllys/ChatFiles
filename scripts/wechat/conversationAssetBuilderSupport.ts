@@ -75,6 +75,7 @@ export type OutputMessageRow = {
   sender_name: string
   raw_type: string
   type: number
+  structured_content_json: string
   text: string
   username: string
 }
@@ -103,7 +104,8 @@ export const RESOURCE_QUERY = `
 export const MESSAGE_COLUMNS = `
   m.conv_id, m.message_uid, m.canonical_seq, m.occurred_at_epoch_s,
   m.source_snapshot, m.source_adapter, m.source_db, m.source_table, m.local_id,
-  m.server_id, m.sender_name, CAST(m.raw_type AS TEXT) AS raw_type, m.type, m.text,
+  m.server_id, m.sender_name, CAST(m.raw_type AS TEXT) AS raw_type, m.type,
+  m.structured_content_json, m.text,
   c.username
 `
 
@@ -255,6 +257,7 @@ export function toAssetMessage(
     message_origin_source: messageOriginSource,
     conversation_username: row.username,
     sender_name: row.sender_name,
+    structured_content_json: row.structured_content_json,
     text: row.text,
   }
 }

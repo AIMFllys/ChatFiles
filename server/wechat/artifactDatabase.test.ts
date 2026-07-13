@@ -9,6 +9,7 @@ import {
   openValidatedArtifactDatabase,
   resolveArtifactDatabasePath,
 } from './artifactDatabase.js'
+import { addClosedDocumentAsset } from './artifactDatabaseTestSupport.js'
 import { createCurrentDatabase } from './databaseOpenerTestFixtures.js'
 import { digestFileContent } from './contentDigest.js'
 
@@ -77,7 +78,11 @@ function createArtifactDatabase(
   return databasePath
 }
 
-function createNormalizedArtifactDatabase(projectRoot: string, omitCandidates = false) {
+function createNormalizedArtifactDatabase(
+  projectRoot: string,
+  omitCandidates = false,
+  omitMaterializedEvidence = false,
+) {
   const canonicalPath = createCurrentDatabase(projectRoot)
   const canonicalDigest = digestFileContent(canonicalPath)
   const databasePath = resolveArtifactDatabasePath(projectRoot)
@@ -118,7 +123,9 @@ function createNormalizedArtifactDatabase(projectRoot: string, omitCandidates = 
     );
     CREATE TABLE asset_materializations(
       source_id TEXT PRIMARY KEY,run_id TEXT,asset_id TEXT,status TEXT,preview_status TEXT,
-      failure_reason TEXT
+      failure_reason TEXT${omitMaterializedEvidence ? '' : `,
+      materialized_relative_path TEXT,materialized_size INTEGER,
+      materialized_content_sha256 TEXT,media_format TEXT`}
     );
     CREATE VIEW artifacts AS SELECT
       NULL AS asset_id,NULL AS conv_id,NULL AS message_uid,NULL AS resource_message_id,
@@ -128,7 +135,9 @@ function createNormalizedArtifactDatabase(projectRoot: string, omitCandidates = 
       NULL AS candidate_message_uids,NULL AS evidence_kind,NULL AS evidence_signature,
       NULL AS materialization,NULL AS preview_status,NULL AS failure_reason,
       NULL AS source_presence,NULL AS source_content_sha256,NULL AS association_status,
-      NULL AS confirmation_status,NULL AS association_evidence WHERE 0;
+      NULL AS confirmation_status,NULL AS association_evidence,
+      NULL AS materialized_relative_path,NULL AS materialized_size,
+      NULL AS materialized_content_sha256,NULL AS media_format WHERE 0;
   `)
   const digest = `sha256:${'a'.repeat(64)}`
   db.prepare(`INSERT INTO asset_runs(
@@ -163,21 +172,24 @@ function addUnsafeNormalizedAsset(projectRoot: string) {
       '${'b'.repeat(64)}','run-v2','association','document','resource','unsafe','pdf',NULL,1,0,
       '成员','', 'sha256:${'a'.repeat(64)}'
     );
-    INSERT INTO asset_materializations VALUES(
+    INSERT INTO asset_materializations(
+      source_id,run_id,asset_id,status,preview_status,failure_reason
+    ) VALUES(
       'source','run-v2','${'b'.repeat(64)}','ready','ready',NULL
     );
   `)
   db.close()
 }
 
-function addDigestlessReadyAsset(projectRoot: string) {
+function addDigestlessReadyAsset(projectRoot: string, rawDat = false) {
   const db = new DatabaseSync(resolveArtifactDatabasePath(projectRoot))
   db.exec(`
     UPDATE asset_runs SET source_count=1,resource_count=1,asset_count=1,
       association_count=1,materialization_count=1;
     INSERT INTO asset_sources VALUES(
       'source','run-v2','resource','message','row','type','0',4,1,1,1,'[]','[]',
-      'sha256:${'a'.repeat(64)}','lookup_exact','present','ready.pdf',4,NULL
+      'sha256:${'a'.repeat(64)}','lookup_exact','present','${rawDat ? 'ready.dat' : 'ready.pdf'}',4,
+      ${rawDat ? `'sha256:${'b'.repeat(64)}'` : 'NULL'}
     );
     INSERT INTO asset_associations VALUES(
       'association','run-v2','source','exact','confirmed',NULL,'uid','conv','[]','[]','[]',
@@ -187,7 +199,9 @@ function addDigestlessReadyAsset(projectRoot: string) {
       '${'c'.repeat(64)}','run-v2','association','document','resource','ready','pdf',NULL,1,0,
       '成员','', 'sha256:${'a'.repeat(64)}'
     );
-    INSERT INTO asset_materializations VALUES(
+    INSERT INTO asset_materializations(
+      source_id,run_id,asset_id,status,preview_status,failure_reason
+    ) VALUES(
       'source','run-v2','${'c'.repeat(64)}','ready','ready',NULL
     );
   `)
@@ -250,12 +264,20 @@ test('accepts a closed normalized v2 asset store and rejects an incomplete norma
   const unsafeRoot = fixtureRoot(t)
   const staleRoot = fixtureRoot(t)
   const digestlessRoot = fixtureRoot(t)
+  const missingMaterializedRoot = fixtureRoot(t)
+  const rawDatRoot = fixtureRoot(t)
+  const linkedRoot = fixtureRoot(t)
+  const unlinkedRoot = fixtureRoot(t)
   createNormalizedArtifactDatabase(readyRoot)
   createNormalizedArtifactDatabase(incompleteRoot, true)
   createNormalizedArtifactDatabase(unsafeRoot)
   addUnsafeNormalizedAsset(unsafeRoot)
   createNormalizedArtifactDatabase(staleRoot)
   createNormalizedArtifactDatabase(digestlessRoot)
+  createNormalizedArtifactDatabase(missingMaterializedRoot, false, true)
+  createNormalizedArtifactDatabase(rawDatRoot); addDigestlessReadyAsset(rawDatRoot, true)
+  createNormalizedArtifactDatabase(linkedRoot); addClosedDocumentAsset(linkedRoot, true)
+  createNormalizedArtifactDatabase(unlinkedRoot); addClosedDocumentAsset(unlinkedRoot, false)
   addDigestlessReadyAsset(digestlessRoot)
   const staleCanonical = new DatabaseSync(path.join(staleRoot, 'data', 'wechat.current', 'wechat.db'))
   staleCanonical.prepare("UPDATE people SET display_name='另一机主'").run()
@@ -268,4 +290,10 @@ test('accepts a closed normalized v2 asset store and rejects an incomplete norma
   assert.deepEqual(openValidatedArtifactDatabase(unsafeRoot), { db: null, code: 'unavailable' })
   assert.deepEqual(openValidatedArtifactDatabase(staleRoot), { db: null, code: 'unavailable' })
   assert.deepEqual(openValidatedArtifactDatabase(digestlessRoot), { db: null, code: 'unavailable' })
+  assert.deepEqual(openValidatedArtifactDatabase(missingMaterializedRoot), { db: null, code: 'unavailable' })
+  assert.deepEqual(openValidatedArtifactDatabase(rawDatRoot), { db: null, code: 'unavailable' })
+  const linked = openValidatedArtifactDatabase(linkedRoot)
+  assert.equal(linked.code, 'ready')
+  linked.db?.close()
+  assert.deepEqual(openValidatedArtifactDatabase(unlinkedRoot), { db: null, code: 'unavailable' })
 })

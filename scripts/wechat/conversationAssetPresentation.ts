@@ -31,14 +31,24 @@ export function fallbackAssetName(normalizedType: number) {
   return '聊天附件'
 }
 
-export function stateForResourceMatch(match: ResourceFileMatch) {
+export function stateForResourceMatch(
+  match: ResourceFileMatch,
+  context: { cdnOnly?: boolean; preview?: string } = {},
+) {
   if (match.status === 'ambiguous') {
-    return createAssetEvidenceState('source_ambiguous', 'unavailable', 'multiple_local_candidates')
+    return createAssetEvidenceState('not_attempted', 'unavailable', 'multiple_local_candidates')
   }
   if (match.status === 'size_mismatch') {
-    return createAssetEvidenceState('source_changed', 'unavailable', 'local_candidate_size_mismatch')
+    return createAssetEvidenceState('not_attempted', 'unavailable', 'local_candidate_size_mismatch')
   }
   if (match.status === 'missing') {
+    if (context.cdnOnly) {
+      return createAssetEvidenceState(
+        'cdn_only',
+        'unavailable',
+        'remote_cdn_reference_without_local_cache',
+      )
+    }
     return createAssetEvidenceState('source_missing', 'unavailable', 'local_source_not_found')
   }
   const candidate = match.candidate
@@ -49,6 +59,9 @@ export function stateForResourceMatch(match: ResourceFileMatch) {
       'unavailable',
       'encrypted_wechat_dat_requires_materialization',
     )
+  }
+  if (context.preview === 'video' && /\.(?:png|jpe?g|gif|webp)$/iu.test(candidate.name)) {
+    return createAssetEvidenceState('thumbnail_only', 'thumbnail_only')
   }
   return createAssetEvidenceState('ready', 'ready')
 }

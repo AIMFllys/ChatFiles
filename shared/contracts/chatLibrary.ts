@@ -66,7 +66,8 @@ export type ChatArtifactItem = {
     evidence: string
   }
   source: {
-    presence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'not_applicable' | 'unknown'
+    presence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'content_mismatch' | 'oversized'
+      | 'not_applicable' | 'unknown'
   }
   materialization: {
     status: string

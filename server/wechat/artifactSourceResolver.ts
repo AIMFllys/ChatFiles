@@ -7,8 +7,8 @@ import { loadLocalEnv, type LocalEnvironment } from '../../scripts/localEnv.js'
 import type { ChatArtifactAvailability } from '../../shared/contracts/chat.js'
 import { root } from '../utils/helpers.js'
 import { inspectArtifactStorage } from './artifactStorageShape.js'
-import { digestFileContent } from './contentDigest.js'
 import { artifactAvailabilityFor } from './artifactAvailability.js'
+import { resolveArtifactFile } from './artifactFileResolution.js'
 
 export type ArtifactSourcePurpose = 'content' | 'thumbnail'
 
@@ -27,7 +27,8 @@ export type ArtifactSourceAsset = {
   previewStatus: string
   associationStatus: 'exact' | 'partial' | 'conflict' | 'missing' | 'legacy'
   associationEvidence: string
-  sourcePresence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'not_applicable' | 'unknown'
+  sourcePresence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'content_mismatch' | 'oversized'
+    | 'not_applicable' | 'unknown'
 }
 
 type InternalArtifactRow = {
@@ -48,6 +49,10 @@ type InternalArtifactRow = {
   association_evidence: string
   source_presence: ArtifactSourceAsset['sourcePresence']
   source_content_sha256: string | null
+  materialized_relative_path: string | null
+  materialized_size: number | null
+  materialized_content_sha256: string | null
+  media_format: string | null
 }
 
 export type ArtifactSourceResolution =
@@ -75,13 +80,12 @@ export type ArtifactSourceResolverOptions = {
   assetDb: DatabaseSync
   accountRoot?: string
   accountRootProvider?: (assetDb: DatabaseSync) => string | null
+  bundleRoot?: string
   projectRoot?: string
   environment?: LocalEnvironment
 }
 
 export type ArtifactAccountRootProviderOptions = Omit<ArtifactSourceResolverOptions, 'assetDb' | 'accountRootProvider'>
-
-const dosDevice = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu
 
 function publicAsset(row: InternalArtifactRow): ArtifactSourceAsset {
   return {
@@ -171,55 +175,6 @@ export function createArtifactAccountRootProvider(options: ArtifactAccountRootPr
   }
 }
 
-function safeSegments(relativePath: string) {
-  if (!relativePath || relativePath.includes('\u0000')) return null
-  if (path.posix.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath)) return null
-  if (/^[a-z]:/iu.test(relativePath) || /^(?:\\\\[?.]\\|\\\?\?\\)/u.test(relativePath)) return null
-  const segments = relativePath.split(/[\\/]/u)
-  if (segments.some((segment) => (
-    !segment
-    || segment === '.'
-    || segment === '..'
-    || segment.includes(':')
-    || segment.endsWith('.')
-    || segment.endsWith(' ')
-    || dosDevice.test(segment)
-  ))) return null
-  return segments
-}
-
-function isContained(parent: string, child: string) {
-  const relative = path.relative(parent, child)
-  return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)
-}
-
-function resolveTarget(
-  accountRoot: string | null,
-  row: InternalArtifactRow,
-  requireContentDigest: boolean,
-) {
-  if (!accountRoot || row.source_size === null || !Number.isSafeInteger(row.source_size) || row.source_size < 0) {
-    return null
-  }
-  const segments = row.source_relative_path ? safeSegments(row.source_relative_path) : null
-  if (!segments) return null
-  try {
-    const lexicalTarget = path.resolve(accountRoot, ...segments)
-    if (!isContained(accountRoot, lexicalTarget)) return null
-    const target = fs.realpathSync(lexicalTarget)
-    if (!isContained(accountRoot, target)) return null
-    const stat = fs.statSync(target)
-    if (!stat.isFile() || stat.size !== row.source_size) return null
-    if (requireContentDigest && !/^sha256:[a-f0-9]{64}$/u.test(
-      row.source_content_sha256 ?? '',
-    )) return null
-    if (row.source_content_sha256 && digestFileContent(target) !== row.source_content_sha256) return null
-    return target
-  } catch {
-    return null
-  }
-}
-
 export function createArtifactSourceResolver(
   options: ArtifactSourceResolverOptions,
 ): ArtifactSourceResolver {
@@ -234,6 +189,11 @@ export function createArtifactSourceResolver(
   } catch {
     accountRoot = null
   }
+  let bundleRoot: string | null = null
+  try {
+    bundleRoot = canonicalDirectory(options.bundleRoot
+      ?? path.join(options.projectRoot ?? root, 'data', 'chat-assets.current'))
+  } catch { /* Missing materialized root stays unavailable. */ }
   const shape = inspectArtifactStorage(options.assetDb)
   const find = options.assetDb.prepare(`
     SELECT asset_id, conv_id, category, kind, name, preview, url,
@@ -242,7 +202,11 @@ export function createArtifactSourceResolver(
            ${shape.associationStatus} AS association_status,
            ${shape.associationEvidence} AS association_evidence,
            ${shape.sourcePresence} AS source_presence,
-           ${shape.sourceContentSha256} AS source_content_sha256
+           ${shape.sourceContentSha256} AS source_content_sha256,
+           ${shape.materializedRelativePath} AS materialized_relative_path,
+           ${shape.materializedSize} AS materialized_size,
+           ${shape.materializedContentSha256} AS materialized_content_sha256,
+           ${shape.mediaFormat} AS media_format
     FROM artifacts WHERE asset_id=? AND ${shape.verifiedPredicate}
   `)
 
@@ -253,13 +217,16 @@ export function createArtifactSourceResolver(
       if (!row) return { status: 'unknown' }
       const asset = publicAsset(row)
       const state = artifactAvailabilityFor(row.materialization, row.preview_status, shape.version)
-      if (row.kind !== 'resource') return { status: 'unsupported', state, asset }
+      if (row.kind !== 'resource' && row.kind !== 'voice') {
+        return { status: 'unsupported', state, asset }
+      }
       const materializedReady = shape.version === 2
         ? row.materialization === 'ready'
         : row.materialization === 'exported'
 
+      const hasMaterializedOutput = Boolean(row.materialized_relative_path)
       const canRead = purpose === 'content'
-        ? materializedReady && row.preview_status === 'ready'
+        ? materializedReady && (row.preview_status === 'ready' || hasMaterializedOutput)
         : (row.preview === 'image' || row.preview === 'video')
           && (
             (materializedReady && row.preview_status === 'ready')
@@ -272,8 +239,32 @@ export function createArtifactSourceResolver(
         return { status: 'unavailable', state, asset }
       }
 
+      if (hasMaterializedOutput) {
+        if (/\.dat$/iu.test(row.materialized_relative_path ?? '')) {
+          return { status: 'unavailable', state: 'source_unavailable', asset }
+        }
+        if (!bundleRoot) {
+          return { status: 'configuration_unavailable', state: 'source_unavailable', asset }
+        }
+        const target = resolveArtifactFile({
+          root: bundleRoot,relativePath: row.materialized_relative_path,
+          expectedSize: row.materialized_size,contentSha256: row.materialized_content_sha256,
+          requireContentDigest: true,requireMediaFormat: true,mediaFormat: row.media_format,
+        })
+        if (!target) return { status: 'unavailable', state: 'source_unavailable', asset }
+        return {
+          status: 'available',state: state === 'thumbnail_only' ? 'thumbnail_only' : 'ready',asset,target,
+        }
+      }
+      if (row.kind !== 'resource') return { status: 'unsupported', state, asset }
+      if (/\.dat$/iu.test(row.source_relative_path ?? '')) {
+        return { status: 'unavailable', state: 'source_unavailable', asset }
+      }
       if (!accountRoot) return { status: 'configuration_unavailable', state: 'source_unavailable', asset }
-      const target = resolveTarget(accountRoot, row, shape.version === 2)
+      const target = resolveArtifactFile({
+        root: accountRoot,relativePath: row.source_relative_path,expectedSize: row.source_size,
+        contentSha256: row.source_content_sha256,requireContentDigest: shape.version === 2,
+      })
       if (!target) return { status: 'unavailable', state: 'source_unavailable', asset }
       return { status: 'available', state: state === 'thumbnail_only' ? 'thumbnail_only' : 'ready', asset, target }
     },

@@ -24,10 +24,10 @@ test('keeps materialization evidence separate from browser preview capability', 
 test('models every required failure status on the appropriate evidence axis', () => {
   const failurePairs = [
     ['not_attempted', 'unavailable'],
+    ['key_unavailable', 'unavailable'],
     ['source_missing', 'unavailable'],
+    ['cdn_only', 'unavailable'],
     ['decrypt_failed', 'unavailable'],
-    ['source_ambiguous', 'unavailable'],
-    ['source_changed', 'unavailable'],
     ['unsupported_codec', 'unavailable'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
@@ -43,10 +43,10 @@ test('models every required failure status on the appropriate evidence axis', ()
 test('requires a nonempty reason for every export or preview failure state', () => {
   const failurePairs = [
     ['not_attempted', 'unavailable'],
+    ['key_unavailable', 'unavailable'],
     ['source_missing', 'unavailable'],
+    ['cdn_only', 'unavailable'],
     ['decrypt_failed', 'unavailable'],
-    ['source_ambiguous', 'unavailable'],
-    ['source_changed', 'unavailable'],
     ['unsupported_codec', 'unavailable'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
@@ -65,6 +65,7 @@ test('requires a nonempty reason for every export or preview failure state', () 
 test('keeps successful and capability-only states free of failure reasons', () => {
   const successPairs = [
     ['ready', 'ready'],
+    ['ready', 'unavailable'],
     ['thumbnail_only', 'thumbnail_only'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
@@ -80,9 +81,8 @@ test('keeps successful and capability-only states free of failure reasons', () =
 test('rejects impossible materialization and preview status combinations', () => {
   const invalidPairs = [
     ['source_missing', 'ready'],
-    ['ready', 'unavailable'],
     ['thumbnail_only', 'unavailable'],
-    ['source_changed', 'ready'],
+    ['not_attempted', 'ready'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
   for (const [materialization, preview] of invalidPairs) {
@@ -96,12 +96,13 @@ test('rejects impossible materialization and preview status combinations', () =>
 test('accepts every supported successful or degraded preview combination', () => {
   const validPairs = [
     ['ready', 'ready', undefined],
+    ['ready', 'unavailable', undefined],
     ['thumbnail_only', 'thumbnail_only', undefined],
     ['not_attempted', 'unavailable', '尚未物化'],
+    ['key_unavailable', 'unavailable', '密钥不可用'],
     ['source_missing', 'unavailable', '源文件不存在'],
+    ['cdn_only', 'unavailable', '仅有远程引用'],
     ['decrypt_failed', 'unavailable', '解密失败'],
-    ['source_ambiguous', 'unavailable', '存在多个候选源'],
-    ['source_changed', 'unavailable', '资源内容不一致'],
     ['unsupported_codec', 'unavailable', '不支持的编码'],
   ] as const satisfies readonly (readonly [
     AssetMaterializationStatus,

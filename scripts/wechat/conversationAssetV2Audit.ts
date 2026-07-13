@@ -5,7 +5,12 @@ import { DatabaseSync } from 'node:sqlite'
 import { relativePathWithinRoot } from './assetEvidence.js'
 import { fingerprintDirectory, type AssetBundleBinding } from './assetBundleBinding.js'
 import { digestFileContent } from './assetContentDigest.js'
-import { createAssetRunReceipt, stableJson } from './assetRunReceipt.js'
+import {
+  createAssetRunReceipt,
+  createMaterializationEvidenceDigest,
+  stableJson,
+} from './assetRunReceipt.js'
+import { auditMaterializedPaths } from './conversationMediaAudit.js'
 import type { ConversationAssetAuditResult } from './conversationAssetAuditTypes.js'
 import type {
   ConversationAssetCounts,
@@ -19,6 +24,7 @@ type IndexRecord = {
   binding: AssetBundleBinding
   counts: ConversationAssetCounts
   metrics: ConversationAssetMetrics
+  materializationEvidenceSha256: string
   receipt: string
 }
 
@@ -73,7 +79,7 @@ function alignmentCount(database: DatabaseSync, status: string) {
   `, status)
 }
 
-function readMetrics(database: DatabaseSync): ConversationAssetMetrics {
+export function readConversationAssetMetrics(database: DatabaseSync): ConversationAssetMetrics {
   return {
     sources: count(database, 'SELECT count(*) AS count FROM asset_sources'),
     resources: count(database, "SELECT count(*) AS count FROM asset_sources WHERE source_kind='resource'"),
@@ -95,7 +101,7 @@ function readMetrics(database: DatabaseSync): ConversationAssetMetrics {
   }
 }
 
-function bindingFromRun(run: Record<string, unknown>): AssetBundleBinding {
+export function assetBundleBindingFromRun(run: Record<string, unknown>): AssetBundleBinding {
   return {
     owner: String(run.owner),
     sourceSnapshotId: String(run.source_snapshot_id),
@@ -142,7 +148,6 @@ function auditSourcePaths(
       if (!row.source_content_sha256 || digestFileContent(real) !== row.source_content_sha256) {
         addIssue('source-content-digest-mismatch')
       }
-      if (/\.dat$/iu.test(real) && row.status !== 'not_attempted') addIssue('dat-materialization-overstated')
     } catch {
       addIssue('missing-source-file')
     }
@@ -175,6 +180,9 @@ export function auditConversationAssetV2Bundle(options: {
   const addIssue = (code: string, amount = 1) => {
     if (amount > 0) issueCounts.set(code, (issueCounts.get(code) ?? 0) + amount)
   }
+  if (fs.existsSync(path.join(options.bundleDir, '.media-materialization.json'))) {
+    addIssue('materialization-journal-present')
+  }
   const index = readIndex(path.join(options.bundleDir, 'index.json'))
   const database = new DatabaseSync(path.join(options.bundleDir, 'artifacts.db'), { readOnly: true })
   let counts: ConversationAssetCounts
@@ -189,7 +197,7 @@ export function auditConversationAssetV2Bundle(options: {
       addIssue('asset-run-invalid')
     }
     counts = readCounts(database, Number(index.counts?.chatText ?? 0))
-    metrics = readMetrics(database)
+    metrics = readConversationAssetMetrics(database)
     if (run) {
       for (const [column, metric] of Object.entries(RUN_METRIC_COLUMNS)) {
         if (Number(run[column]) !== metrics[metric]) addIssue(`run-count-mismatch:${column}`)
@@ -198,6 +206,14 @@ export function auditConversationAssetV2Bundle(options: {
     addIssue('source-association-count-mismatch', Math.abs(metrics.sources - metrics.associations))
     addIssue('source-materialization-count-mismatch', Math.abs(metrics.sources - metrics.materializations))
     addIssue('ordinary-asset-count-mismatch', Math.abs(metrics.assets - (metrics.associations - metrics.quarantined)))
+    addIssue('materialization-asset-link-mismatch', count(database, `
+      SELECT count(*) AS count
+      FROM asset_materializations m
+      JOIN asset_associations aa ON aa.source_id=m.source_id
+      LEFT JOIN assets a ON a.association_id=aa.association_id
+      WHERE (aa.quarantined=0 AND (a.asset_id IS NULL OR m.asset_id IS NULL OR m.asset_id<>a.asset_id))
+         OR (aa.quarantined=1 AND m.asset_id IS NOT NULL)
+    `))
     addIssue('quarantined-asset', count(database, `
       SELECT count(*) AS count FROM assets a JOIN asset_associations aa ON aa.association_id=a.association_id
       WHERE aa.quarantined=1
@@ -220,19 +236,26 @@ export function auditConversationAssetV2Bundle(options: {
     `))
     addIssue('present-source-evidence-missing', invalidPresentEvidenceCount(database))
     sourcePaths = auditSourcePaths(database, options.accountRoot, addIssue)
+    auditMaterializedPaths(database, options.bundleDir, addIssue)
     if (run && String(run.account_root_fingerprint) !== fingerprintDirectory(options.accountRoot)) {
       addIssue('account-root-fingerprint-mismatch')
     }
-    const binding = run ? bindingFromRun(run) : index.binding
+    const binding = run ? assetBundleBindingFromRun(run) : index.binding
     const runId = String(run?.run_id ?? '')
     const completedAt = String(run?.completed_at ?? '')
-    const receipt = createAssetRunReceipt({ runId, completedAt, binding, counts, metrics })
+    const materializationEvidenceSha256 = createMaterializationEvidenceDigest(database)
+    const receipt = createAssetRunReceipt({
+      runId,completedAt,binding,counts,metrics,materializationEvidenceSha256,
+    })
     if (index.runId !== runId) addIssue('run-id-mismatch')
     if (index.completedAt !== completedAt) addIssue('run-completed-at-mismatch')
     if (!run || run.audit_receipt_sha256 !== receipt) addIssue('run-receipt-mismatch')
     if (index.version !== 2 || index.receipt !== receipt) addIssue('index-receipt-mismatch')
     if (stableJson(index.counts) !== stableJson(counts)) addIssue('index-counts-mismatch')
     if (stableJson(index.metrics) !== stableJson(metrics)) addIssue('index-metrics-mismatch')
+    if (index.materializationEvidenceSha256 !== materializationEvidenceSha256) {
+      addIssue('index-materialization-evidence-mismatch')
+    }
     if (stableJson(index.binding) !== stableJson(binding)) addIssue('index-binding-mismatch')
   } finally {
     database.close()

@@ -5,9 +5,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { alignResourceMessage, type CanonicalMessage, type ResourceMessageProbe } from './assetEvidence.js'
 import { createAssetBundleBinding } from './assetBundleBinding.js'
 import { digestFileContent } from './assetContentDigest.js'
-import { createAssetRunReceipt } from './assetRunReceipt.js'
-import { createLinkArtifacts, createResourceArtifact, createVoiceArtifact, type AssetCanonicalMessage } from './conversationAssetModel.js'
+import { createAssetRunReceipt, createMaterializationEvidenceDigest } from './assetRunReceipt.js'
+import { createResourceArtifact, type AssetCanonicalMessage } from './conversationAssetModel.js'
 import { persistConversationAsset } from './conversationAssetMetrics.js'
+import { persistConversationMessageArtifacts } from './conversationMessageArtifacts.js'
 import { normalizeMessageType } from './messageModel.js'
 import { createResourceFileIndex, matchResourceFile } from './resourceFileMatcher.js'
 import { parsePackedInfoEvidence } from './resourcePackedInfo.js'
@@ -237,20 +238,14 @@ export function runConversationAssetBuilder(options: {
         metrics.resources++
       }
 
-      const textStatement = wechat.prepare(`
-        SELECT ${MESSAGE_COLUMNS}
-        FROM messages m JOIN conversations c ON c.id=m.conv_id
-        WHERE m.source_snapshot=? AND m.text<>''
-        ORDER BY m.conv_id, m.canonical_seq
-      `)
-      for (const row of textStatement.iterate(sourceScope.snapshotId) as Iterable<OutputMessageRow>) {
-        const message = toAssetMessage(row, 0)
-        for (const link of createLinkArtifacts(message)) persistArtifact(link)
-        if (message.normalized_type === 34) {
-          persistArtifact(createVoiceArtifact(message))
-          metrics.voiceAttempts++
-        }
-      }
+      persistConversationMessageArtifacts({
+        canonicalDb: wechat,
+        sourceSnapshotRoot: options.sourceSnapshotRoot,
+        sourceSnapshotId: sourceScope.snapshotId,
+        owner: sourceScope.owner,
+        stagingDir,
+        persist: persistArtifact,
+      })
       output.exec('COMMIT')
     } catch (error) {
       output.exec('ROLLBACK')
@@ -259,19 +254,15 @@ export function runConversationAssetBuilder(options: {
 
     const counts = artifactCounts(output, wechat, sourceScope.snapshotId)
     const completedAt = new Date().toISOString()
+    const materializationEvidenceSha256 = createMaterializationEvidenceDigest(output)
     const receipt = createAssetRunReceipt({
-      runId: options.runId, completedAt, binding, counts, metrics,
+      runId: options.runId, completedAt, binding, counts, metrics,materializationEvidenceSha256,
     })
     completeAssetRun(output, options.runId, completedAt, metrics, receipt)
     output.exec('PRAGMA journal_mode=DELETE')
     const index = {
-      version: 2,
-      runId: options.runId,
-      completedAt,
-      binding,
-      counts,
-      metrics,
-      receipt,
+      version: 2,runId: options.runId,completedAt,binding,counts,metrics,
+      materializationEvidenceSha256,receipt,
     }
     fs.writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`, 'utf8')
     output.close()
@@ -293,6 +284,14 @@ export function runConversationAssetBuilder(options: {
     for (const database of sourceDatabases.values()) {
       try { database.close() } catch { /* Preserve the original failure. */ }
     }
+    try {
+      const expectedParent = path.resolve(path.dirname(options.bundleDir))
+      const candidate = path.resolve(stagingDir)
+      if (path.dirname(candidate) === expectedParent
+        && path.basename(candidate).startsWith(`.${path.basename(options.bundleDir)}.`)) {
+        fs.rmSync(candidate, { recursive: true, force: true })
+      }
+    } catch { /* A later run will still fail closed if cleanup was interrupted. */ }
     throw error
   }
 }

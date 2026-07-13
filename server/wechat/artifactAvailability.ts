@@ -6,8 +6,6 @@ const normalizedUnavailable = new Set<ChatArtifactAvailability>([
   'source_missing',
   'cdn_only',
   'decrypt_failed',
-  'source_ambiguous',
-  'source_changed',
   'unsupported_codec',
 ])
 
@@ -24,7 +22,7 @@ export function artifactAvailabilityFor(
   version: 1 | 2,
 ): ChatArtifactAvailability {
   if (version === 2) {
-    if (materialization === 'ready' && previewStatus === 'ready') return 'ready'
+    if (materialization === 'ready') return 'ready'
     if (materialization === 'thumbnail_only' && previewStatus === 'thumbnail_only') {
       return 'thumbnail_only'
     }

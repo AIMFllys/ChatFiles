@@ -20,6 +20,7 @@ export interface AssetCanonicalMessage extends CanonicalMessage {
   source_adapter: 'biz' | 'regular'
   conversation_username: string
   sender_name: string
+  structured_content_json: string
   text: string
 }
 
@@ -57,8 +58,13 @@ export type ConversationArtifactRecord = {
   filenames: string
   packed_info_payload_sha256: string
   source_match_method: string
-  source_presence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'not_applicable'
+  source_presence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'content_mismatch' | 'oversized'
+    | 'not_applicable'
   source_content_sha256: string | null
+  materialized_relative_path: string | null
+  materialized_size: number | null
+  materialized_content_sha256: string | null
+  media_format: string | null
   expected_size: number | null
   detail_status: number | null
   materialization: string
@@ -72,6 +78,20 @@ function sha256(value: string | Uint8Array) {
 
 function lookupEvidenceFromName(name: string) {
   return name.match(/(?:^|[^0-9a-f])([0-9a-f]{32})(?=$|[^0-9a-f])/iu)?.[1]?.toLowerCase() ?? null
+}
+
+function hasCdnReference(message: AssetCanonicalMessage | null) {
+  if (!message) return false
+  try {
+    const parsed = JSON.parse(message.structured_content_json) as Record<string, unknown>
+    const references = parsed.cdnReferences
+    return Boolean(references && typeof references === 'object'
+      && Object.values(references as Record<string, unknown>).some((value) => (
+        typeof value === 'string' && value.trim() !== ''
+      )))
+  } catch {
+    return false
+  }
 }
 
 export function createResourceArtifact(input: {
@@ -124,7 +144,10 @@ export function createResourceArtifact(input: {
         lookup_evidence: input.lookupEvidence,
       })
     : input.packedInfoPayloadSha256
-  const evidenceState = stateForResourceMatch(input.fileMatch)
+  const evidenceState = stateForResourceMatch(input.fileMatch, {
+    cdnOnly: hasCdnReference(input.message),
+    preview,
+  })
   const failureReason = 'reason' in evidenceState ? evidenceState.reason ?? null : null
 
   return {
@@ -169,6 +192,10 @@ export function createResourceArtifact(input: {
         ? 'size_mismatch'
         : candidate ? 'present' : 'missing',
     source_content_sha256: input.sourceContentSha256,
+    materialized_relative_path: null,
+    materialized_size: null,
+    materialized_content_sha256: null,
+    media_format: null,
     expected_size: input.expectedSize,
     detail_status: input.detailStatus,
     materialization: evidenceState.materialization,
@@ -223,6 +250,10 @@ export function createLinkArtifacts(
       source_match_method: 'message_text',
       source_presence: 'not_applicable',
       source_content_sha256: null,
+      materialized_relative_path: null,
+      materialized_size: null,
+      materialized_content_sha256: null,
+      media_format: null,
       expected_size: null,
       detail_status: null,
       materialization: 'ready',
@@ -230,57 +261,4 @@ export function createLinkArtifacts(
       failure_reason: null,
     }
   })
-}
-
-export function createVoiceArtifact(
-  message: AssetCanonicalMessage,
-): ConversationArtifactRecord {
-  const evidenceSignature = createResourceEvidenceSignature({
-    message_uid: message.message_uid,
-    canonical_chat_scope: message.conversation_username,
-    resource_kind: 'voice',
-    lookup_evidence: ['message-type:34'],
-  })
-  return {
-    asset_id: createAssetId(message.message_uid, evidenceSignature, 'voice'),
-    conv_id: message.conv_id,
-    message_uid: message.message_uid,
-    resource_message_id: null,
-    resource_id: null,
-    resource_type: null,
-    data_index: 'voice',
-    category: 'work',
-    kind: 'voice',
-    name: '语音消息',
-    preview: 'voice',
-    url: null,
-    source_relative_path: null,
-    source_size: null,
-    created_at: message.create_time,
-    canonical_seq: message.canonical_seq,
-    sender_name: message.sender_name,
-    text: message.text,
-    alignment_status: 'exact',
-    confirmation_status: 'confirmed',
-    association_reason: null,
-    candidate_message_uids: JSON.stringify([message.message_uid]),
-    matched_fields: JSON.stringify(['message_uid']),
-    missing_fields: JSON.stringify([]),
-    conflicting_fields: JSON.stringify([]),
-    evidence_kind: 'message_type',
-    evidence_signature: evidenceSignature,
-    packed_info_valid: true,
-    detail_packed_info_valid: true,
-    lookup_evidence: JSON.stringify(['message-type:34']),
-    filenames: JSON.stringify([]),
-    packed_info_payload_sha256: sha256(`${message.message_uid}\0voice`),
-    source_match_method: 'message_type',
-    source_presence: 'missing',
-    source_content_sha256: null,
-    expected_size: null,
-    detail_status: null,
-    materialization: 'not_attempted',
-    preview_status: 'unavailable',
-    failure_reason: 'voice_source_not_exposed_by_message_resource',
-  }
 }

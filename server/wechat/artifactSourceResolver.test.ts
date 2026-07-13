@@ -109,10 +109,10 @@ test('preserves known unavailable states and never guesses sources for voice or 
   assert.equal(resolver.resolve(missing, 'content').state, 'missing_source')
   assert.equal(resolver.resolve(ambiguous, 'content').state, 'source_ambiguous')
   assert.equal(resolver.resolve(mismatch, 'content').state, 'hash_mismatch')
-  assert.equal(resolver.resolve(voice, 'content').status, 'unsupported')
+  assert.equal(resolver.resolve(voice, 'content').status, 'unavailable')
+  assert.equal(resolver.resolve(voice, 'content').state, 'missing_source')
   assert.equal(resolver.resolve(link, 'content').status, 'unsupported')
 })
-
 test('rejects traversal, absolute, UNC, device, ADS, empty, and dot path segments', (t) => {
   const { accountRoot, assetDb, addAsset } = fixture(t)
   const paths = [

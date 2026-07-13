@@ -3,21 +3,22 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { VoicePreview } from '../../shared/contracts/index.js'
-import { audioCacheDir, printableAscii } from './helpers.js'
+import { detectMaterializedVoiceFormat } from '../../shared/media/mediaMagic.js'
+import { audioCacheDir } from './helpers.js'
 
 export function isVoiceFile(filePath: string) {
   return /\.(amr|silk)$/i.test(path.extname(filePath))
 }
 
-function voiceCodecHint(filePath: string) {
+export function voiceCodecHint(filePath: string) {
   const fd = fs.openSync(filePath, 'r')
   try {
     const buffer = Buffer.alloc(32)
     const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0)
-    const ascii = printableAscii(buffer.subarray(0, bytesRead))
-    if (ascii.includes('#!SILK_V3')) return 'QQ SILK_V3 voice payload'
-    if (ascii.startsWith('#!AMR')) return 'AMR narrowband'
-    if (ascii.startsWith('#!AMR-WB')) return 'AMR wideband'
+    const format = detectMaterializedVoiceFormat(buffer.subarray(0, bytesRead))
+    if (format === 'silk') return 'QQ SILK_V3 voice payload'
+    if (format === 'amr-wb') return 'AMR wideband'
+    if (format === 'amr') return 'AMR narrowband'
     return undefined
   } finally {
     fs.closeSync(fd)

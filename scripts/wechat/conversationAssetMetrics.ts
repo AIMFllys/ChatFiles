@@ -21,4 +21,5 @@ export function persistConversationAsset(
   if (record.materialization === 'ready') metrics.ready++
   else if (record.materialization === 'not_attempted') metrics.notAttempted++
   else metrics.unavailable++
+  if (record.kind === 'voice') metrics.voiceAttempts++
 }

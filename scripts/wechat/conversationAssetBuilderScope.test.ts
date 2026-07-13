@@ -30,7 +30,7 @@ function createCanonicalDatabase(filename: string, username: string, messages: M
     CREATE TABLE messages(
       conv_id TEXT,message_uid TEXT,canonical_seq INTEGER,occurred_at_epoch_s INTEGER,
       source_snapshot TEXT,source_adapter TEXT,source_db TEXT,source_table TEXT,local_id INTEGER,
-      server_id TEXT,sender_name TEXT,raw_type INTEGER,type INTEGER,text TEXT
+      server_id TEXT,sender_name TEXT,raw_type INTEGER,type INTEGER,structured_content_json TEXT,text TEXT
     );
     CREATE TABLE source_inventory(
       source_snapshot TEXT,domain TEXT,source_db TEXT,source_table TEXT,
@@ -54,7 +54,7 @@ function createCanonicalDatabase(filename: string, username: string, messages: M
   `)
   const conversations = new Set<string>()
   const insertConversation = db.prepare('INSERT INTO conversations VALUES(?,?,?)')
-  const insertMessage = db.prepare(`INSERT INTO messages VALUES(${Array.from({ length: 14 }, () => '?').join(',')})`)
+  const insertMessage = db.prepare(`INSERT INTO messages VALUES(${Array.from({ length: 15 }, () => '?').join(',')})`)
   const insertInventory = db.prepare('INSERT INTO source_inventory VALUES(?,?,?,?,?,?,?,?,?)')
   const table = tableFor(username)
   for (const message of messages) {
@@ -66,7 +66,7 @@ function createCanonicalDatabase(filename: string, username: string, messages: M
     insertMessage.run(
       message.convId, message.uid, message.sequence, 1_783_800_000 + message.sequence,
       message.snapshot, adapter, message.sourceDb, table, message.localId,
-      String(message.serverId), '成员', 49, 49, `[文件 ${message.uid}]`,
+      String(message.serverId), '成员', 49, 49, '{}', `[文件 ${message.uid}]`,
     )
     insertInventory.run(message.snapshot, adapter, message.sourceDb, table, 1, 1, 0, 0, null)
   }

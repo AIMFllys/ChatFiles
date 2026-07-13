@@ -61,7 +61,7 @@ test('preserves normalized failure states when preview capability is unavailable
         ('${'b'.repeat(64)}','conv','document','resource','解密失败.dat','image',NULL,4,100,
          '成员','','decrypt_failed','unavailable','confirmed','exact','confirmed','lookup_evidence','present'),
         ('${'c'.repeat(64)}','conv','document','resource','来源冲突.pdf','pdf',NULL,NULL,100,
-         '成员','','source_ambiguous','unavailable','confirmed','exact','confirmed','lookup_evidence','ambiguous'),
+         '成员','','not_attempted','unavailable','confirmed','exact','confirmed','lookup_evidence','ambiguous'),
         ('${'d'.repeat(64)}','conv','document','resource','编码不支持.bin','download',NULL,4,100,
          '成员','','unsupported_codec','unavailable','confirmed','exact','confirmed','lookup_evidence','present');
     `)
@@ -81,7 +81,7 @@ test('preserves normalized failure states when preview capability is unavailable
       availability: 'decrypt_failed', materialization: 'decrypt_failed', previewCapability: 'unavailable',
     })
     assert.deepEqual(states.get('来源冲突.pdf'), {
-      availability: 'source_ambiguous', materialization: 'source_ambiguous', previewCapability: 'unavailable',
+      availability: 'not_attempted', materialization: 'not_attempted', previewCapability: 'unavailable',
     })
     assert.deepEqual(states.get('编码不支持.bin'), {
       availability: 'unsupported_codec', materialization: 'unsupported_codec', previewCapability: 'unavailable',

@@ -7,8 +7,6 @@ export type AssetMaterializationStatus =
   | 'unsupported_codec'
   | 'thumbnail_only'
   | 'ready'
-  | 'source_ambiguous'
-  | 'source_changed'
 
 export type AssetPreviewStatus = 'ready' | 'thumbnail_only' | 'unavailable'
 
@@ -29,9 +27,7 @@ const ALLOWED_PREVIEW_STATUSES: Readonly<Record<
   decrypt_failed: ['unavailable'],
   unsupported_codec: ['unavailable'],
   thumbnail_only: ['thumbnail_only'],
-  ready: ['ready'],
-  source_ambiguous: ['unavailable'],
-  source_changed: ['unavailable'],
+  ready: ['ready', 'unavailable'],
 }
 
 const REASON_REQUIRED = new Set<AssetMaterializationStatus>([
@@ -41,8 +37,6 @@ const REASON_REQUIRED = new Set<AssetMaterializationStatus>([
   'cdn_only',
   'decrypt_failed',
   'unsupported_codec',
-  'source_ambiguous',
-  'source_changed',
 ])
 
 export function createAssetEvidenceState(

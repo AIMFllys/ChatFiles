@@ -56,7 +56,8 @@ export function createOutputSchema(database: DatabaseSync) {
     );
     CREATE TABLE asset_materializations(
       source_id TEXT PRIMARY KEY REFERENCES asset_sources(source_id),run_id TEXT NOT NULL REFERENCES asset_runs(run_id),
-      asset_id TEXT REFERENCES assets(asset_id),status TEXT NOT NULL,preview_status TEXT NOT NULL,failure_reason TEXT
+      asset_id TEXT REFERENCES assets(asset_id),status TEXT NOT NULL,preview_status TEXT NOT NULL,failure_reason TEXT,
+      materialized_relative_path TEXT,materialized_size INTEGER,materialized_content_sha256 TEXT,media_format TEXT
     );
     CREATE INDEX idx_assets_category ON assets(category,created_at DESC,asset_id);
     CREATE INDEX idx_associations_conversation ON asset_associations(conv_id,message_uid);
@@ -72,7 +73,8 @@ export function createOutputSchema(database: DatabaseSync) {
                WHERE ac.association_id=aa.association_id ORDER BY candidate_rank
              )),'[]') AS candidate_message_uids,
              aa.evidence_kind,a.evidence_signature,m.status AS materialization,
-             m.preview_status,m.failure_reason,s.presence AS source_presence,
+             m.preview_status,m.failure_reason,m.materialized_relative_path,m.materialized_size,
+             m.materialized_content_sha256,m.media_format,s.presence AS source_presence,
              s.source_content_sha256,aa.association_status,aa.confirmation_status,
              aa.evidence_kind AS association_evidence
       FROM assets a
@@ -106,7 +108,7 @@ export function artifactInserter(database: DatabaseSync, runId: string) {
   )`)
   const candidate = database.prepare('INSERT INTO asset_candidates VALUES(?,?,?)')
   const asset = database.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
-  const materialization = database.prepare('INSERT INTO asset_materializations VALUES(?,?,?,?,?,?)')
+  const materialization = database.prepare('INSERT INTO asset_materializations VALUES(?,?,?,?,?,?,?,?,?,?)')
 
   return (record: ConversationArtifactRecord) => {
     const sourceCoordinate = record.kind === 'resource'
@@ -144,7 +146,8 @@ export function artifactInserter(database: DatabaseSync, runId: string) {
     }
     materialization.run(
       sourceId,runId,quarantined ? null : record.asset_id,record.materialization,
-      record.preview_status,record.failure_reason,
+      record.preview_status,record.failure_reason,record.materialized_relative_path,
+      record.materialized_size,record.materialized_content_sha256,record.media_format,
     )
     return { sourceId, assetInserted: !quarantined, quarantined }
   }

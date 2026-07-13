@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
-import { createAssetRunReceipt } from './assetRunReceipt.js'
+import { createAssetRunReceipt, createMaterializationEvidenceDigest } from './assetRunReceipt.js'
 import { fingerprintDirectory } from './assetBundleBinding.js'
 import { auditConversationAssetBundle } from './conversationAssetAudit.js'
 import {
@@ -37,22 +37,27 @@ test('closes audit receipt over the persisted run identity, timestamp, and count
   const counts: ConversationAssetCounts = { all: 0,work: 0,document: 0,skill: 0,link: 0,chatText: 0 }
   const metrics = emptyConversationAssetMetrics()
   const completedAt = '2026-07-12T12:00:00.000Z'
-  const receipt = createAssetRunReceipt({ runId: 'run', completedAt, binding, counts, metrics })
+  const databasePath = path.join(bundleDir, 'artifacts.db')
+  const database = new DatabaseSync(databasePath)
+  createOutputSchema(database)
+  startAssetRun(database, 'run', binding)
+  const materializationEvidenceSha256 = createMaterializationEvidenceDigest(database)
+  const receipt = createAssetRunReceipt({
+    runId: 'run',completedAt,binding,counts,metrics,materializationEvidenceSha256,
+  })
   assert.notEqual(receipt, createAssetRunReceipt({
     runId: 'run',
     completedAt: '2026-07-12T12:00:01.000Z',
     binding,
     counts,
     metrics,
+    materializationEvidenceSha256,
   }))
-  const databasePath = path.join(bundleDir, 'artifacts.db')
-  const database = new DatabaseSync(databasePath)
-  createOutputSchema(database)
-  startAssetRun(database, 'run', binding)
   completeAssetRun(database, 'run', completedAt, metrics, receipt)
   database.close()
   fs.writeFileSync(path.join(bundleDir, 'index.json'), `${JSON.stringify({
-    version: 2,runId: 'run',completedAt,binding,counts,metrics,receipt,
+    version: 2,runId: 'run',completedAt,binding,counts,metrics,
+    materializationEvidenceSha256,receipt,
   })}\n`, 'utf8')
   assert.equal(auditConversationAssetBundle({ bundleDir, accountRoot }).ok, true)
 

@@ -4,9 +4,9 @@ import { alignResourceMessage, type CanonicalMessage } from './assetEvidence.js'
 import {
   createLinkArtifacts,
   createResourceArtifact,
-  createVoiceArtifact,
   type AssetCanonicalMessage,
 } from './conversationAssetModel.js'
+import { createVoiceArtifact } from './conversationVoiceArtifact.js'
 
 const canonical: CanonicalMessage = {
   message_uid: 'wxm:message-42',
@@ -30,6 +30,7 @@ const message: AssetCanonicalMessage = {
   source_adapter: 'regular',
   conversation_username: 'wxid_peer',
   sender_name: '陈同学',
+  structured_content_json: '{}',
   text: '课程讲义 https://example.com/path?a=1',
 }
 
@@ -275,8 +276,10 @@ test('creates a visible voice export attempt with a required failure reason', ()
   })
 
   assert.equal(voice.preview, 'voice')
-  assert.equal(voice.materialization, 'not_attempted')
+  assert.equal(voice.materialization, 'source_missing')
   assert.equal(voice.preview_status, 'unavailable')
-  assert.equal(voice.failure_reason, 'voice_source_not_exposed_by_message_resource')
-  assert.equal(voice.association_reason, null)
+  assert.equal(voice.failure_reason, 'voice_info_source_missing')
+  assert.equal(voice.association_reason, 'voice_info_source_missing')
+  assert.equal(voice.asset_id, null)
+  assert.equal(voice.confirmation_status, 'unconfirmed')
 })

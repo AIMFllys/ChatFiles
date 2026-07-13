@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "tsx --test \"pipeline/**/*.test.ts\" \"scripts/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\" \"tools/**/*.test.ts\"",
+    "test": "tsx --test \"pipeline/**/*.test.ts\" \"scripts/**/*.test.ts\" \"server/**/*.test.ts\" \"shared/**/*.test.ts\" \"src/**/*.test.ts\" \"tools/**/*.test.ts\"",
     "test:guardrails": "tsx --test \"tools/**/*.test.ts\"",
     "check:architecture": "tsx tools/guardrails/check.ts architecture",
     "check:source-size": "tsx tools/guardrails/check.ts source-size",
@@ -24,6 +24,8 @@
     "audit:chat": "tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.current/wechat.db --strict",
     "audit:chat:next": "tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.next/wechat.db --strict",
     "audit:assets": "tsx scripts/auditConversationAssets.ts --bundle data/chat-assets.current",
+    "assets:materialize": "tsx scripts/materializeConversationMedia.ts",
+    "assets:export-daily": "tsx scripts/exportConversationDailyMedia.ts",
     "insights:prepare": "tsx scripts/refreshInsights.ts prepare",
     "insights:distill": "tsx scripts/refreshInsights.ts distill",
     "insights:boards": "tsx scripts/refreshInsights.ts boards",

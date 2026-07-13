@@ -45,10 +45,14 @@ const normalizedSchema = {
     'asset_id','run_id','association_id','category','kind','name','preview','url','created_at',
     'canonical_seq','sender_name','text','evidence_signature',
   ],
-  asset_materializations: ['source_id','run_id','asset_id','status','preview_status','failure_reason'],
+  asset_materializations: [
+    'source_id','run_id','asset_id','status','preview_status','failure_reason',
+    'materialized_relative_path','materialized_size','materialized_content_sha256','media_format',
+  ],
   artifacts: [
     ...legacySchema.artifacts,'source_presence','source_content_sha256','association_status',
-    'confirmation_status','association_evidence',
+    'confirmation_status','association_evidence','materialized_relative_path','materialized_size',
+    'materialized_content_sha256','media_format',
   ],
 } as const
 
@@ -107,6 +111,14 @@ function hasCompleteNormalizedRun(db: DatabaseSync) {
     FROM assets a JOIN asset_associations aa ON aa.association_id=a.association_id
     WHERE aa.association_status<>'exact' OR aa.confirmation_status<>'confirmed' OR aa.quarantined<>0
   `).get()?.count ?? 0)
+  const invalidMaterializationLinks = Number(db.prepare(`
+    SELECT count(*) AS count
+    FROM asset_materializations m
+    JOIN asset_associations aa ON aa.source_id=m.source_id
+    LEFT JOIN assets a ON a.association_id=aa.association_id
+    WHERE (aa.quarantined=0 AND (a.asset_id IS NULL OR m.asset_id IS NULL OR m.asset_id<>a.asset_id))
+       OR (aa.quarantined=1 AND m.asset_id IS NOT NULL)
+  `).get()?.count ?? 0)
   const readySources = db.prepare(`
     SELECT s.presence,s.source_relative_path,s.source_size,s.source_content_sha256
     FROM assets a
@@ -127,7 +139,22 @@ function hasCompleteNormalizedRun(db: DatabaseSync) {
     && Number(source.source_size) >= 0
     && /^sha256:[a-f0-9]{64}$/u.test(source.source_content_sha256 ?? '')
   ))
-  return unsafeOrdinary === 0 && readySourcesValid
+  const readyMedia = db.prepare(`
+    SELECT s.source_kind,s.source_relative_path,m.materialized_relative_path,
+           m.materialized_size,m.materialized_content_sha256,m.media_format
+    FROM asset_materializations m JOIN asset_sources s ON s.source_id=m.source_id
+    WHERE m.status IN('ready','thumbnail_only')
+      AND (s.source_kind='voice' OR lower(s.source_relative_path) LIKE '%.dat')
+  `).all() as Array<Record<string, unknown>>
+  const readyMediaValid = readyMedia.every((row) => (
+    Boolean(row.materialized_relative_path)
+    && Number.isSafeInteger(Number(row.materialized_size))
+    && Number(row.materialized_size) >= 0
+    && /^sha256:[a-f0-9]{64}$/u.test(String(row.materialized_content_sha256 ?? ''))
+    && /^(?:jpeg|png|gif|webp|silk|amr|amr-wb)$/u.test(String(row.media_format ?? ''))
+  ))
+  return unsafeOrdinary === 0 && invalidMaterializationLinks === 0
+    && readySourcesValid && readyMediaValid
     && expected.every(([column, value]) => Number(run[column]) === value)
 }
 

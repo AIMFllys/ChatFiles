@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import type { DatabaseSync } from 'node:sqlite'
 import type { AssetBundleBinding } from './assetBundleBinding.js'
 import type {
   ConversationAssetCounts,
@@ -11,6 +12,7 @@ export function createAssetRunReceipt(input: {
   binding: AssetBundleBinding
   counts: ConversationAssetCounts
   metrics: ConversationAssetMetrics
+  materializationEvidenceSha256: string
 }) {
   const payload = stableJson({
     schemaVersion: 2,
@@ -19,8 +21,18 @@ export function createAssetRunReceipt(input: {
     binding: input.binding,
     counts: input.counts,
     metrics: input.metrics,
+    materializationEvidenceSha256: input.materializationEvidenceSha256,
   })
   return `sha256:${crypto.createHash('sha256').update(payload, 'utf8').digest('hex')}`
+}
+
+export function createMaterializationEvidenceDigest(database: DatabaseSync) {
+  const rows = database.prepare(`
+    SELECT source_id,asset_id,status,preview_status,failure_reason,
+           materialized_relative_path,materialized_size,materialized_content_sha256,media_format
+    FROM asset_materializations ORDER BY source_id,asset_id
+  `).all().map((row) => ({ ...row }))
+  return `sha256:${crypto.createHash('sha256').update(stableJson(rows), 'utf8').digest('hex')}`
 }
 
 function canonicalValue(value: unknown): unknown {

@@ -33,7 +33,8 @@ function createWechatDatabase(filename: string, table: string) {
     CREATE TABLE messages(
       conv_id TEXT, message_uid TEXT, canonical_seq INTEGER, occurred_at_epoch_s INTEGER,
       source_snapshot TEXT, source_adapter TEXT, source_db TEXT, source_table TEXT, local_id INTEGER,
-      server_id TEXT, time INTEGER, sender_name TEXT, raw_type INTEGER, type INTEGER, text TEXT
+      server_id TEXT, time INTEGER, sender_name TEXT, raw_type INTEGER, type INTEGER,
+      structured_content_json TEXT, text TEXT
     );
     CREATE TABLE source_inventory(
       source_snapshot TEXT,domain TEXT,source_db TEXT,source_table TEXT,
@@ -59,28 +60,27 @@ function createWechatDatabase(filename: string, table: string) {
     .run('wx:owner:wxid_peer', 'owner', 'wxid_peer')
   db.prepare('INSERT INTO source_inventory VALUES (?,?,?,?,?,?,?,?,?)')
     .run('snapshot', 'regular', 'message_0.db', table, 4, 4, 0, 0, null)
-  const insert = db.prepare(`INSERT INTO messages VALUES (${Array.from({ length: 15 }, () => '?').join(',')})`)
+  const insert = db.prepare(`INSERT INTO messages VALUES (${Array.from({ length: 16 }, () => '?').join(',')})`)
   insert.run(
     'wx:owner:wxid_peer', 'wxm:z-file', 0, 1_783_800_000, 'snapshot', 'regular',
     'message_0.db', table, 42, '9001', 1_783_800_000, '陈同学',
-    25_769_803_825, 49, '课程讲义 https://example.com/lesson',
+    25_769_803_825, 49, '{}', '课程讲义 https://example.com/lesson',
   )
   insert.run(
     'wx:owner:wxid_peer', 'wxm:a-link', 1, 1_783_800_000, 'snapshot', 'regular',
     'message_0.db', table, 45, '9004', 1_783_800_000, '陈同学',
-    9_223_372_036_854_775_807n, 1, '补充链接 https://example.com/second',
+    9_223_372_036_854_775_807n, 1, '{}', '补充链接 https://example.com/second',
   )
   insert.run(
     'wx:owner:wxid_peer', 'wxm:voice', 2, 1_783_800_001, 'snapshot', 'regular',
-    'message_0.db', table, 43, '9002', 1_783_800_001, '陈同学', 34, 34, '[语音 3秒]',
+    'message_0.db', table, 43, '9002', 1_783_800_001, '陈同学', 34, 34, '{}', '',
   )
   insert.run(
     'wx:owner:wxid_peer', 'wxm:text', 3, 1_783_800_002, 'snapshot', 'regular',
-    'message_0.db', table, 44, '9003', 1_783_800_002, '陈同学', 1, 1, '普通聊天文字',
+    'message_0.db', table, 44, '9003', 1_783_800_002, '陈同学', 1, 1, '{}', '普通聊天文字',
   )
   db.close()
 }
-
 function createSourceDatabase(filename: string, table: string) {
   const db = new DatabaseSync(filename)
   db.exec(`CREATE TABLE "${table}"(
@@ -150,18 +150,22 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
   createSourceDatabase(path.join(sourceMessageRoot, 'message_0.db'), table)
   createResourceDatabase(resourceDbPath, hash, '课程讲义.pdf')
 
+  const unsupportedMediaPath = path.join(sourceMessageRoot, 'media_0.db')
+  const unsupportedMedia = new DatabaseSync(unsupportedMediaPath)
+  unsupportedMedia.exec('CREATE TABLE VoiceInfo(chat_name_id INTEGER,voice_data BLOB)'); unsupportedMedia.close()
+  assert.throws(() => runConversationAssetBuilder({
+    wechatDbPath,resourceDbPath,sourceSnapshotRoot: sourceRoot,accountRoot,bundleDir,runId: 'fixture-failed',
+  }), /VOICE_INFO_SCHEMA_UNSUPPORTED/u)
+  const failedStaging = path.join(path.dirname(bundleDir),
+    `.${path.basename(bundleDir)}.fixture-failed.${process.pid}.staging`)
+  assert.equal(fs.existsSync(failedStaging), false)
+  fs.rmSync(unsupportedMediaPath)
   const result = runConversationAssetBuilder({
-    wechatDbPath,
-    resourceDbPath,
-    sourceSnapshotRoot: sourceRoot,
-    accountRoot,
-    bundleDir,
-    runId: 'fixture-run',
+    wechatDbPath,resourceDbPath,sourceSnapshotRoot: sourceRoot,accountRoot,bundleDir,runId: 'fixture-run',
   })
-
   assert.deepEqual(result.counts, {
-    all: 4,
-    work: 1,
+    all: 3,
+    work: 0,
     document: 1,
     skill: 0,
     link: 2,
@@ -209,12 +213,6 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
         materialization: 'ready', preview_status: 'ready',
         failure_reason: null,
       },
-      {
-        kind: 'voice', category: 'work', name: '语音消息',
-        link_status: 'confirmed', link_reason: null,
-        materialization: 'not_attempted', preview_status: 'unavailable',
-        failure_reason: 'voice_source_not_exposed_by_message_resource',
-      },
     ])
     const linkOrder = output.prepare(`
       SELECT aa.message_uid
@@ -224,8 +222,15 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
       .all().map((row) => String(row.message_uid))
     assert.deepEqual(linkOrder, ['wxm:z-file', 'wxm:a-link'])
     assert.equal(output.prepare('SELECT count(*) AS count FROM asset_sources').get()?.count, 5)
-    assert.equal(output.prepare('SELECT count(*) AS count FROM assets').get()?.count, 4)
-    assert.equal(output.prepare('SELECT count(*) AS count FROM asset_associations WHERE quarantined=1').get()?.count, 1)
+    assert.equal(output.prepare('SELECT count(*) AS count FROM assets').get()?.count, 3)
+    assert.equal(output.prepare('SELECT count(*) AS count FROM asset_associations WHERE quarantined=1').get()?.count, 2)
+    assert.deepEqual({ ...output.prepare(`
+      SELECT aa.association_status,aa.confirmation_status,aa.quarantined
+      FROM asset_associations aa JOIN asset_sources s ON s.source_id=aa.source_id
+      WHERE s.source_kind='voice'
+    `).get() }, {
+      association_status: 'missing', confirmation_status: 'unconfirmed', quarantined: 1,
+    })
     assert.deepEqual({ ...output.prepare(`
       SELECT association_status,confirmation_status,reason
       FROM asset_associations a JOIN asset_sources s ON s.source_id=a.source_id
@@ -290,11 +295,6 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
   assert.equal(failedAudit.ok, false)
   assert.equal(failedAudit.issues.some((issue) => issue.code === 'missing-failure-reason'), true)
   assert.throws(() => runConversationAssetBuilder({
-    wechatDbPath,
-    resourceDbPath,
-    sourceSnapshotRoot: sourceRoot,
-    accountRoot,
-    bundleDir,
-    runId: 'fixture-run-2',
+    wechatDbPath,resourceDbPath,sourceSnapshotRoot: sourceRoot,accountRoot,bundleDir,runId: 'fixture-run-2',
   }), /already exists/u)
 })
