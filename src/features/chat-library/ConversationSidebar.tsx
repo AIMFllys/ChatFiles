@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
-import { Archive, FolderHeart, Pin, PinOff, Search } from 'lucide-react'
+import { Archive, FolderHeart, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Search } from 'lucide-react'
 import type { InsightSummary, WechatConversation } from '../../types'
 import { fmtDate } from '../../utils/format'
 import { useFixedListVirtualizer } from '../../hooks/useFixedListVirtualizer'
@@ -7,6 +7,7 @@ import { firstCodePoint, type ChatLibrarySelection } from './artifactModel'
 import { orderConversationsPinnedFirst } from './pins'
 
 type Props = {
+  collapsed: boolean
   conversations: WechatConversation[]
   loading: boolean
   pinnedIds: string[]
@@ -14,6 +15,7 @@ type Props = {
   selection: ChatLibrarySelection
   summariesByConvId: Map<string, InsightSummary>
   onSelect: (selection: ChatLibrarySelection) => void
+  onToggleCollapsed: () => void
   onTogglePin: (conversationId: string) => void
 }
 
@@ -23,6 +25,7 @@ const collections = [
 ]
 
 export function ConversationSidebar({
+  collapsed,
   conversations,
   loading,
   pinnedIds,
@@ -30,6 +33,7 @@ export function ConversationSidebar({
   selection,
   summariesByConvId,
   onSelect,
+  onToggleCollapsed,
   onTogglePin,
 }: Props) {
   const [query, setQuery] = useState('')
@@ -79,9 +83,20 @@ export function ConversationSidebar({
   }
 
   return (
-    <aside className="conversation-sidebar" aria-label="聊天资料库导航">
+    <aside className="conversation-sidebar" aria-label="聊天资料库导航" data-collapsed={collapsed}>
       <header className="conversation-sidebar-header">
-        <strong>聊天资料库</strong>
+        <div className="conversation-sidebar-title-row">
+          <strong>聊天资料库</strong>
+          <button
+            aria-label={collapsed ? '展开资料库' : '收起资料库'}
+            className="sidebar-collapse-button"
+            onClick={onToggleCollapsed}
+            title={collapsed ? '展开资料库' : '收起资料库'}
+            type="button"
+          >
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+        </div>
         <label className="library-search">
           <Search size={16} aria-hidden="true" />
           <input

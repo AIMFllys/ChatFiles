@@ -11,16 +11,26 @@
   .chat-library[data-mobile-pane="sidebar"] .artifact-workspace,
   .chat-library[data-mobile-pane="workspace"] .conversation-sidebar { display: none; }
   .mobile-back { display: grid; }
+  .sidebar-collapse-button { display: none; }
+  .conversation-sidebar[data-collapsed="true"] .conversation-sidebar-header { padding: 20px 16px 14px; }
+  .conversation-sidebar[data-collapsed="true"] .conversation-sidebar-title-row {
+    justify-content: space-between;
+    margin: 0 2px 13px;
+  }
+  .conversation-sidebar[data-collapsed="true"] .conversation-sidebar-title-row > strong { display: block; }
+  .conversation-sidebar[data-collapsed="true"] .library-search { display: flex; }
+  .conversation-sidebar[data-collapsed="true"] .conversation-scroll { display: block; }
   .workspace-title-row { padding-inline: 12px; }
-  .artifact-stats,
   .artifact-controls { padding-inline: 12px; }
-  .artifact-stats { gap: 14px; }
+  .workspace-title-counts { gap: 8px; }
+  .workspace-title-counts span + span::before { margin-right: 8px; }
   .artifact-grid-window { left: 12px; right: 12px; }
   .artifact-dialog-backdrop { padding: 0; }
   .artifact-dialog { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .chat-library { transition: none; }
   .artifact-card:hover { transform: none; }
   .artifact-dialog,
   .artifact-dialog-backdrop { animation: none; }

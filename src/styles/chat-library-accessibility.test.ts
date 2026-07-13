@@ -6,6 +6,7 @@ import test from 'node:test'
 const indexCss = fs.readFileSync(path.resolve(process.cwd(), 'src/index.css'), 'utf8')
 const libraryCss = [
   'chat-library-shell.css',
+  'chat-library-sidebar-collapse.css',
   'chat-library-workspace.css',
   'chat-library-cards.css',
   'chat-library-dialog.css',
@@ -15,6 +16,18 @@ const layoutCss = fs.readFileSync(path.resolve(process.cwd(), 'src/styles/layout
 const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 const artifactCardSource = fs.readFileSync(
   path.resolve(process.cwd(), 'src/features/chat-library/ArtifactCard.tsx'),
+  'utf8',
+)
+const chatLibrarySource = fs.readFileSync(
+  path.resolve(process.cwd(), 'src/features/chat-library/ChatLibrary.tsx'),
+  'utf8',
+)
+const conversationSidebarSource = fs.readFileSync(
+  path.resolve(process.cwd(), 'src/features/chat-library/ConversationSidebar.tsx'),
+  'utf8',
+)
+const workspaceHeaderSource = fs.readFileSync(
+  path.resolve(process.cwd(), 'src/features/chat-library/ArtifactWorkspaceHeader.tsx'),
   'utf8',
 )
 
@@ -43,4 +56,17 @@ test('announces the current global destination', () => {
 test('shows a readable artifact availability label on every artifact card', () => {
   assert.match(artifactCardSource, /artifactAvailabilityLabel\(item\.availability\)/u)
   assert.doesNotMatch(artifactCardSource, /aria-label=\{item\.availability\}/u)
+})
+
+test('exposes one persistent desktop sidebar collapse control', () => {
+  assert.match(chatLibrarySource, /data-sidebar-collapsed=\{sidebarCollapsed\}/u)
+  assert.match(conversationSidebarSource, /className="sidebar-collapse-button"/u)
+  assert.match(conversationSidebarSource, /aria-label=\{collapsed \? '展开资料库' : '收起资料库'\}/u)
+})
+
+test('keeps workspace counts in the title row instead of a third header layer', () => {
+  assert.match(workspaceHeaderSource, /className="workspace-title-counts"/u)
+  assert.doesNotMatch(workspaceHeaderSource, /className="artifact-stats"/u)
+  assert.match(workspaceHeaderSource, /counts\.all\.toLocaleString\(\)/u)
+  assert.match(workspaceHeaderSource, /counts\.chatText\.toLocaleString\(\)/u)
 })

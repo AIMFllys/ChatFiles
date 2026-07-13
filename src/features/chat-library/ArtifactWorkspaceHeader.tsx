@@ -75,7 +75,13 @@ export function ArtifactWorkspaceHeader({
         </span>
         <div className="workspace-title">
           <small>{selection.kind === 'conversation' ? (conversation?.is_group ? '群聊素材' : '私聊素材') : '跨会话资料库'}</small>
-          <h1 ref={titleRef} tabIndex={-1}>{title}</h1>
+          <div className="workspace-title-line">
+            <h1 ref={titleRef} tabIndex={-1}>{title}</h1>
+            <div className="workspace-title-counts" aria-label="记录数量">
+              <span><strong>{counts.all.toLocaleString()}</strong> 项产出</span>
+              <span><strong>{counts.chatText.toLocaleString()}</strong> 条文字</span>
+            </div>
+          </div>
         </div>
         <div className="workspace-actions">
           {selection.kind === 'conversation' && (
@@ -87,15 +93,6 @@ export function ArtifactWorkspaceHeader({
             </>
           )}
         </div>
-      </div>
-
-      <div className="artifact-stats" aria-label="素材统计">
-        <span><strong>{counts.all.toLocaleString()}</strong> 产出</span>
-        <span className="stat-work">作品 <strong>{counts.work.toLocaleString()}</strong></span>
-        <span className="stat-document">文档 <strong>{counts.document.toLocaleString()}</strong></span>
-        <span className="stat-skill">Skills <strong>{counts.skill.toLocaleString()}</strong></span>
-        <span className="stat-link">链接 <strong>{counts.link.toLocaleString()}</strong></span>
-        <span className="stat-text">文字 <strong>{counts.chatText.toLocaleString()}</strong></span>
       </div>
 
       <div className="artifact-controls">

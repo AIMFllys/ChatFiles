@@ -10,6 +10,11 @@ import {
   serializePinnedConversationIds,
   togglePinnedConversation,
 } from './pins'
+import {
+  parseSidebarCollapsed,
+  serializeSidebarCollapsed,
+  SIDEBAR_COLLAPSED_KEY,
+} from './sidebarState'
 
 const PIN_STORAGE_KEY = 'chatfiles.chat-library.pins'
 
@@ -32,6 +37,9 @@ export function ChatLibrary({
   const [pinsReady, setPinsReady] = useState(false)
   const [mobilePane, setMobilePane] = useState<'sidebar' | 'workspace'>('sidebar')
   const [dockConversation, setDockConversation] = useState<WechatConversation>()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
+    parseSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY))
+  ))
   const selectedControlRef = useRef<HTMLButtonElement>(null)
   const workspaceTitleRef = useRef<HTMLHeadingElement>(null)
 
@@ -61,6 +69,10 @@ export function ChatLibrary({
     if (pinsReady) localStorage.setItem(PIN_STORAGE_KEY, serializePinnedConversationIds(pinnedIds))
   }, [pinnedIds, pinsReady])
 
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, serializeSidebarCollapsed(sidebarCollapsed))
+  }, [sidebarCollapsed])
+
   const selectedConversation = useMemo(() => (
     selection.kind === 'conversation'
       ? conversationList.conversations.find((conversation) => conversation.id === selection.id)
@@ -86,8 +98,13 @@ export function ChatLibrary({
   }
 
   return (
-    <section className="chat-library" data-mobile-pane={mobilePane}>
+    <section
+      className="chat-library"
+      data-mobile-pane={mobilePane}
+      data-sidebar-collapsed={sidebarCollapsed}
+    >
       <ConversationSidebar
+        collapsed={sidebarCollapsed}
         conversations={conversationList.conversations}
         loading={loading}
         pinnedIds={pinnedIds}
@@ -95,6 +112,7 @@ export function ChatLibrary({
         selection={selection}
         summariesByConvId={summariesByConvId}
         onSelect={select}
+        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         onTogglePin={togglePin}
       />
       <ArtifactWorkspace
