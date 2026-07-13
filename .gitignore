@@ -84,6 +84,7 @@ Thumbs.db
 .claude/
 .cursor/
 .playwright-cli/
+.worktrees/
 
 # ===== 遗留文件 =====
 README_CHATFILES.md
