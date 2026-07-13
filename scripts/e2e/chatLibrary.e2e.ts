@@ -8,8 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { chromium, type Browser } from 'playwright'
 import { createApp } from '../../server/app.js'
 import { createWechatRouter } from '../../server/routes/wechat.js'
-import { verifyAISettings } from './aiSettingsAssertions.js'
-import { createFixtureAgentRouter, verifyAgentDock } from './agentDockAssertions.js'
+import { captureVisual, createFixtureAgentRouter, resolveFixtureLinkPreview, seedLongTimeline, verifyAgentDock, verifyAISettings, verifyLinkPreviews, verifyLongTimeline, verifySidebarCollapse } from './e2eAssertions.js'
 function fixtureDatabases() {
   const accountRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-e2e-'))
   const previewRelativePath = 'preview.html'
@@ -52,6 +51,7 @@ function fixtureDatabases() {
       1, 'text', `测试消息 ${suffix}`,
     )
   }
+  seedLongTimeline(wechatDb)
 
   const insertArtifact = artifactDb.prepare('INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
   const addArtifact = (input: {
@@ -94,6 +94,7 @@ function fixtureDatabases() {
   addArtifact({ index: 2, category: 'document', name: '待解密文档.pdf', preview: 'pdf', materialization: 'decrypt_failed', previewStatus: 'decrypt_failed' })
   addArtifact({ index: 3, category: 'skill', name: 'fixture SKILL.md', preview: 'markdown', materialization: 'exported', previewStatus: 'ready' })
   addArtifact({ index: 4, category: 'link', name: '安全链接', preview: 'link', materialization: 'exported', previewStatus: 'ready', url: 'https://example.test/' })
+  addArtifact({ index: 5, category: 'link', name: '降级链接', preview: 'link', materialization: 'exported', previewStatus: 'ready', url: 'https://fallback.example/' })
 
   return { accountRoot, artifactDb, previewPath, previewRelativePath, wechatDb }
 }
@@ -117,9 +118,7 @@ const wechatRouter = createWechatRouter({
   accountRootProvider: () => accountRoot,
   imageThumbnail: (target) => target,
   videoThumbnail: (target) => target,
-  resolveLinkPreview: async (_artifactId, url) => ({ status: 'ready', url, domain: 'example.test', title: '经过验证的链接介绍',
-    description: '这是只使用脱敏测试数据生成的两行链接摘要。', siteName: '测试站点', iconUrl: '', updatedAt: '2026-07-13T00:00:00.000Z',
-  }),
+  resolveLinkPreview: resolveFixtureLinkPreview,
 })
 const server = createApp({ aiAgentRouter: createFixtureAgentRouter(), wechatRouter }).listen(0, '127.0.0.1')
 let browser: Browser | undefined
@@ -150,6 +149,7 @@ try {
   )
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false)
   assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true)
+  await verifySidebarCollapse(page)
 
   const pinConversation = page.getByRole('button', { name: '置顶 会话 005', exact: true })
   await pinConversation.click()
@@ -183,21 +183,21 @@ try {
   assert.ok(await page.locator('.conversation-row').count() < 40)
 
   await page.getByRole('button', { name: '我的素材库 作品与可浏览创作', exact: true }).click()
-  await page.waitForFunction(() => document.querySelector('.workspace-title-counts strong')?.textContent === '3')
+  await page.waitForFunction(() => document.querySelector('.workspace-title-counts strong')?.textContent === '4')
   assert.equal(await page.locator('.artifact-card').count(), 1)
   assert.equal(await page.locator('.artifact-card[data-availability="ready"]').count(), 1)
 
   await page.getByRole('button', { name: '全部产出 跨会话汇总', exact: true }).click()
-  await page.waitForFunction(() => document.querySelector('.workspace-title-counts strong')?.textContent === '4')
-  assert.equal(await page.locator('.artifact-card').count(), 4)
+  await page.waitForFunction(() => document.querySelector('.workspace-title-counts strong')?.textContent === '5')
+  assert.equal(await page.locator('.artifact-card').count(), 5)
   assert.equal(await page.locator('.artifact-card[data-availability="decrypt_failed"]').count(), 1)
 
   const tabCases = [
-    { id: 'all', name: '全部 4', count: 4 },
+    { id: 'all', name: '全部 5', count: 5 },
     { id: 'work', name: '作品 1', count: 1 },
     { id: 'document', name: '文档 1', count: 1 },
     { id: 'skill', name: 'Skills 工具 1', count: 1 },
-    { id: 'link', name: '链接 1', count: 1 },
+    { id: 'link', name: '链接 2', count: 2 },
   ]
   for (const tabCase of tabCases) {
     const tab = page.getByRole('tab', { name: tabCase.name, exact: true })
@@ -222,14 +222,13 @@ try {
       throw new Error(`tab ${tabCase.id} did not settle: ${JSON.stringify(state)}`, { cause: error })
     }
   }
-  await page.getByRole('tab', { name: '链接 1', exact: true }).click()
-  await page.locator('.link-preview[data-status="ready"]').waitFor()
-  assert.match(await page.locator('.link-preview').innerText(), /经过验证的链接介绍.*两行链接摘要.*测试站点/su)
+  await page.getByRole('tab', { name: '链接 2', exact: true }).click()
+  await verifyLinkPreviews(page)
 
-  await page.getByRole('tab', { name: '聊天文字 120', exact: true }).click()
+  await page.getByRole('tab', { name: '聊天文字 379', exact: true }).click()
   await page.getByText('选择一个会话后查看聊天时间轴', { exact: true }).waitFor()
 
-  const allTab = page.getByRole('tab', { name: '全部 4', exact: true })
+  const allTab = page.getByRole('tab', { name: '全部 5', exact: true })
   await allTab.click()
   await allTab.press('ArrowRight')
   assert.equal(await page.getByRole('tab', { name: '作品 1', exact: true }).getAttribute('aria-selected'), 'true')
@@ -241,7 +240,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.artifact-card').length === 1)
   assert.match(await page.locator('.artifact-card').innerText(), /待解密文档/u)
   await artifactSearch.fill('')
-  await page.waitForFunction(() => document.querySelectorAll('.artifact-card').length === 4)
+  await page.waitForFunction(() => document.querySelectorAll('.artifact-card').length === 5)
 
   const previewCard = page.locator('.artifact-card').filter({ hasText: previewRelativePath })
   assert.equal(await previewCard.count(), 1)
@@ -252,15 +251,16 @@ try {
   await page.getByRole('dialog', { name: previewRelativePath, exact: true }).waitFor({ state: 'hidden' })
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('artifact-card')), true)
 
-  const desktopScreenshot = await page.screenshot()
-  assert.ok(desktopScreenshot.byteLength > 10_000)
+  await captureVisual(page, 'desktop-dark')
 
   await page.getByRole('button', { name: '当前跟随系统，切换到浅色模式', exact: true }).click()
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light')
+  await captureVisual(page, 'desktop-light')
   await page.getByRole('button', { name: '当前浅色模式，切换到深色模式', exact: true }).click()
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark')
+  await verifyLongTimeline(page)
   await verifyAISettings(page)
   await verifyAgentDock(page)
   await page.setViewportSize({ width: 390, height: 844 })
@@ -276,11 +276,10 @@ try {
   await page.waitForFunction(() => document.querySelector('.chat-library')?.getAttribute('data-mobile-pane') === 'workspace')
   await page.locator('.artifact-workspace h1').filter({ hasText: '会话 001' }).waitFor()
   assert.equal(await page.locator('.artifact-grid-window').evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1)
-  await page.getByRole('tab', { name: '聊天文字 1', exact: true }).click()
-  await page.locator('.timeline-message').waitFor()
-  assert.match(await page.locator('.timeline-message').innerText(), /发送者 001.*测试消息 001/su)
-  const mobileScreenshot = await page.screenshot()
-  assert.ok(mobileScreenshot.byteLength > 10_000)
+  await page.getByRole('tab', { name: '聊天文字 260', exact: true }).click()
+  await page.locator('.timeline-message').last().waitFor()
+  assert.match(await page.locator('.timeline-message').last().textContent() ?? '', /(?:张三|李四).*时间轴测试消息/su)
+  await captureVisual(page, 'mobile-dark')
 
   await page.locator('.mobile-back').click()
   assert.equal(await page.locator('.chat-library').getAttribute('data-mobile-pane'), 'sidebar')

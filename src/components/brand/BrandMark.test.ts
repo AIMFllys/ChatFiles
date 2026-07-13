@@ -15,4 +15,5 @@ test('defines one reusable gradient-free midnight reading mark', () => {
   assert.match(geometry, /export const brandMarkPaths/u)
   assert.doesNotMatch(`${source}\n${geometry}`, /(?:linear|radial)Gradient/u)
   assert.match(source, /aria-label=\{title\}/u)
+  assert.equal(fs.existsSync(path.resolve(process.cwd(), 'src/assets/vite.svg')), false)
 })

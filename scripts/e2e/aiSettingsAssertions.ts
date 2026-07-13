@@ -16,4 +16,6 @@ export async function verifyAISettings(page: Page) {
   assert.equal(persisted.threshold, 179_200)
   assert.equal(persisted.embedding.model, 'fixture-embedding-model')
   assert.equal(persisted.embedding.enabled, true)
+  await page.getByRole('button', { name: '重建检索索引', exact: true }).click()
+  await page.getByText(/混合检索索引已更新.*2 个片段/u).waitFor()
 }
