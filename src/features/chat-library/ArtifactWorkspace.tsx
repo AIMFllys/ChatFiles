@@ -273,6 +273,7 @@ export function ArtifactWorkspace({
                     requestAnimationFrame(() => document.getElementById(`artifact-tab-${next}`)?.focus())
                   }}
                   onClick={() => {
+                    if (tab === item.id) return
                     setLoading(true)
                     setLoadingMore(false)
                     setError('')

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
+import fs from 'node:fs'
 import type { Server } from 'node:http'
+import os from 'node:os'
+import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 import { chromium, type Browser } from 'playwright'
@@ -9,6 +12,11 @@ import { createApp } from '../../server/app.js'
 import { createWechatRouter } from '../../server/routes/wechat.js'
 
 function fixtureDatabases() {
+  const accountRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-e2e-'))
+  const previewRelativePath = 'preview.html'
+  const previewPath = path.join(accountRoot, previewRelativePath)
+  const previewContent = '<!doctype html><html lang="zh-CN"><body><h1>E2E 本地预览</h1></body></html>'
+  fs.writeFileSync(previewPath, previewContent, 'utf8')
   const artifactDb = new DatabaseSync(':memory:')
   const wechatDb = new DatabaseSync(':memory:')
   artifactDb.exec(`
@@ -54,6 +62,8 @@ function fixtureDatabases() {
     preview: string
     materialization: string
     previewStatus: string
+    sourceRelativePath?: string | null
+    sourceSize?: number | null
     url?: string | null
   }) => insertArtifact.run(
     input.index.toString(16).padStart(64, '0'),
@@ -63,8 +73,8 @@ function fixtureDatabases() {
     input.name,
     input.preview,
     input.url ?? null,
-    null,
-    null,
+    input.sourceRelativePath ?? null,
+    input.sourceSize ?? null,
     3_000 - input.index,
     '测试发送者',
     '测试索引文本',
@@ -72,12 +82,21 @@ function fixtureDatabases() {
     input.previewStatus,
     input.previewStatus === 'ready' ? null : '审计失败状态',
   )
-  addArtifact({ index: 1, category: 'work', name: '可预览代码.ts', preview: 'code', materialization: 'exported', previewStatus: 'ready' })
+  addArtifact({
+    index: 1,
+    category: 'work',
+    name: previewRelativePath,
+    preview: 'html',
+    materialization: 'exported',
+    previewStatus: 'ready',
+    sourceRelativePath: previewRelativePath,
+    sourceSize: Buffer.byteLength(previewContent),
+  })
   addArtifact({ index: 2, category: 'document', name: '待解密文档.pdf', preview: 'pdf', materialization: 'decrypt_failed', previewStatus: 'decrypt_failed' })
   addArtifact({ index: 3, category: 'skill', name: 'fixture SKILL.md', preview: 'markdown', materialization: 'exported', previewStatus: 'ready' })
   addArtifact({ index: 4, category: 'link', name: '安全链接', preview: 'link', materialization: 'exported', previewStatus: 'ready', url: 'https://example.test/' })
 
-  return { artifactDb, wechatDb }
+  return { accountRoot, artifactDb, previewPath, previewRelativePath, wechatDb }
 }
 
 async function listen(server: Server) {
@@ -92,11 +111,11 @@ async function closeServer(server: Server) {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
 }
 
-const { artifactDb, wechatDb } = fixtureDatabases()
+const { accountRoot, artifactDb, previewPath, previewRelativePath, wechatDb } = fixtureDatabases()
 const wechatRouter = createWechatRouter({
   openWechatDatabase: () => ({ db: wechatDb, release() {} }),
   openArtifactDatabase: () => ({ db: artifactDb, release() {} }),
-  accountRootProvider: () => process.cwd(),
+  accountRootProvider: () => accountRoot,
   imageThumbnail: (target) => target,
   videoThumbnail: (target) => target,
 })
@@ -130,6 +149,30 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false)
   assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true)
 
+  const pinConversation = page.getByRole('button', { name: '置顶 会话 005', exact: true })
+  await pinConversation.click()
+  await page.getByRole('button', { name: '取消置顶 会话 005', exact: true }).waitFor()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '聊天', exact: true }).click()
+  const persistedPin = page.getByRole('button', { name: '取消置顶 会话 005', exact: true })
+  await persistedPin.waitFor()
+  assert.equal(await persistedPin.getAttribute('aria-pressed'), 'true')
+  assert.equal(await persistedPin.evaluate((element) => element.closest('.conversation-row')?.getAttribute('aria-posinset')), '1')
+  await persistedPin.click()
+  await page.getByRole('button', { name: '置顶 会话 005', exact: true }).waitFor()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '聊天', exact: true }).click()
+  const restoredPin = page.getByRole('button', { name: '置顶 会话 005', exact: true })
+  await restoredPin.waitFor()
+  assert.equal(await restoredPin.getAttribute('aria-pressed'), 'false')
+
+  const conversationSearch = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  await conversationSearch.fill('会话 117')
+  await page.getByRole('heading', { name: '会话 1', exact: true }).waitFor()
+  assert.equal(await page.locator('.conversation-row').count(), 1)
+  await conversationSearch.fill('')
+  await page.getByRole('heading', { name: '会话 120', exact: true }).waitFor()
+
   await page.locator('.conversation-scroll').evaluate((element) => {
     element.scrollTop = 3_500
     element.dispatchEvent(new Event('scroll'))
@@ -146,6 +189,65 @@ try {
   await page.waitForFunction(() => document.querySelector('.artifact-stats strong')?.textContent === '4')
   assert.equal(await page.locator('.artifact-card').count(), 4)
   assert.equal(await page.locator('.artifact-card[data-availability="decrypt_failed"]').count(), 1)
+
+  const tabCases = [
+    { id: 'all', name: '全部 4', count: 4 },
+    { id: 'work', name: '作品 1', count: 1 },
+    { id: 'document', name: '文档 1', count: 1 },
+    { id: 'skill', name: 'Skills 工具 1', count: 1 },
+    { id: 'link', name: '链接 1', count: 1 },
+    { id: 'chatText', name: '聊天文字 120', count: 60 },
+  ]
+  for (const tabCase of tabCases) {
+    const tab = page.getByRole('tab', { name: tabCase.name, exact: true })
+    await tab.click()
+    try {
+      await page.waitForFunction(
+        ({ id, count }) => {
+          const selected = document.getElementById(`artifact-tab-${id}`)
+          const mountedCards = document.querySelectorAll('.artifact-card').length
+          return selected?.getAttribute('aria-selected') === 'true'
+            && (count <= 4 ? mountedCards === count : mountedCards > 0)
+        },
+        tabCase,
+        { timeout: 5_000 },
+      )
+    } catch (error) {
+      const state = await page.evaluate((id) => ({
+        cards: document.querySelectorAll('.artifact-card').length,
+        panel: document.getElementById('artifact-tab-panel')?.textContent?.replace(/\s+/gu, ' ').trim(),
+        selected: document.getElementById(`artifact-tab-${id}`)?.getAttribute('aria-selected'),
+      }), tabCase.id)
+      throw new Error(`tab ${tabCase.id} did not settle: ${JSON.stringify(state)}`, { cause: error })
+    }
+  }
+  assert.ok(await page.locator('.chat-text-card').count() > 0)
+
+  const allTab = page.getByRole('tab', { name: '全部 4', exact: true })
+  await allTab.click()
+  await allTab.press('ArrowRight')
+  assert.equal(await page.getByRole('tab', { name: '作品 1', exact: true }).getAttribute('aria-selected'), 'true')
+  await page.getByRole('tab', { name: '作品 1', exact: true }).press('Home')
+  assert.equal(await allTab.getAttribute('aria-selected'), 'true')
+
+  const artifactSearch = page.getByRole('textbox', { name: '检索当前素材', exact: true })
+  await artifactSearch.fill('待解密')
+  await page.waitForFunction(() => document.querySelectorAll('.artifact-card').length === 1)
+  assert.match(await page.locator('.artifact-card').innerText(), /待解密文档/u)
+  await artifactSearch.fill('')
+  await page.waitForFunction(() => document.querySelectorAll('.artifact-card').length === 4)
+
+  const previewCard = page.locator('.artifact-card').filter({ hasText: previewRelativePath })
+  assert.equal(await previewCard.count(), 1)
+  await previewCard.click()
+  await page.getByRole('dialog', { name: previewRelativePath, exact: true }).waitFor()
+  await page.frameLocator('iframe.html-preview').getByRole('heading', { name: 'E2E 本地预览', exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('dialog', { name: previewRelativePath, exact: true }).waitFor({ state: 'hidden' })
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('artifact-card')), true)
+
+  const desktopScreenshot = await page.screenshot()
+  assert.ok(desktopScreenshot.byteLength > 10_000)
 
   await page.getByRole('button', { name: '浅色模式', exact: true }).click()
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
@@ -167,6 +269,8 @@ try {
   await page.getByRole('heading', { name: '会话 001', exact: true }).waitFor()
   assert.equal(await page.locator('.chat-library').getAttribute('data-mobile-pane'), 'workspace')
   assert.equal(await page.locator('.artifact-grid-window').evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1)
+  const mobileScreenshot = await page.screenshot()
+  assert.ok(mobileScreenshot.byteLength > 10_000)
 
   await page.locator('.mobile-back').click()
   assert.equal(await page.locator('.chat-library').getAttribute('data-mobile-pane'), 'sidebar')
@@ -175,10 +279,12 @@ try {
   assert.deepEqual(browserErrors, [])
 
   await context.close()
-  console.log('chat-library e2e: desktop, mobile, themes, reduced motion, collections, and virtualization passed')
+  console.log('chat-library e2e: navigation, pins, tabs, search, preview, themes, keyboard, desktop, and mobile passed')
 } finally {
   await browser?.close()
   await closeServer(server)
   artifactDb.close()
   wechatDb.close()
+  fs.unlinkSync(previewPath)
+  fs.rmdirSync(accountRoot)
 }
