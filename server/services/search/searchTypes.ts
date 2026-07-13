@@ -1,6 +1,7 @@
 export type SearchMessage = {
   conversationId: string
   messageUid: string
+  sequence: number
   time: number
   sender: string
   senderName: string
@@ -12,6 +13,8 @@ export type SearchChunk = {
   conversationId: string
   firstMessageUid: string
   lastMessageUid: string
+  firstSequence: number
+  lastSequence: number
   startTime: number
   endTime: number
   senderIds: string[]

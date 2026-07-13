@@ -1,9 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LinkPreview } from '../../../shared/contracts/chat.js'
-import { queryTimeline, encodeTimelineCursor } from '../chatTimeline.js'
+import { encodeTimelineAnchor, queryTimeline } from '../chatTimeline.js'
 import type { DocumentReadResult } from '../documents/documentTypes.js'
 import type { HybridSearchResult } from '../search/hybridSearch.js'
 import { queryArtifacts } from '../../wechat/artifactQuery.js'
+import {
+  inspectMessageStorage,
+  resolveMessageAnchor,
+  stableMessageUid,
+  type MessageStorageShape,
+  type ResolvedMessageAnchor,
+} from '../../wechat/legacyMessageIdentity.js'
 import { AGENT_TOOL_SCHEMAS, type AgentToolName } from './toolSchemas.js'
 
 export type ToolRegistryDependencies = {
@@ -99,17 +106,92 @@ async function searchMessages(deps: ToolRegistryDependencies, raw: unknown) {
   })
   const hits = result.hits.slice(0, limit).map((hit) => ({
     conversationId: hit.conversationId, firstMessageUid: hit.firstMessageUid,
-    lastMessageUid: hit.lastMessageUid, startTime: hit.startTime, endTime: hit.endTime,
+    lastMessageUid: hit.lastMessageUid, firstSequence: hit.firstSequence,
+    lastSequence: hit.lastSequence, startTime: hit.startTime, endTime: hit.endTime,
     senders: hit.senderIds, text: boundedText(hit.text), citation: citation('消息', hit.firstMessageUid),
   }))
   return { mode: result.mode, reason: result.reason, hits, citations: unique(hits.map((hit) => hit.citation)) }
 }
 
-type MessageRow = { conv_id: string; message_uid: string; time: number; sender: string; sender_name: string; type_label: string; text: string }
+type MessageRow = {
+  conv_id: string
+  message_uid: string
+  canonical_seq?: number
+  time: number
+  sender: string
+  sender_name: string
+  type_label: string
+  text: string
+}
+
+type StoredMessageRow = Omit<MessageRow, 'message_uid'> & {
+  legacy_rowid: number
+  message_uid: string | null
+  sequence: number
+}
+
+function messageProjection(storage: MessageStorageShape) {
+  const messageUid = storage.hasMessageUid ? 'message_uid' : 'NULL AS message_uid'
+  const sequence = storage.canonical ? 'canonical_seq' : 'seq'
+  const time = storage.canonical ? 'occurred_at_epoch_s' : 'time'
+  const canonicalSequence = storage.canonical ? ',canonical_seq' : ''
+  return `conv_id,${messageUid},${sequence} AS sequence,${time} AS time${canonicalSequence},
+    rowid AS legacy_rowid,sender,sender_name,type_label,text`
+}
+
+function materializeMessage(row: StoredMessageRow, storage: MessageStorageShape): MessageRow {
+  const { legacy_rowid, message_uid, sequence, ...message } = row
+  return {
+    ...message,
+    message_uid: stableMessageUid({
+      conv_id: row.conv_id,
+      legacy_rowid: Number(legacy_rowid),
+      message_uid,
+      sequence: Number(sequence),
+      time: Number(row.time),
+    }, storage.hasMessageUid),
+  }
+}
+
+function contextRows(
+  db: DatabaseSync,
+  storage: MessageStorageShape,
+  anchor: ResolvedMessageAnchor,
+  direction: 'before' | 'after',
+  radius: number,
+) {
+  const operator = direction === 'before' ? '<' : '>'
+  const order = direction === 'before' ? 'DESC' : 'ASC'
+  let comparison: string
+  let values: Array<string | number>
+  if (storage.canonical) {
+    comparison = `canonical_seq${operator}?`
+    values = [anchor.sequence]
+  } else if (storage.messageUidGuaranteed) {
+    comparison = `(time${operator}? OR (time=? AND
+      (message_uid${operator}? OR (message_uid=? AND rowid${operator}?))))`
+    values = [anchor.time, anchor.time, anchor.message_uid, anchor.message_uid, anchor.legacy_rowid]
+  } else {
+    comparison = `(time${operator}? OR (time=? AND
+      (seq${operator}? OR (seq=? AND rowid${operator}?))))`
+    values = [anchor.time, anchor.time, anchor.sequence, anchor.sequence, anchor.legacy_rowid]
+  }
+  const identityOrder = storage.canonical
+    ? `canonical_seq ${order}`
+    : storage.messageUidGuaranteed
+      ? `time ${order},message_uid ${order},rowid ${order}`
+      : `time ${order},seq ${order},rowid ${order}`
+  const rows = db.prepare(`SELECT ${messageProjection(storage)} FROM messages
+    WHERE conv_id=? AND ${comparison} ORDER BY ${identityOrder} LIMIT ?`)
+    .all(anchor.conv_id, ...values, radius) as StoredMessageRow[]
+  const messages = rows.map((row) => materializeMessage(row, storage))
+  return direction === 'before' ? messages.reverse() : messages
+}
 
 function publicMessage(row: MessageRow) {
   return {
     conversationId: row.conv_id, messageUid: row.message_uid, time: Number(row.time),
+    ...(row.canonical_seq === undefined ? {} : { canonicalSequence: Number(row.canonical_seq) }),
     sender: row.sender, senderName: row.sender_name, typeLabel: row.type_label,
     text: boundedText(row.text ?? ''), citation: citation('消息', row.message_uid),
   }
@@ -119,18 +201,17 @@ function messageContext(deps: ToolRegistryDependencies, raw: unknown) {
   const args = objectArgs(raw, ['messageUid', 'radius'])
   const messageUid = textArg(args, 'messageUid', 512, true)!
   const radius = integerArg(args, 'radius', 5, 0, 20)
-  const target = deps.wechatDb.prepare(`
-    SELECT conv_id,message_uid,time,sender,sender_name,type_label,text FROM messages WHERE message_uid=?
-  `).get(messageUid) as MessageRow | undefined
-  if (!target) throw new ToolExecutionError('not_found')
-  const projection = 'conv_id,message_uid,time,sender,sender_name,type_label,text'
-  const before = deps.wechatDb.prepare(`SELECT ${projection} FROM messages WHERE conv_id=? AND
-    (time<? OR (time=? AND message_uid<?)) ORDER BY time DESC,message_uid DESC LIMIT ?`)
-    .all(target.conv_id, target.time, target.time, target.message_uid, radius) as MessageRow[]
-  const after = deps.wechatDb.prepare(`SELECT ${projection} FROM messages WHERE conv_id=? AND
-    (time>? OR (time=? AND message_uid>?)) ORDER BY time,message_uid LIMIT ?`)
-    .all(target.conv_id, target.time, target.time, target.message_uid, radius) as MessageRow[]
-  const messages = [...before.reverse(), target, ...after].map(publicMessage)
+  const storage = inspectMessageStorage(deps.wechatDb)
+  const anchor = resolveMessageAnchor(deps.wechatDb, messageUid, storage)
+  if (!anchor) throw new ToolExecutionError('not_found')
+  const storedTarget = deps.wechatDb.prepare(`SELECT ${messageProjection(storage)} FROM messages WHERE rowid=?`)
+    .get(anchor.legacy_rowid) as StoredMessageRow | undefined
+  if (!storedTarget) throw new ToolExecutionError('not_found')
+  const target = materializeMessage(storedTarget, storage)
+  if (target.message_uid !== messageUid) throw new ToolExecutionError('not_found')
+  const before = contextRows(deps.wechatDb, storage, anchor, 'before', radius)
+  const after = contextRows(deps.wechatDb, storage, anchor, 'after', radius)
+  const messages = [...before, target, ...after].map(publicMessage)
   return { conversationId: target.conv_id, messages, citations: messages.map((message) => message.citation) }
 }
 
@@ -164,10 +245,8 @@ function timelineSlice(deps: ToolRegistryDependencies, raw: unknown) {
   const aroundUid = textArg(args, 'aroundMessageUid', 512)
   let around: string | undefined
   if (aroundUid) {
-    const anchor = deps.wechatDb.prepare('SELECT time,message_uid FROM messages WHERE conv_id=? AND message_uid=?')
-      .get(conversationId, aroundUid) as { time: number; message_uid: string } | undefined
-    if (!anchor) throw new ToolExecutionError('not_found')
-    around = encodeTimelineCursor({ time: Number(anchor.time), messageUid: anchor.message_uid })
+    around = encodeTimelineAnchor(deps.wechatDb, conversationId, aroundUid) ?? undefined
+    if (!around) throw new ToolExecutionError('not_found')
   }
   const page = queryTimeline(deps.wechatDb, {
     conversationId, limit: integerArg(args, 'limit', 40, 1, 100),

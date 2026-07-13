@@ -1,4 +1,5 @@
 import type { TimelineMessage, TimelineParticipant } from '../../types'
+import { DEFAULT_ARCHIVE_TIME_ZONE, archiveDay } from '../../../shared/time/archiveTime'
 
 export type TimelineDayItem = { kind: 'day'; key: string; label: string }
 export type TimelineMessageItem = {
@@ -10,32 +11,32 @@ export type TimelineMessageItem = {
 export type TimelineRenderItem = TimelineDayItem | TimelineMessageItem
 export type TimelinePageWindow = { id: string; messages: TimelineMessage[] }
 
-function localDateKey(timestamp: number) {
-  const date = new Date(timestamp * 1000)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-function dateLabel(timestamp: number) {
+function dateLabel(timestamp: number, timeZone: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     weekday: 'short',
+    timeZone,
   }).format(new Date(timestamp * 1000))
 }
 
-export function groupTimelineMessages(messages: readonly TimelineMessage[]): TimelineRenderItem[] {
+export function groupTimelineMessages(
+  messages: readonly TimelineMessage[],
+  timeZone = DEFAULT_ARCHIVE_TIME_ZONE,
+): TimelineRenderItem[] {
   const items: TimelineRenderItem[] = []
   let previous: TimelineMessage | undefined
   let previousDay = ''
   for (const message of messages) {
-    const day = localDateKey(message.time)
+    const timestamp = message.occurred_at_epoch_s ?? message.time
+    const day = archiveDay(timestamp, timeZone)
     if (day !== previousDay) {
-      items.push({ kind: 'day', key: `day:${day}`, label: dateLabel(message.time) })
+      items.push({ kind: 'day', key: `day:${day}`, label: dateLabel(timestamp, timeZone) })
       previousDay = day
     }
     const showIdentity = !previous
-      || day !== localDateKey(previous.time)
+      || day !== archiveDay(previous.occurred_at_epoch_s ?? previous.time, timeZone)
       || previous.sender !== message.sender
       || message.time - previous.time > 300
     items.push({ kind: 'message', key: message.message_uid, message, showIdentity })
@@ -45,8 +46,32 @@ export function groupTimelineMessages(messages: readonly TimelineMessage[]): Tim
 }
 
 function compareMessages(left: TimelineMessage, right: TimelineMessage) {
+  if (left.canonical_seq !== undefined && right.canonical_seq !== undefined) {
+    return left.canonical_seq - right.canonical_seq
+  }
   if (left.time !== right.time) return left.time - right.time
+  if (left.seq !== right.seq) return left.seq - right.seq
   return left.message_uid < right.message_uid ? -1 : left.message_uid > right.message_uid ? 1 : 0
+}
+
+export function encodeBrowserTimelineCursor(message: TimelineMessage, runId: string) {
+  const payload = JSON.stringify([2, runId, message.canonical_seq ?? message.seq, message.message_uid])
+  const bytes = new TextEncoder().encode(payload)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
+}
+
+export function formatTimelineClock(timestamp: number, timeZone: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit', hourCycle: 'h23', minute: '2-digit', second: '2-digit', timeZone,
+  }).format(new Date(timestamp * 1_000))
+}
+
+export function formatTimelineDateTime(timestamp: number, timeZone: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium', timeStyle: 'medium', timeZone,
+  }).format(new Date(timestamp * 1_000))
 }
 
 export function mergeTimelineMessages(

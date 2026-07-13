@@ -158,6 +158,7 @@ export function planInsightDelta(
     kind: 'new' | 'grown'
     since: number
     sinceMessageUid: string
+    sinceSequence: number | null
     previousTextCount: number
   }> = []
   const metrics = { new: 0, grown: 0, accumulated: 0, unchanged: 0 }
@@ -165,7 +166,10 @@ export function planInsightDelta(
   for (const conversation of conversations) {
     const state = stateById.get(conversation.id)
     if (!state) {
-      entries.push({ conversation, kind: 'new', since: 0, sinceMessageUid: '', previousTextCount: 0 })
+      entries.push({
+        conversation, kind: 'new', since: 0, sinceMessageUid: '', sinceSequence: null,
+        previousTextCount: 0,
+      })
       metrics.new++
       continue
     }
@@ -177,6 +181,7 @@ export function planInsightDelta(
         kind: 'grown',
         since: state.analyzedLastTime,
         sinceMessageUid: state.analyzedLastMessageUid ?? '',
+        sinceSequence: state.analyzedLastSequence ?? null,
         previousTextCount: state.analyzedTextCount,
       })
       metrics.grown++

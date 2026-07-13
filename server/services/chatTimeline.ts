@@ -1,11 +1,32 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   TimelineBucket,
-  TimelineCursor,
   TimelineMessage,
   TimelinePage,
   TimelineParticipant,
 } from '../../shared/contracts/chat.js'
+import {
+  archiveDay,
+  DEFAULT_ARCHIVE_TIME_ZONE,
+  resolveArchiveTimeZone,
+} from '../../shared/time/archiveTime.js'
+import {
+  decodeTimelineCursor,
+  encodeTimelineCursor,
+  type DecodedTimelineCursor,
+} from './chatTimelineCursor.js'
+import {
+  legacyBucketRows,
+  legacyDirectional,
+  legacyEncodeAnchor,
+  legacyMiddle,
+} from './chatTimelineLegacy.js'
+import {
+  inspectMessageStorage,
+  type MessageStorageShape,
+} from '../wechat/legacyMessageIdentity.js'
+
+export { decodeTimelineCursor, encodeTimelineCursor } from './chatTimelineCursor.js'
 
 export type TimelineQueryInput = {
   conversationId: string
@@ -17,44 +38,48 @@ export type TimelineQueryInput = {
   query?: string
 }
 
-type TimelineRow = TimelineMessage
+type TimelineRow = TimelineMessage & { canonical_seq?: number; occurred_at_epoch_s?: number }
 type ParticipantRow = { id: string; name: string; message_count: number; last_time: number }
-type BucketRow = { key: string; start_time: number; end_time: number; message_count: number }
-
-const projection = `message_uid, seq, time, sender, sender_name,
-  type, type_label, text`
-
-export function encodeTimelineCursor(cursor: TimelineCursor) {
-  return Buffer.from(JSON.stringify([cursor.time, cursor.messageUid]), 'utf8').toString('base64url')
+type TimelineMetadata = {
+  canonical: boolean
+  runId: string
+  storage: MessageStorageShape
+  timeZone: string
 }
 
-export function decodeTimelineCursor(value: string | undefined): TimelineCursor | null {
-  if (!value || value.length > 760 || !/^[A-Za-z0-9_-]+$/u.test(value)) return null
-  try {
-    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown
-    if (!Array.isArray(decoded) || decoded.length !== 2) return null
-    const [time, messageUid] = decoded
-    if (!Number.isSafeInteger(time) || time < 0 || typeof messageUid !== 'string') return null
-    if (!messageUid || messageUid.length > 512 || messageUid.includes('\u0000')) return null
-    return { time, messageUid }
-  } catch {
-    return null
+function tableColumns(db: DatabaseSync, table: string) {
+  return new Set((db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).map((row) => row.name))
+}
+
+function timelineMetadata(db: DatabaseSync): TimelineMetadata {
+  const storage = inspectMessageStorage(db)
+  const canonical = storage.canonical
+  const runColumns = tableColumns(db, 'parse_runs')
+  let runId = 'legacy'
+  let timeZone = DEFAULT_ARCHIVE_TIME_ZONE
+  if (runColumns.has('run_id')) {
+    const projection = runColumns.has('time_zone') ? 'run_id,time_zone' : "run_id,NULL AS time_zone"
+    const run = db.prepare(`SELECT ${projection} FROM parse_runs LIMIT 1`).get() as Record<string, unknown> | undefined
+    runId = String(run?.run_id ?? runId)
+    const configured = String(run?.time_zone ?? '').trim()
+    if (configured) timeZone = resolveArchiveTimeZone(configured)
   }
+  return { canonical, runId, storage, timeZone }
 }
 
 function escapedLike(value: string) {
   return `%${value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
 }
 
-function scopedWhere(input: TimelineQueryInput, includeSender = true) {
+function scopedWhere(input: TimelineQueryInput, includeFilters = true) {
   const clauses = ['conv_id=?']
   const params: Array<string | number> = [input.conversationId]
-  if (includeSender && input.sender) {
+  if (includeFilters && input.sender) {
     clauses.push('sender=?')
     params.push(input.sender)
   }
   const query = input.query?.trim()
-  if (includeSender && query) {
+  if (includeFilters && query) {
     clauses.push("(text LIKE ? ESCAPE '\\' OR sender_name LIKE ? ESCAPE '\\')")
     const pattern = escapedLike(query)
     params.push(pattern, pattern)
@@ -62,62 +87,102 @@ function scopedWhere(input: TimelineQueryInput, includeSender = true) {
   return { sql: clauses.join(' AND '), params }
 }
 
-function tupleClause(direction: 'before' | 'after', cursor: TimelineCursor) {
-  const operator = direction === 'before' ? '<' : '>'
-  return {
-    sql: `(time ${operator} ? OR (time=? AND message_uid ${operator} ?))`,
-    params: [cursor.time, cursor.time, cursor.messageUid] as Array<string | number>,
-  }
+function projection(canonical: boolean) {
+  const base = 'message_uid,seq,time,sender,sender_name,type,type_label,text'
+  return canonical
+    ? `${base},canonical_seq,occurred_at_epoch_s,time_precision,archive_day,person_id`
+    : base
 }
 
-function readDirectional(
+function canonicalAnchor(
+  db: DatabaseSync,
+  conversationId: string,
+  cursor: DecodedTimelineCursor,
+  metadata: TimelineMetadata,
+) {
+  if ('legacy' in cursor) {
+    return db.prepare(`SELECT canonical_seq AS sequence,message_uid FROM messages
+      WHERE conv_id=? AND time=? AND message_uid=?`).get(conversationId, cursor.time, cursor.messageUid) as
+      { sequence: number; message_uid: string } | undefined
+  }
+  if (cursor.runId !== metadata.runId) return undefined
+  return db.prepare(`SELECT canonical_seq AS sequence,message_uid FROM messages
+    WHERE conv_id=? AND canonical_seq=? AND message_uid=?`).get(
+    conversationId, cursor.sequence, cursor.messageUid,
+  ) as { sequence: number; message_uid: string } | undefined
+}
+
+function canonicalDirectional(
   db: DatabaseSync,
   input: TimelineQueryInput,
   direction: 'before' | 'after',
-  cursor: TimelineCursor | null,
+  cursor: DecodedTimelineCursor | null,
+  metadata: TimelineMetadata,
   limit: number,
 ) {
   const scoped = scopedWhere(input)
-  const tuple = cursor ? tupleClause(direction, cursor) : null
-  const where = tuple ? `${scoped.sql} AND ${tuple.sql}` : scoped.sql
-  const params = tuple ? [...scoped.params, ...tuple.params] : scoped.params
+  const anchor = cursor ? canonicalAnchor(db, input.conversationId, cursor, metadata) : undefined
+  if (cursor && !anchor) return []
+  const operator = direction === 'before' ? '<' : '>'
+  const clause = anchor ? ` AND canonical_seq${operator}?` : ''
   const order = direction === 'before' ? 'DESC' : 'ASC'
-  const rows = db.prepare(`
-    SELECT ${projection} FROM messages WHERE ${where}
-    ORDER BY time ${order}, message_uid ${order} LIMIT ?
-  `).all(...params, limit) as TimelineRow[]
+  const params = anchor ? [...scoped.params, Number(anchor.sequence)] : scoped.params
+  const rows = db.prepare(`SELECT ${projection(true)} FROM messages WHERE ${scoped.sql}${clause}
+    ORDER BY canonical_seq ${order} LIMIT ?`).all(...params, limit) as TimelineRow[]
   return direction === 'before' ? rows.reverse() : rows
 }
 
-function readMessages(db: DatabaseSync, input: TimelineQueryInput, limit: number) {
-  if (input.before) return readDirectional(db, input, 'before', decodeTimelineCursor(input.before), limit)
-  if (input.after) return readDirectional(db, input, 'after', decodeTimelineCursor(input.after), limit)
-  if (!input.around) return readDirectional(db, input, 'before', null, limit)
-  const anchor = decodeTimelineCursor(input.around)
-  if (!anchor) return []
+function directional(
+  db: DatabaseSync,
+  input: TimelineQueryInput,
+  direction: 'before' | 'after',
+  cursor: DecodedTimelineCursor | null,
+  metadata: TimelineMetadata,
+  limit: number,
+) {
+  return metadata.canonical
+    ? canonicalDirectional(db, input, direction, cursor, metadata, limit)
+    : legacyDirectional(
+        db,
+        scopedWhere(input),
+        input.conversationId,
+        direction,
+        cursor,
+        metadata.storage,
+        limit,
+      )
+}
+
+function readMessages(db: DatabaseSync, input: TimelineQueryInput, metadata: TimelineMetadata, limit: number) {
+  if (input.before) return directional(db, input, 'before', decodeTimelineCursor(input.before), metadata, limit)
+  if (input.after) return directional(db, input, 'after', decodeTimelineCursor(input.after), metadata, limit)
+  if (!input.around) return directional(db, input, 'before', null, metadata, limit)
+  const decoded = decodeTimelineCursor(input.around)
+  if (!decoded) return []
   const earlierCount = Math.floor((limit - 1) / 2)
-  const earlier = readDirectional(db, input, 'before', anchor, earlierCount)
+  const earlier = directional(db, input, 'before', decoded, metadata, earlierCount)
+  const anchorRows = directional(db, input, 'after', decoded, metadata, limit - earlier.length - 1)
+  const anchor = metadata.canonical
+    ? canonicalAnchor(db, input.conversationId, decoded, metadata)
+    : undefined
   const scoped = scopedWhere(input)
-  const atOrAfterSql = '(time > ? OR (time=? AND message_uid>=?))'
-  const later = db.prepare(`
-    SELECT ${projection} FROM messages WHERE ${scoped.sql} AND ${atOrAfterSql}
-    ORDER BY time ASC, message_uid ASC LIMIT ?
-  `).all(...scoped.params, anchor.time, anchor.time, anchor.messageUid, limit - earlier.length) as TimelineRow[]
-  return [...earlier, ...later]
+  const middle = metadata.canonical && anchor
+    ? db.prepare(`SELECT ${projection(true)} FROM messages WHERE ${scoped.sql} AND canonical_seq=? LIMIT 1`)
+        .all(...scoped.params, anchor.sequence) as TimelineRow[]
+    : !metadata.canonical
+      ? legacyMiddle(db, scoped, input.conversationId, decoded, metadata.storage)
+      : []
+  return [...earlier, ...middle, ...anchorRows]
 }
 
 function readParticipants(db: DatabaseSync, input: TimelineQueryInput): TimelineParticipant[] {
-  const rows = db.prepare(`
-    SELECT COALESCE(NULLIF(sender,''), sender_name, '?') AS id,
-      COALESCE(NULLIF(max(sender_name),''), NULLIF(sender,''), '?') AS name,
-      count(*) AS message_count, max(time) AS last_time
-    FROM messages WHERE conv_id=? GROUP BY id ORDER BY message_count DESC, name ASC
-  `).all(input.conversationId) as ParticipantRow[]
+  const rows = db.prepare(`SELECT COALESCE(NULLIF(sender,''),sender_name,'?') AS id,
+    COALESCE(NULLIF(max(sender_name),''),NULLIF(sender,''),'?') AS name,
+    count(*) AS message_count,max(time) AS last_time
+    FROM messages WHERE conv_id=? GROUP BY id ORDER BY message_count DESC,name ASC`)
+    .all(input.conversationId) as ParticipantRow[]
   return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    messageCount: Number(row.message_count),
-    lastTime: Number(row.last_time),
+    id: row.id, name: row.name, messageCount: Number(row.message_count), lastTime: Number(row.last_time),
   }))
 }
 
@@ -126,53 +191,95 @@ function bucketLabel(key: string) {
   return `${year}年${Number(month)}月`
 }
 
-function readBuckets(db: DatabaseSync, input: TimelineQueryInput): TimelineBucket[] {
+function readBuckets(db: DatabaseSync, input: TimelineQueryInput, metadata: TimelineMetadata): TimelineBucket[] {
   const scoped = scopedWhere(input)
-  const rows = db.prepare(`
-    SELECT strftime('%Y-%m', time, 'unixepoch', 'localtime') AS key,
-      min(time) AS start_time, max(time) AS end_time, count(*) AS message_count
-    FROM messages WHERE ${scoped.sql} GROUP BY key ORDER BY start_time ASC
-  `).all(...scoped.params) as BucketRow[]
-  return rows.filter((row) => Boolean(row.key)).map((row) => ({
-    key: row.key,
-    label: bucketLabel(row.key),
-    startTime: Number(row.start_time),
-    endTime: Number(row.end_time),
-    messageCount: Number(row.message_count),
-    cursor: encodeTimelineCursor({ time: Number(row.start_time), messageUid: '\u0001' }),
-  }))
+  const rows = metadata.canonical
+    ? db.prepare(`SELECT message_uid,seq,time,canonical_seq,archive_day
+        FROM messages WHERE ${scoped.sql} ORDER BY canonical_seq`)
+        .all(...scoped.params) as Array<Record<string, unknown>>
+    : legacyBucketRows(db, scoped, metadata.storage)
+  const buckets = new Map<string, TimelineBucket>()
+  for (const row of rows) {
+    const time = Number(row.time)
+    const key = metadata.canonical
+      ? String(row.archive_day).slice(0, 7)
+      : archiveDay(time, metadata.timeZone).slice(0, 7)
+    const sequence = Number(row.canonical_seq ?? row.seq)
+    const existing = buckets.get(key)
+    if (existing) {
+      existing.endTime = time
+      existing.messageCount++
+      continue
+    }
+    buckets.set(key, {
+      key,
+      label: bucketLabel(key),
+      startTime: time,
+      endTime: time,
+      messageCount: 1,
+      cursor: encodeTimelineCursor({
+        version: 2, runId: metadata.runId, sequence, messageUid: String(row.message_uid),
+      }),
+    })
+  }
+  return [...buckets.values()]
+}
+
+function pageCursor(row: TimelineRow | undefined, metadata: TimelineMetadata) {
+  if (!row) return null
+  return encodeTimelineCursor({
+    version: 2,
+    runId: metadata.runId,
+    sequence: Number(row.canonical_seq ?? row.seq),
+    messageUid: row.message_uid,
+  })
+}
+
+export function encodeTimelineAnchor(db: DatabaseSync, conversationId: string, messageUid: string) {
+  const metadata = timelineMetadata(db)
+  const row = metadata.canonical
+    ? db.prepare(`SELECT canonical_seq AS sequence,message_uid FROM messages
+        WHERE conv_id=? AND message_uid=?`).get(conversationId, messageUid) as
+        { sequence: number; message_uid: string } | undefined
+    : legacyEncodeAnchor(db, conversationId, messageUid, metadata.storage)
+  return row ? encodeTimelineCursor({
+    version: 2,
+    runId: metadata.runId,
+    sequence: Number(row.sequence),
+    messageUid: row.message_uid,
+  }) : null
 }
 
 function hasBeyond(
   db: DatabaseSync,
   input: TimelineQueryInput,
   direction: 'before' | 'after',
-  cursor: TimelineCursor,
+  row: TimelineRow,
+  metadata: TimelineMetadata,
 ) {
-  const scoped = scopedWhere(input)
-  const tuple = tupleClause(direction, cursor)
-  return Boolean(db.prepare(`SELECT 1 FROM messages WHERE ${scoped.sql} AND ${tuple.sql} LIMIT 1`)
-    .get(...scoped.params, ...tuple.params))
+  const cursor = decodeTimelineCursor(pageCursor(row, metadata)!)!
+  return directional(db, input, direction, cursor, metadata, 1).length > 0
 }
 
 export function queryTimeline(db: DatabaseSync, input: TimelineQueryInput): TimelinePage {
+  const metadata = timelineMetadata(db)
   const limit = Math.min(240, Math.max(1, Number.isSafeInteger(input.limit) ? input.limit : 120))
-  const messages = readMessages(db, input, limit).map((row) => ({ ...row }))
+  const messages = readMessages(db, input, metadata, limit).map((row) => ({ ...row }))
   const first = messages[0]
-  const last = messages[messages.length - 1]
-  const firstCursor = first ? { time: Number(first.time), messageUid: first.message_uid } : null
-  const lastCursor = last ? { time: Number(last.time), messageUid: last.message_uid } : null
+  const last = messages.at(-1)
   return {
     conversationId: input.conversationId,
+    runId: metadata.runId,
+    timeZone: metadata.timeZone,
     limit,
     messages,
     participants: readParticipants(db, input),
-    buckets: readBuckets(db, input),
+    buckets: readBuckets(db, input, metadata),
     pageInfo: {
-      olderCursor: firstCursor ? encodeTimelineCursor(firstCursor) : null,
-      newerCursor: lastCursor ? encodeTimelineCursor(lastCursor) : null,
-      hasOlder: firstCursor ? hasBeyond(db, input, 'before', firstCursor) : false,
-      hasNewer: lastCursor ? hasBeyond(db, input, 'after', lastCursor) : false,
+      olderCursor: pageCursor(first, metadata),
+      newerCursor: pageCursor(last, metadata),
+      hasOlder: first ? hasBeyond(db, input, 'before', first, metadata) : false,
+      hasNewer: last ? hasBeyond(db, input, 'after', last, metadata) : false,
     },
   }
 }

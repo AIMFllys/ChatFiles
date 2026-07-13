@@ -11,6 +11,7 @@ import {
 } from './searchSchema.js'
 import type { SearchChunk, SearchMessage } from './searchTypes.js'
 import { insertSearchVectors, type VectorExtensionLoader } from './vectorSearch.js'
+import { inspectMessageStorage, stableMessageUid } from '../../wechat/legacyMessageIdentity.js'
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 type EmbeddingBuildConfig = {
@@ -22,8 +23,10 @@ type EmbeddingBuildConfig = {
 }
 type SourceRow = {
   conv_id: string
-  message_uid: string
+  message_uid: string | null
+  sequence: number
   time: number
+  legacy_rowid: number
   sender: string
   sender_name: string
   text: string
@@ -41,10 +44,11 @@ function safePaths(stagingPath: string, currentPath: string) {
   return { staging, current }
 }
 
-function sourceMessage(row: SourceRow): SearchMessage {
+function sourceMessage(row: SourceRow, hasMessageUid: boolean): SearchMessage {
   return {
     conversationId: row.conv_id,
-    messageUid: row.message_uid,
+    messageUid: stableMessageUid(row, hasMessageUid),
+    sequence: Number(row.sequence),
     time: Number(row.time),
     sender: row.sender ?? '',
     senderName: row.sender_name ?? '',
@@ -53,11 +57,19 @@ function sourceMessage(row: SourceRow): SearchMessage {
 }
 
 function insertSourceChunks(sourceDb: DatabaseSync, indexDb: DatabaseSync) {
-  const statement = sourceDb.prepare(`
-    SELECT conv_id,message_uid,time,sender,sender_name,text FROM messages
-    WHERE text IS NOT NULL AND trim(text)<>''
-    ORDER BY conv_id,time,message_uid
-  `)
+  const storage = inspectMessageStorage(sourceDb)
+  const canonical = storage.canonical
+  const sequence = canonical ? 'canonical_seq AS sequence' : 'seq AS sequence'
+  const time = canonical ? 'occurred_at_epoch_s AS time' : 'time'
+  const messageUid = storage.hasMessageUid ? 'message_uid' : 'NULL AS message_uid'
+  const order = canonical
+    ? 'conv_id,canonical_seq'
+    : storage.messageUidGuaranteed
+      ? 'conv_id,time,message_uid,rowid'
+      : 'conv_id,time,seq,rowid'
+  const statement = sourceDb.prepare(`SELECT conv_id,${messageUid},${sequence},${time},
+    rowid AS legacy_rowid,sender,sender_name,text
+    FROM messages WHERE text IS NOT NULL AND trim(text)<>'' ORDER BY ${order}`)
   let conversation = ''
   let chunker = createMessageChunker()
   let buffered: SearchChunk[] = []
@@ -73,7 +85,7 @@ function insertSourceChunks(sourceDb: DatabaseSync, indexDb: DatabaseSync) {
       chunker = createMessageChunker()
     }
     conversation = raw.conv_id
-    buffered.push(...chunker.push(sourceMessage(raw)))
+    buffered.push(...chunker.push(sourceMessage(raw, storage.hasMessageUid)))
     messageCount += 1
     if (buffered.length >= 200) flush()
   }

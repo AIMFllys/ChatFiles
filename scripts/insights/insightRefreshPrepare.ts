@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { archiveDay } from '../../shared/time/archiveTime.js'
 import {
   formatInsightDigest,
   insightNuggetEvidenceKey,
@@ -24,7 +25,9 @@ import {
 } from './insightRefreshContext.js'
 import {
   copyBoards,
+  bindInsightStateSequences,
   currentConversations,
+  insightArchiveTimeZone,
   insightFilename,
   loadInsightConversations,
   queryMessages,
@@ -50,6 +53,7 @@ export function prepareInsightRefresh(options: RefreshOptions) {
   const db = new DatabaseSync(paths.databasePath, { readOnly: true })
   try {
     const current = currentConversations(db)
+    const timeZone = insightArchiveTimeZone(db)
     const canonicalOwners = new Set(current.map((conversation) => conversation.id.split(':')[1]!))
     const ownerAliases = loadOwnerAliases(options, paths.root, canonicalOwners)
     const reconciled = reconcileLegacyInsights({
@@ -61,7 +65,8 @@ export function prepareInsightRefresh(options: RefreshOptions) {
     if (reconciled.metrics.legacyConversationKeys !== reconciled.metrics.canonicalConversations) {
       throw new Error('One or more legacy insight conversations do not map uniquely to the current database')
     }
-    const planned = planInsightDelta(current, reconciled.states, options.minimumGrowth ?? 8)
+    const canonicalStates = bindInsightStateSequences(db, reconciled.states)
+    const planned = planInsightDelta(current, canonicalStates, options.minimumGrowth ?? 8)
     const deltaInputs = new Map<string, { messages: InsightMessage[]; content: string }>()
     let queriedRows = 0
     for (const entry of planned.entries) {
@@ -76,7 +81,7 @@ export function prepareInsightRefresh(options: RefreshOptions) {
       queriedRows += messages.length
       deltaInputs.set(entry.conversation.id, {
         messages,
-        content: formatInsightDigest(entry.conversation, entry.kind, messages),
+        content: formatInsightDigest(entry.conversation, entry.kind, messages, 52_000, timeZone),
       })
     }
     const filenames = new Set<string>()
@@ -111,13 +116,13 @@ export function prepareInsightRefresh(options: RefreshOptions) {
         chars,
         sampled: chars >= 52_000,
         digest,
-        first: new Date(conversation.firstTime * 1000).toISOString().slice(0, 10),
-        last: new Date(conversation.lastTime * 1000).toISOString().slice(0, 10),
+        first: archiveDay(conversation.firstTime, timeZone),
+        last: archiveDay(conversation.lastTime, timeZone),
       }
     })
     writeJson(path.join(stagingDir, '_manifest.prev.json'), previousManifest, true)
     writeJson(path.join(stagingDir, '_manifest.json'), manifest, true)
-    writeJson(path.join(stagingDir, '_state.json'), reconciled.states, true)
+    writeJson(path.join(stagingDir, '_state.json'), canonicalStates, true)
     writeJson(path.join(stagingDir, '_delta.json'), planned.entries, true)
     writeJson(path.join(stagingDir, 'receipt.json'), {
       version: 1,

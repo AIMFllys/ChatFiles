@@ -3,6 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { archiveDay } from '../../pipeline/wechat/archiveTime.js'
+import { createCanonicalSchema } from '../../pipeline/wechat/canonicalSchema.js'
+import { canonicalPersonId } from '../../pipeline/wechat/personIdentity.js'
 export type SourceRow = {
   localId: number
   serverId: bigint
@@ -105,78 +108,105 @@ export function createOutputDatabase(
   const display = options.display ?? (peer === 'room@chatroom' ? '中文测试群' : peer === 'wxid_peer' ? '陈同学' : peer)
   const convId = options.id ?? `wx:${owner}:${peer}`
   const db = new DatabaseSync(dbPath)
-  db.exec(`
-    CREATE TABLE conversations(
-      id TEXT PRIMARY KEY, account TEXT, owner TEXT, username TEXT, display TEXT, is_group INTEGER,
-      msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
-    );
-    CREATE TABLE messages(
-      conv_id TEXT, message_uid TEXT, seq INTEGER, source_snapshot TEXT, source_db TEXT, source_table TEXT,
-      local_id INTEGER, server_id TEXT, sort_seq INTEGER, time INTEGER, sender TEXT, sender_name TEXT,
-      sender_prefix TEXT, is_own INTEGER, sender_source TEXT, sender_audit TEXT,
-      raw_type INTEGER, type INTEGER, type_label TEXT, text TEXT
-    );
-    CREATE TABLE parse_runs(
-      run_id TEXT, status TEXT, completed_at TEXT, selected_snapshot_count INTEGER,
-      selected_source_count INTEGER, source_conversation_count INTEGER, source_message_count INTEGER,
-      output_conversation_count INTEGER, output_message_count INTEGER, output_text_count INTEGER,
-      deduplicated_message_count INTEGER
-    );
-  `)
-  db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+  createCanonicalSchema(db)
+  const addPerson = db.prepare('INSERT OR IGNORE INTO people VALUES (?,?,?,?,?,?)')
+  const people = new Set([owner, peer, ...options.rows.map((row) => row.sender).filter(Boolean)])
+  for (const username of people) {
+    const personDisplay = username === owner
+      ? '机主'
+      : username === peer
+        ? display
+        : options.rows.find((row) => row.sender === username)?.senderName ?? username
+    addPerson.run(canonicalPersonId(owner, username), owner, username, personDisplay, 'fixture', '{}')
+  }
+  db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
     convId,
     snapshot,
     owner,
+    canonicalPersonId(owner, owner),
+    options.isGroup ? null : canonicalPersonId(owner, peer),
     peer,
     display,
     options.isGroup ? 1 : 0,
     options.rows.length,
-    options.rows.length,
+    options.rows.filter((row) => Number(BigInt.asUintN(32, row.rawType)) === 1).length,
     Math.min(...options.rows.map((row) => row.time)),
     Math.max(...options.rows.map((row) => row.time)),
     '',
   )
-  const insert = db.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  const insert = db.prepare(`INSERT INTO messages VALUES (${Array.from({ length: 30 }, () => '?').join(',')})`)
   options.rows.forEach((row, index) => {
+    const type = Number(BigInt.asUintN(32, row.rawType))
+    const senderName = row.senderName ?? row.sender
     insert.run(
       convId,
       row.uid,
       index,
+      index,
+      row.time,
+      'second',
+      archiveDay(row.time, 'Asia/Shanghai'),
+      'regular',
       snapshot,
       row.sourceDb,
       row.sourceTable ?? messageTable(peer),
       row.localId,
       row.serverId.toString(),
       row.sortSeq,
+      row.sortSeq,
       row.time,
       row.sender,
-      row.senderName ?? row.sender,
+      row.sender ? canonicalPersonId(owner, row.sender) : null,
+      senderName,
+      senderName,
       row.senderPrefix ?? '',
       row.sender === owner ? 1 : 0,
       'message-name2id',
       '',
       row.rawType,
-      Number(BigInt.asUintN(32, row.rawType)),
-      'text',
+      type,
+      type === 1 ? 'text' : `type_${type}`,
+      type === 1 ? 'text' : type === 49 ? 'app' : 'unknown',
+      '{}',
       row.text ?? '中文正文',
     )
   })
   const textCount = options.rows.filter(
     (row) => Number(BigInt.asUintN(32, row.rawType)) === 1,
   ).length
-  db.prepare('INSERT INTO parse_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+  const inventoryGroups = new Map<string, number>()
+  for (const row of options.rows) {
+    const table = row.sourceTable ?? messageTable(peer)
+    const key = `${row.sourceDb}\u0000${table}`
+    inventoryGroups.set(key, (inventoryGroups.get(key) ?? 0) + 1)
+  }
+  const addInventory = db.prepare('INSERT INTO source_inventory VALUES (?,?,?,?,?,?,?,?,?)')
+  for (const [key, count] of inventoryGroups) {
+    const [sourceDb, sourceTable] = key.split('\u0000')
+    addInventory.run(snapshot, 'regular', sourceDb, sourceTable, count, count, 0, 0, null)
+  }
+  db.prepare(`INSERT INTO parse_runs VALUES (${Array.from({ length: 15 }, () => '?').join(',')})`).run(
     'fixture-run',
     'complete',
     '2026-07-12T00:00:00.000Z',
+    2,
+    'Asia/Shanghai',
     1,
     new Set(options.rows.map((row) => row.sourceDb)).size,
+    inventoryGroups.size,
     1,
     options.rows.length,
+    0,
     1,
     options.rows.length,
     textCount,
     0,
   )
+  const addMetadata = db.prepare('INSERT INTO bundle_metadata VALUES (?,?)')
+  addMetadata.run('run_id', 'fixture-run')
+  addMetadata.run('schema_version', '2')
+  addMetadata.run('time_zone', 'Asia/Shanghai')
+  db.exec('PRAGMA journal_mode=DELETE')
   db.close()
   return dbPath
 }

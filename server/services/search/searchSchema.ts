@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { EmbeddingFingerprint, SearchChunk, SearchIndexMetadata } from './searchTypes.js'
 
-export const SEARCH_SCHEMA_VERSION = 1
+export const SEARCH_SCHEMA_VERSION = 2
 
 export function createSearchSchema(
   db: DatabaseSync,
@@ -19,10 +19,11 @@ export function createSearchSchema(
     CREATE TABLE search_chunks(
       id INTEGER PRIMARY KEY, chunk_id TEXT NOT NULL UNIQUE, conversation_id TEXT NOT NULL,
       first_message_uid TEXT NOT NULL, last_message_uid TEXT NOT NULL,
+      first_sequence INTEGER NOT NULL, last_sequence INTEGER NOT NULL,
       start_time INTEGER NOT NULL, end_time INTEGER NOT NULL, sender_ids TEXT NOT NULL,
       text TEXT NOT NULL, ngrams TEXT NOT NULL, token_count INTEGER NOT NULL
     ) STRICT;
-    CREATE INDEX search_chunks_scope ON search_chunks(conversation_id,start_time,end_time);
+    CREATE INDEX search_chunks_scope ON search_chunks(conversation_id,first_sequence,last_sequence);
     CREATE VIRTUAL TABLE search_chunks_fts USING fts5(
       text, ngrams, content='search_chunks', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
     );
@@ -71,9 +72,9 @@ export function readSearchMetadata(db: DatabaseSync): SearchIndexMetadata | null
 export function insertSearchChunks(db: DatabaseSync, chunks: readonly SearchChunk[]) {
   const insertChunk = db.prepare(`
     INSERT INTO search_chunks(
-      chunk_id,conversation_id,first_message_uid,last_message_uid,start_time,end_time,
-      sender_ids,text,ngrams,token_count
-    ) VALUES(?,?,?,?,?,?,?,?,?,?)
+      chunk_id,conversation_id,first_message_uid,last_message_uid,first_sequence,last_sequence,
+      start_time,end_time,sender_ids,text,ngrams,token_count
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
   `)
   const insertFts = db.prepare('INSERT INTO search_chunks_fts(rowid,text,ngrams) VALUES(?,?,?)')
   db.exec('BEGIN IMMEDIATE')
@@ -81,6 +82,7 @@ export function insertSearchChunks(db: DatabaseSync, chunks: readonly SearchChun
     for (const chunk of chunks) {
       const result = insertChunk.run(
         chunk.chunkId, chunk.conversationId, chunk.firstMessageUid, chunk.lastMessageUid,
+        chunk.firstSequence, chunk.lastSequence,
         chunk.startTime, chunk.endTime, JSON.stringify(chunk.senderIds), chunk.text,
         chunk.ngrams, chunk.tokenCount,
       )

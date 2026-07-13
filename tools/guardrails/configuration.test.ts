@@ -6,6 +6,7 @@ import test from 'node:test'
 type TsConfig = {
   compilerOptions?: Record<string, unknown>
   extends?: string
+  include?: string[]
   references?: Array<{ path: string }>
 }
 
@@ -48,6 +49,21 @@ test('all runtime layers have strict TypeScript projects in the build graph', ()
   for (const script of ['typecheck', 'typecheck:client', 'typecheck:e2e', 'typecheck:pipeline', 'typecheck:server', 'typecheck:shared']) {
     assert.equal(typeof packageJson.scripts?.[script], 'string', `package.json must expose ${script}`)
   }
+  assert.match(packageJson.scripts?.test ?? '', /pipeline\/\*\*\/\*\.test\.ts/u)
+  assert.match(JSON.stringify(readJson('tsconfig.pipeline.json')), /pipeline\/\*\*\/\*\.ts/u)
+})
+
+test('guardrail tools have a strict automated TypeScript project', () => {
+  const config = readJson('tools/guardrails/tsconfig.json')
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+  ) as PackageJson
+
+  assert.equal(config.extends, '../../tsconfig.base.json')
+  assert.deepEqual(config.compilerOptions?.types, ['node'])
+  assert.deepEqual(config.include, ['./*.ts'])
+  assert.equal(packageJson.scripts?.['typecheck:guardrails'], 'tsc -p tools/guardrails/tsconfig.json')
+  assert.match(packageJson.scripts?.typecheck ?? '', /typecheck:guardrails/u)
 })
 
 test('eslint declares browser and node globals in separate file scopes', () => {
@@ -55,6 +71,6 @@ test('eslint declares browser and node globals in separate file scopes', () => {
 
   assert.match(source, /files:\s*\['src\/\*\*\/\*\.\{ts,tsx\}'\]/u)
   assert.match(source, /globals:\s*globals\.browser/u)
-  assert.match(source, /files:\s*\['\{server,scripts,tools\}\/\*\*\/\*\.ts'/u)
+  assert.match(source, /files:\s*\['\{pipeline,server,scripts,tools\}\/\*\*\/\*\.ts'/u)
   assert.match(source, /globals:\s*globals\.node/u)
 })

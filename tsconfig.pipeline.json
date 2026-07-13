@@ -5,6 +5,7 @@
     "types": ["node"]
   },
   "include": [
+    "pipeline/**/*.ts",
     "scripts/**/*.ts",
     "shared/**/*.ts"
   ],

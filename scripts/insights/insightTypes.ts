@@ -24,6 +24,7 @@ export type InsightState = {
   analyzedLastTime: number
   analyzedAt: string
   analyzedLastMessageUid?: string
+  analyzedLastSequence?: number
 }
 
 export type CurrentInsightConversation = {
@@ -37,6 +38,7 @@ export type CurrentInsightConversation = {
 
 export type InsightMessage = {
   messageUid?: string
+  canonicalSequence?: number
   time: number
   senderName: string
   text: string

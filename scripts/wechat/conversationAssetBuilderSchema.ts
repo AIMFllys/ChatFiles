@@ -88,7 +88,11 @@ export function artifactInserter(database: DatabaseSync) {
   )
 }
 
-export function artifactCounts(database: DatabaseSync, wechat: DatabaseSync): ConversationAssetCounts {
+export function artifactCounts(
+  database: DatabaseSync,
+  wechat: DatabaseSync,
+  sourceSnapshot: string,
+): ConversationAssetCounts {
   const rows = database.prepare('SELECT category, count(*) AS count FROM artifacts GROUP BY category').all() as Array<{
     category: 'work' | 'document' | 'skill' | 'link'
     count: number
@@ -99,7 +103,8 @@ export function artifactCounts(database: DatabaseSync, wechat: DatabaseSync): Co
     document: 0,
     skill: 0,
     link: 0,
-    chatText: Number(wechat.prepare('SELECT count(*) AS count FROM messages WHERE type=1').get()?.count ?? 0),
+    chatText: Number(wechat.prepare(`SELECT count(*) AS count FROM messages
+      WHERE type=1 AND source_snapshot=?`).get(sourceSnapshot)?.count ?? 0),
   }
   for (const row of rows) {
     counts[row.category] = Number(row.count)

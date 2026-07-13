@@ -21,6 +21,7 @@ import {
 } from './insightRefreshContext.js'
 import {
   copyDirectoryExclusive,
+  insightArchiveTimeZone,
   insightFilename,
   loadInsightConversations,
   queryMessages,
@@ -55,6 +56,7 @@ export function distillInsightRefresh(options: RefreshOptions) {
   let eligibleRows = 0
   let selectedRows = 0
   try {
+    const timeZone = insightArchiveTimeZone(db)
     for (const entry of delta) {
       const file = path.join(distillStagingDir, 'conv', insightFilename(entry.conversation.id))
       const existing = fs.existsSync(file) ? readJson<InsightConversation>(file) : undefined
@@ -71,6 +73,7 @@ export function distillInsightRefresh(options: RefreshOptions) {
         kind: entry.kind,
         existing,
         messages,
+        timeZone,
       })
       writeJson(file, distilled.conversation)
       addedNuggets += distilled.addedNuggets
@@ -83,6 +86,7 @@ export function distillInsightRefresh(options: RefreshOptions) {
         analyzedTextCount: entry.conversation.textCount,
         analyzedLastTime: lastMessage.time,
         analyzedLastMessageUid: lastMessage.messageUid,
+        analyzedLastSequence: lastMessage.canonicalSequence,
         analyzedAt: new Date().toISOString(),
       })
     }

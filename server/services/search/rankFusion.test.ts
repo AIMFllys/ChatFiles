@@ -6,7 +6,8 @@ import type { RankedSearchHit } from './searchTypes.js'
 function hit(chunkId: string, rank: number, source: 'keyword' | 'vector'): RankedSearchHit {
   return {
     chunkId, rank, source, score: 1, conversationId: 'conv', firstMessageUid: `${chunkId}-a`,
-    lastMessageUid: `${chunkId}-b`, startTime: 1, endTime: 2, senderIds: [], text: chunkId,
+    lastMessageUid: `${chunkId}-b`, firstSequence: 0, lastSequence: 1,
+    startTime: 1, endTime: 2, senderIds: [], text: chunkId,
     ngrams: chunkId, tokenCount: 1,
   }
 }

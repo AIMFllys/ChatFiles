@@ -1,8 +1,8 @@
 import { z } from 'zod/v4'
 import { wechatMessageSchema, type WechatMessage } from './chatIdentity.js'
-import { stableIdSchema, timelineBucketKeySchema, unixSecondsSchema } from './primitives.js'
+import { archiveDateSchema, stableIdSchema, timelineBucketKeySchema, timeZoneSchema, unixSecondsSchema } from './primitives.js'
 
-export type TimelineCursor = { time: number; messageUid: string }
+export type TimelineCursor = { version: 2; runId: string; sequence: number; messageUid: string }
 
 export type TimelineMessage = WechatMessage & { message_uid: string }
 
@@ -31,6 +31,8 @@ export type TimelinePageInfo = {
 
 export type TimelinePage = {
   conversationId: string
+  runId: string
+  timeZone: string
   limit: number
   messages: TimelineMessage[]
   participants: TimelineParticipant[]
@@ -39,7 +41,9 @@ export type TimelinePage = {
 }
 
 export const timelineCursorSchema = z.object({
-  time: unixSecondsSchema,
+  version: z.literal(2),
+  runId: stableIdSchema,
+  sequence: z.number().int().nonnegative(),
   messageUid: stableIdSchema,
 }) satisfies z.ZodType<TimelineCursor>
 
@@ -70,9 +74,25 @@ export const timelinePageInfoSchema = z.object({
 
 export const timelinePageSchema = z.object({
   conversationId: stableIdSchema,
+  runId: stableIdSchema,
+  timeZone: timeZoneSchema,
   limit: z.number().int().min(1).max(240),
   messages: z.array(timelineMessageSchema),
   participants: z.array(timelineParticipantSchema),
   buckets: z.array(timelineBucketSchema),
   pageInfo: timelinePageInfoSchema,
 }) satisfies z.ZodType<TimelinePage>
+
+export type TimelineDay = {
+  date: string
+  firstMessageUid: string
+  firstSequence: number
+  messageCount: number
+}
+
+export const timelineDaySchema = z.object({
+  date: archiveDateSchema,
+  firstMessageUid: stableIdSchema,
+  firstSequence: z.number().int().nonnegative(),
+  messageCount: z.number().int().positive(),
+}) satisfies z.ZodType<TimelineDay>

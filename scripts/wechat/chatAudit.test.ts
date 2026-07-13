@@ -4,35 +4,26 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
+import { createCanonicalSchema } from '../../pipeline/wechat/canonicalSchema.js'
+import { canonicalPersonId } from '../../pipeline/wechat/personIdentity.js'
 import { auditWechatDatabase } from './chatAudit.js'
 
 function fixture(mutator?: (db: DatabaseSync) => void) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-audit-'))
   const dbPath = path.join(dir, 'wechat.db')
   const db = new DatabaseSync(dbPath)
-  db.exec(`
-    CREATE TABLE conversations(
-      id TEXT PRIMARY KEY, account TEXT, owner TEXT, username TEXT, display TEXT, is_group INTEGER,
-      msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
-    );
-    CREATE TABLE messages(
-      conv_id TEXT, message_uid TEXT, seq INTEGER, source_snapshot TEXT, source_db TEXT, source_table TEXT,
-      local_id INTEGER, server_id TEXT,
-      sort_seq INTEGER, time INTEGER, sender TEXT, sender_name TEXT, sender_prefix TEXT, is_own INTEGER,
-      sender_source TEXT, sender_audit TEXT, raw_type INTEGER, type INTEGER, type_label TEXT, text TEXT
-    );
-    CREATE TABLE parse_runs(
-      run_id TEXT PRIMARY KEY, status TEXT, completed_at TEXT,
-      selected_snapshot_count INTEGER, selected_source_count INTEGER,
-      source_conversation_count INTEGER, source_message_count INTEGER,
-      output_conversation_count INTEGER, output_message_count INTEGER, output_text_count INTEGER,
-      deduplicated_message_count INTEGER
-    );
-  `)
-  db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+  createCanonicalSchema(db)
+  const ownerPersonId = canonicalPersonId('owner-1', 'owner-1')
+  const peerPersonId = canonicalPersonId('owner-1', 'peer-1')
+  const insertPerson = db.prepare('INSERT INTO people VALUES (?,?,?,?,?,?)')
+  insertPerson.run(ownerPersonId, 'owner-1', 'owner-1', '我', 'fixture', '{}')
+  insertPerson.run(peerPersonId, 'owner-1', 'peer-1', '对方', 'fixture', '{}')
+  db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
     'wx:owner-1:peer-1',
     'owner-1',
     'owner-1',
+    ownerPersonId,
+    peerPersonId,
     'peer-1',
     '测试会话',
     0,
@@ -42,28 +33,39 @@ function fixture(mutator?: (db: DatabaseSync) => void) {
     1_700_000_001,
     '',
   )
-  const insert = db.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  const insert = db.prepare(`INSERT INTO messages VALUES (
+    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+  )`)
   insert.run(
-    'wx:owner-1:peer-1', 'uid-1', 0, 'snapshot-new', 'message_0.db', 'Msg_fixture',
-    1, '9007199254740999', 10, 1_700_000_000, 'owner-1', '我', '', 1,
-    'message-name2id', '', 1, 1, 'text', '中文完整',
+    'wx:owner-1:peer-1', 'uid-1', 0, 0, 1_700_000_000, 'second', '2023-11-15',
+    'regular', 'snapshot-new', 'message_0.db', 'Msg_fixture', 1, '9007199254740999',
+    10, 10, 1_700_000_000, 'owner-1', ownerPersonId, '我', '我', '', 1,
+    'message-name2id', '', 1, 1, 'text', 'text', '{}', '中文完整',
   )
   insert.run(
-    'wx:owner-1:peer-1', 'uid-2', 1, 'snapshot-new', 'message_0.db', 'Msg_fixture',
-    2, '9007199254741000', 11, 1_700_000_001, 'peer-1', '对方', '', 0,
-    'message-name2id', '', 1, 1, 'text', '第二条',
+    'wx:owner-1:peer-1', 'uid-2', 1, 1, 1_700_000_001, 'second', '2023-11-15',
+    'regular', 'snapshot-new', 'message_0.db', 'Msg_fixture', 2, '9007199254741000',
+    11, 11, 1_700_000_001, 'peer-1', peerPersonId, '对方', '对方', '', 0,
+    'message-name2id', '', 1, 1, 'text', 'text', '{}', '第二条',
   )
-  db.prepare('INSERT INTO parse_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-    'fixture-run', 'complete', '2026-07-12T00:00:00.000Z',
-    1, 1, 1, 2, 1, 2, 2, 0,
+  db.prepare('INSERT INTO source_inventory VALUES (?,?,?,?,?,?,?,?,?)').run(
+    'snapshot-new', 'regular', 'message_0.db', 'Msg_fixture', 2, 2, 0, 0, null,
   )
+  db.prepare('INSERT INTO parse_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    'fixture-run', 'complete', '2026-07-12T00:00:00.000Z', 2, 'Asia/Shanghai',
+    1, 1, 1, 1, 2, 0, 1, 2, 2, 0,
+  )
+  db.exec(`
+    INSERT INTO bundle_metadata VALUES ('run_id','fixture-run');
+    INSERT INTO bundle_metadata VALUES ('schema_version','2');
+    INSERT INTO bundle_metadata VALUES ('time_zone','Asia/Shanghai');
+  `)
   mutator?.(db)
   db.close()
   return {
     dbPath,
     cleanup() {
-      fs.unlinkSync(dbPath)
-      fs.rmdirSync(dir)
+      fs.rmSync(dir, { force: true, recursive: true })
     },
   }
 }
@@ -97,17 +99,36 @@ test('accepts a signed negative raw type when its unsigned low 32 bits match typ
   }
 })
 
+test('rejects a same-second canonical sequence that reverses source sort evidence', () => {
+  const item = fixture((db) => {
+    db.prepare(`UPDATE messages SET occurred_at_epoch_s=?,time=?,archive_day=?,sort_seq=?,source_sort_seq=?
+      WHERE message_uid=?`).run(1_700_000_000, 1_700_000_000, '2023-11-15', 5, 5, 'uid-2')
+  })
+  try {
+    const result = auditWechatDatabase(item.dbPath)
+    assert.equal(result.ok, false)
+    assert.equal(result.issues.some((issue) => issue.code === 'same-second-source-order-mismatch'), true)
+  } finally {
+    item.cleanup()
+  }
+})
+
 test('reports identity, evidence, type, count and UTF-8 violations', () => {
   const item = fixture((db) => {
+    db.exec('DROP INDEX idx_msg_uid; DROP INDEX idx_msg_evidence; DROP INDEX idx_msg_server;')
     db.prepare('UPDATE conversations SET msg_count=4, text_count=4').run()
     db.prepare(`
       INSERT INTO messages VALUES (
-        'wx:owner-1:peer-1', 'uid-2', 2, 'snapshot-new', 'message_0.db', 'Msg_fixture',
-        2, '9007199254741000', 12, 1700000002, 'third-person', '错配�', 'spoofed-prefix', 0,
+        'wx:owner-1:peer-1', 'uid-2', 2, 2, 1700000002, 'second', '2023-11-15',
+        'regular', 'snapshot-new', 'message_0.db', 'Msg_fixture', 2, '9007199254741000',
+        12, 12, 1700000002, 'third-person', NULL, '错配', '错配', 'spoofed-prefix', 0,
         'message-name2id', 'group-prefix-mismatch', 244813135921, 244813135921,
-        'type_244813135921', '内容'
+        'type_244813135921', 'unknown', '{}', '内容'
       )
     `).run()
+    const damaged = `错配${String.fromCodePoint(0xfffd)}`
+    db.prepare('UPDATE messages SET sender_name=?,sender_name_snapshot=? WHERE canonical_seq=2')
+      .run(damaged, damaged)
   })
   try {
     const result = auditWechatDatabase(item.dbPath)

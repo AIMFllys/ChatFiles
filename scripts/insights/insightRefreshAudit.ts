@@ -129,18 +129,25 @@ export function auditInsightRefresh(options: AuditOptions) {
   }
   const cursorDb = new DatabaseSync(paths.databasePath, { readOnly: true })
   try {
-    const cursorExists = cursorDb.prepare(`
-      SELECT count(*) AS count
-      FROM messages
-      WHERE conv_id = ? AND message_uid = ? AND time = ? AND type = 1 AND length(text) > 0
-    `)
+    const messageColumns = new Set(
+      (cursorDb.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>).map((row) => row.name),
+    )
+    const canonical = messageColumns.has('canonical_seq') && messageColumns.has('occurred_at_epoch_s')
+    const cursorExists = cursorDb.prepare(canonical
+      ? `SELECT count(*) AS count FROM messages WHERE conv_id=? AND message_uid=?
+          AND canonical_seq=? AND occurred_at_epoch_s=? AND type=1 AND length(text)>0`
+      : `SELECT count(*) AS count FROM messages WHERE conv_id=? AND message_uid=?
+          AND time=? AND type=1 AND length(text)>0`)
     for (const state of states) {
       if (!state.analyzedLastMessageUid) continue
-      const match = cursorExists.get(
-        state.convId,
-        state.analyzedLastMessageUid,
-        state.analyzedLastTime,
-      ) as { count: number }
+      if (canonical && !Number.isSafeInteger(state.analyzedLastSequence)) {
+        issues.push(`state cursor does not resolve for ${state.convId}`)
+        continue
+      }
+      const params = canonical
+        ? [state.convId, state.analyzedLastMessageUid, state.analyzedLastSequence!, state.analyzedLastTime]
+        : [state.convId, state.analyzedLastMessageUid, state.analyzedLastTime]
+      const match = cursorExists.get(...params) as { count: number }
       if (Number(match.count) !== 1) issues.push(`state cursor does not resolve for ${state.convId}`)
     }
   } finally {

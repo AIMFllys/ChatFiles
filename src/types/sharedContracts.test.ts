@@ -80,9 +80,13 @@ test('validates the bounded timeline DTO with explicit monthly buckets', async (
 
   const page = shared.timelinePageSchema.parse({
     conversationId: '会话-一',
+    runId: 'run-一',
+    timeZone: 'Asia/Shanghai',
     limit: 120,
     messages: [{
-      message_uid: '消息-一', seq: 1, time: 1_700_000_000, sender: 'wxid-张三',
+      message_uid: '消息-一', seq: 1, canonical_seq: 1,
+      occurred_at_epoch_s: 1_700_000_000, time_precision: 'second', archive_day: '2023-11-15',
+      time: 1_700_000_000, sender: 'wxid-张三', person_id: '人物-一',
       sender_name: '张三', type: 1, type_label: '文本', text: '你好🙂',
     }],
     participants: [{ id: 'wxid-张三', name: '张三', messageCount: 1, lastTime: 1_700_000_000 }],
@@ -94,6 +98,31 @@ test('validates the bounded timeline DTO with explicit monthly buckets', async (
   })
   assert.equal(page.messages[0].text, '你好🙂')
   assert.throws(() => shared.timelinePageSchema.parse({ ...page, buckets: [{ ...page.buckets[0], key: '2026-7' }] }))
+})
+
+test('requires canonical sequence, second precision, and nullable audited identity on MessageDto', async () => {
+  const shared = await contracts()
+  if (!shared) return
+  const message = shared.messageDtoSchema.parse({
+    message_uid: '消息-一',
+    canonical_seq: 0,
+    occurred_at_epoch_s: 1_700_000_000,
+    time_precision: 'second',
+    archive_day: '2023-11-15',
+    sender_key: 'person:人物-一',
+    person_id: '人物-一',
+    sender_name: '张三',
+    sender_source: 'message-name2id',
+    sender_audit: null,
+    raw_type: '1',
+    type: 1,
+    type_label: 'text',
+    content_kind: 'text',
+    structured_content: {},
+    text: '中文正文',
+  })
+  assert.equal(message.time_precision, 'second')
+  assert.throws(() => shared.messageDtoSchema.parse({ ...message, canonical_seq: -1 }))
 })
 
 test('keeps shared contracts environment-neutral and removes server imports from src', () => {

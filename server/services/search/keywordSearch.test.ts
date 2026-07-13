@@ -9,6 +9,7 @@ import type { SearchChunk } from './searchTypes.js'
 function chunk(input: Partial<SearchChunk> & Pick<SearchChunk, 'chunkId' | 'text'>): SearchChunk {
   return {
     conversationId: 'conv-a', firstMessageUid: 'm-start', lastMessageUid: 'm-end',
+    firstSequence: 0, lastSequence: 1,
     startTime: 100, endTime: 120, senderIds: ['u-a'], tokenCount: 20,
     ngrams: chineseNgrams(input.text), ...input,
   }
@@ -45,5 +46,21 @@ test('matches stable identifiers and applies conversation, sender, and date filt
   assert.deepEqual(keywordSearch(db, {
     query: '证据', filters: { conversationId: 'conv-b', sender: 'u-a' }, limit: 5,
   }), [])
+  db.close()
+})
+
+test('uses chunk_id before the candidate limit when sequence and relevance are tied', () => {
+  const db = new DatabaseSync(':memory:')
+  createSearchSchema(db, { sourceFingerprint: 'fp' })
+  insertSearchChunks(db, ['z', 'y', 'x', 'w', 'a'].map((chunkId) => chunk({
+    chunkId,
+    text: '共同命中词',
+    firstSequence: 5,
+    lastSequence: 5,
+    startTime: 100,
+    endTime: 100,
+  })))
+
+  assert.equal(keywordSearch(db, { query: '共同命中词', limit: 1 })[0]?.chunkId, 'a')
   db.close()
 })

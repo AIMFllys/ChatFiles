@@ -17,9 +17,11 @@ export const timeZoneSchema = z.string()
   .regex(/^(?:UTC|[A-Za-z_]+(?:\/[A-Za-z0-9_+.-]+)+)$/u)
 
 export const timelineBucketKeySchema = z.string().regex(/^[0-9]{4}-(?:0[1-9]|1[0-2])$/u)
+export const archiveDateSchema = z.iso.date()
 
 export type StableId = z.infer<typeof stableIdSchema>
 export type Sha256Id = z.infer<typeof sha256IdSchema>
 export type UnixSeconds = z.infer<typeof unixSecondsSchema>
 export type IsoTimestamp = z.infer<typeof isoTimestampSchema>
 export type TimeZone = z.infer<typeof timeZoneSchema>
+export type ArchiveDate = z.infer<typeof archiveDateSchema>

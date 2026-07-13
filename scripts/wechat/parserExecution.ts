@@ -1,14 +1,22 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { resolveArchiveTimeZone } from '../../pipeline/wechat/archiveTime.js'
+import { CANONICAL_SCHEMA_VERSION } from '../../pipeline/wechat/canonicalSchema.js'
+import { createInventoryLedger } from '../../pipeline/wechat/inventoryAccounting.js'
+import { canonicalPersonId } from '../../pipeline/wechat/personIdentity.js'
+import {
+  closeSnapshotSources,
+  openSnapshotSources,
+  type SourceInventoryUnit,
+} from '../../pipeline/wechat/sourceDatabaseAdapter.js'
+import { renderTranscript } from '../../pipeline/wechat/transcript.js'
 import { chooseAccountSnapshots } from './messageModel.js'
 import { truncateCodePoints } from './unicodeText.js'
 import {
-  closeMessageSources,
   compareText,
   discoverSnapshots,
   md5,
-  openMessageSources,
   readOwnerFragment,
 } from './parserSnapshotDiscovery.js'
 import {
@@ -20,11 +28,53 @@ import {
   safeFile,
   stagingPaths,
 } from './parserMessageProcessing.js'
-import type { ParserResult } from './parserTypes.js'
+import type { Contact, ParserResult } from './parserTypes.js'
+
+function displaySource(contact: Contact | undefined) {
+  if (!contact) return 'source-identity'
+  if (contact.remark.trim()) return 'contact-remark'
+  if (contact.nick.trim()) return 'contact-nick'
+  if (contact.alias.trim()) return 'contact-alias'
+  return 'contact-username'
+}
+
+function insertPerson(
+  statement: ReturnType<DatabaseSync['prepare']>,
+  owner: string,
+  username: string,
+  display: string,
+  source: string,
+) {
+  if (!username.trim()) return null
+  const personId = canonicalPersonId(owner, username)
+  statement.run(personId, owner, username, display || username, source, JSON.stringify({ source }))
+  return personId
+}
+
+function writeInventory(
+  statement: ReturnType<DatabaseSync['prepare']>,
+  snapshot: string,
+  units: readonly SourceInventoryUnit[],
+) {
+  for (const unit of units) {
+    statement.run(
+      snapshot,
+      unit.domain,
+      unit.sourceDb,
+      unit.sourceTable,
+      unit.discoveredRows,
+      unit.parsedRows,
+      unit.deduplicatedRows,
+      unit.excludedRows,
+      unit.exclusionReason,
+    )
+  }
+}
 
 export function runWeChatParser(root = path.resolve(process.cwd())): ParserResult {
   const paths = parserPaths(root)
   const staging = stagingPaths(paths)
+  const timeZone = resolveArchiveTimeZone(process.env.CHATFILES_TIME_ZONE)
   assertFreshOutputs(paths)
   assertFreshOutputs(staging)
   const ownerFragment = readOwnerFragment(root)
@@ -42,8 +92,7 @@ export function runWeChatParser(root = path.resolve(process.cwd())): ParserResul
   fs.mkdirSync(path.dirname(staging.bundleDir), { recursive: true })
   fs.mkdirSync(staging.bundleDir)
   fs.mkdirSync(staging.transcriptDir)
-  const outputHandle = fs.openSync(staging.outDbPath, 'wx')
-  fs.closeSync(outputHandle)
+  fs.closeSync(fs.openSync(staging.outDbPath, 'wx'))
 
   const out = new DatabaseSync(staging.outDbPath)
   const indexRows: Array<Record<string, unknown>> = []
@@ -52,6 +101,8 @@ export function runWeChatParser(root = path.resolve(process.cwd())): ParserResul
   let processedSourceConversations = 0
   let processedSourceMessages = 0
   let deduplicatedMessages = 0
+  let sourceUnitCount = 0
+  let excludedSourceRows = 0
   const selectedSourceCount = selected.reduce((total, snapshot) => total + snapshot.sourceCount, 0)
   const expectedSourceConversations = selected.reduce(
     (total, snapshot) => total + snapshot.selection.conversations.length,
@@ -60,135 +111,122 @@ export function runWeChatParser(root = path.resolve(process.cwd())): ParserResul
   const expectedSourceMessages = selected.reduce((total, snapshot) => total + snapshot.sourceMessageCount, 0)
   try {
     createSchema(out)
-    const insertContact = out.prepare('INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?)')
-    const insertConversation = out.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-    const insertMessage = out.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    const addContact = out.prepare('INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?)')
+    const addPerson = out.prepare('INSERT OR IGNORE INTO people VALUES (?,?,?,?,?,?)')
+    const addConversation = out.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    const addMessage = out.prepare(`INSERT INTO messages VALUES (
+      ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+    )`)
+    const addInventory = out.prepare('INSERT INTO source_inventory VALUES (?,?,?,?,?,?,?,?,?)')
 
     for (const snapshot of selected) {
-      const sources = openMessageSources(snapshot.dir)
+      const opened = openSnapshotSources(snapshot.dir)
+      const sources = opened.messageSources
+      const ledger = createInventoryLedger(snapshot.sourceInventory)
       let transactionOpen = false
       try {
         out.exec('BEGIN')
         transactionOpen = true
         for (const contact of snapshot.contactMap.values()) {
-          insertContact.run(
-            snapshot.name,
-            snapshot.owner,
-            contact.username,
-            contact.display,
-            contact.nick,
-            contact.remark,
-            contact.alias,
-            contact.isGroup ? 1 : 0,
+          addContact.run(
+            snapshot.name, snapshot.owner, contact.username, contact.display,
+            contact.nick, contact.remark, contact.alias, contact.isGroup ? 1 : 0,
           )
+          insertPerson(addPerson, snapshot.owner, contact.username, contact.display, displaySource(contact))
         }
 
-        const usernames = [...new Set([...snapshot.contactMap.keys(), ...snapshot.sessionMap.keys()])].sort(compareText)
+        const sourceUsernames = sources.flatMap((source) => [...source.conversationUsernames])
+        const usernames = [...new Set([
+          ...snapshot.contactMap.keys(), ...snapshot.sessionMap.keys(), ...sourceUsernames,
+        ])].sort(compareText)
         for (const username of usernames) {
-          const parsed = parseConversationMessages(snapshot, username, sources)
+          const parsed = parseConversationMessages(snapshot, username, sources, timeZone)
           const { messages } = parsed
           if (messages.length === 0) continue
+          ledger.recordParsed(messages)
+          ledger.recordDeduplicated(parsed.deduplicatedMessages)
           processedSourceConversations++
           processedSourceMessages += parsed.sourceMessageCount
-          deduplicatedMessages += parsed.deduplicatedCount
+          deduplicatedMessages += parsed.deduplicatedMessages.length
           const contact = snapshot.contactMap.get(username)
           const isGroup = username.endsWith('@chatroom')
           const display = contact?.display || username
           const conversationId = `wx:${snapshot.owner}:${username}`
-          let textCount = 0
-          messages.forEach((message, seq) => {
-            insertMessage.run(
-              conversationId,
-              message.messageUid,
-              seq,
-              message.sourceSnapshot,
-              message.sourceDb,
-              message.sourceTable,
-              message.localId,
-              message.serverId,
-              message.sortSeq,
-              message.time,
-              message.sender,
-              message.senderName,
-              message.senderPrefix,
-              message.isOwn,
-              message.senderSource,
-              message.senderAudit,
-              BigInt(message.rawType),
-              message.type,
-              message.typeLabel,
-              message.text,
+          const ownerPersonId = insertPerson(
+            addPerson,
+            snapshot.owner,
+            snapshot.owner,
+            snapshot.contactMap.get(snapshot.owner)?.display || snapshot.owner,
+            displaySource(snapshot.contactMap.get(snapshot.owner)),
+          )!
+          const conversationPersonId = insertPerson(
+            addPerson, snapshot.owner, username, display, displaySource(contact),
+          )
+          for (const message of messages) {
+            if (message.sender) {
+              insertPerson(
+                addPerson,
+                snapshot.owner,
+                message.sender,
+                message.senderName || message.sender,
+                message.senderSource,
+              )
+            }
+          }
+
+          const textCount = messages.filter((message) => message.type === 1 && message.text).length
+          const firstTime = messages[0]!.time
+          const lastTime = messages.at(-1)!.time
+          const summary = snapshot.sessionMap.get(username)?.summary ?? ''
+          addConversation.run(
+            conversationId, snapshot.name, snapshot.owner, ownerPersonId,
+            isGroup ? null : conversationPersonId, username, display, isGroup ? 1 : 0,
+            messages.length, textCount, firstTime, lastTime, summary,
+          )
+          messages.forEach((message, canonicalSeq) => {
+            addMessage.run(
+              conversationId, message.messageUid, canonicalSeq, canonicalSeq,
+              message.time, 'second', message.archiveDay, message.sourceDomain,
+              message.sourceSnapshot, message.sourceDb, message.sourceTable,
+              message.localId, message.serverId, message.sortSeq, message.sortSeq,
+              message.time, message.sender,
+              message.sender ? canonicalPersonId(snapshot.owner, message.sender) : null,
+              message.senderName, message.senderName, message.senderPrefix, message.isOwn,
+              message.senderSource, message.senderAudit, BigInt(message.rawType), message.type,
+              message.typeLabel, message.contentKind, message.structuredContentJson, message.text,
             )
-            if (message.type === 1 && message.text) textCount++
           })
 
-          const firstTime = messages[0].time
-          const lastTime = messages[messages.length - 1].time
-          const summary = snapshot.sessionMap.get(username)?.summary ?? ''
-          insertConversation.run(
-            conversationId,
-            snapshot.name,
-            snapshot.owner,
-            username,
-            display,
-            isGroup ? 1 : 0,
-            messages.length,
-            textCount,
-            firstTime,
-            lastTime,
-            summary,
-          )
           indexRows.push({
-            id: conversationId,
-            account: snapshot.name,
-            owner: snapshot.owner,
-            username,
-            display,
-            isGroup,
-            msgCount: messages.length,
-            textCount,
-            firstTime,
-            lastTime,
+            id: conversationId, account: snapshot.name, owner: snapshot.owner, username,
+            display, isGroup, msgCount: messages.length, textCount, firstTime, lastTime,
             summary: truncateCodePoints(summary, 120),
           })
           totalMessages += messages.length
           totalTextMessages += textCount
-
           if (textCount > 0) {
-            const lines = messages.filter((message) => message.text).map((message) => {
-              const timestamp = new Date(message.time * 1000).toISOString().slice(0, 16).replace('T', ' ')
-              const who = message.senderName || message.sender || (isGroup ? '未知群成员' : '未知发送人')
-              return `[${timestamp}] ${who}: ${message.text}`
-            })
-            const header = [
-              `# ${display}${isGroup ? '（群聊）' : ''}`,
-              `owner: ${snapshot.owner}`,
-              `username: ${username}`,
-              `messages: ${messages.length} (text ${textCount})`,
-              '',
-              '',
-            ].join('\n')
             const transcriptName = `${safeFile(`${display}__${username}`)}__${md5(username).slice(0, 8)}.txt`
-            fs.writeFileSync(
-              path.join(staging.transcriptDir, transcriptName),
-              header + lines.join('\n'),
-              { encoding: 'utf8', flag: 'wx' },
-            )
+            fs.writeFileSync(path.join(staging.transcriptDir, transcriptName), renderTranscript({
+              display, isGroup, messages, owner: snapshot.owner, textCount, timeZone, username,
+            }), { encoding: 'utf8', flag: 'wx' })
           }
         }
+
+        const inventory = ledger.finish()
+        writeInventory(addInventory, snapshot.name, inventory)
+        sourceUnitCount += inventory.length
+        excludedSourceRows += inventory.reduce((total, unit) => total + unit.excludedRows, 0)
         out.exec('COMMIT')
         transactionOpen = false
       } catch (error) {
         if (transactionOpen) out.exec('ROLLBACK')
         throw error
       } finally {
-        closeMessageSources(sources)
+        closeSnapshotSources(sources)
       }
     }
 
-    if (indexRows.length === 0 || totalMessages === 0) {
-      throw new Error('Refusing to complete an empty WeChat parse')
-    }
+    if (indexRows.length === 0 || totalMessages === 0) throw new Error('Refusing to complete an empty WeChat parse')
     if (
       processedSourceConversations !== expectedSourceConversations
       || processedSourceMessages !== expectedSourceMessages
@@ -198,33 +236,33 @@ export function runWeChatParser(root = path.resolve(process.cwd())): ParserResul
         `Parse source/output counts do not close: source conversations ${processedSourceConversations}/${expectedSourceConversations}, source messages ${processedSourceMessages}/${expectedSourceMessages}, output ${totalMessages}, deduplicated ${deduplicatedMessages}`,
       )
     }
-    out.prepare('INSERT INTO parse_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-      paths.runId,
-      'complete',
-      new Date().toISOString(),
-      selected.length,
-      selectedSourceCount,
-      processedSourceConversations,
-      processedSourceMessages,
-      indexRows.length,
-      totalMessages,
-      totalTextMessages,
-      deduplicatedMessages,
+    out.prepare(`INSERT INTO parse_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      paths.runId, 'complete', new Date().toISOString(), CANONICAL_SCHEMA_VERSION, timeZone,
+      selected.length, selectedSourceCount, sourceUnitCount, processedSourceConversations,
+      processedSourceMessages, excludedSourceRows, indexRows.length, totalMessages,
+      totalTextMessages, deduplicatedMessages,
     )
+    const addMetadata = out.prepare('INSERT INTO bundle_metadata VALUES (?,?)')
+    addMetadata.run('run_id', paths.runId)
+    addMetadata.run('schema_version', String(CANONICAL_SCHEMA_VERSION))
+    addMetadata.run('time_zone', timeZone)
     out.exec('PRAGMA wal_checkpoint(TRUNCATE)')
   } finally {
     out.close()
   }
 
   indexRows.sort((left, right) => (
-    Number(right.lastTime) - Number(left.lastTime)
-    || compareText(String(left.id), String(right.id))
+    Number(right.lastTime) - Number(left.lastTime) || compareText(String(left.id), String(right.id))
   ))
   const index = {
     generatedAt: new Date().toISOString(),
     runId: paths.runId,
+    schemaVersion: CANONICAL_SCHEMA_VERSION,
+    timeZone,
     selectedSnapshots: selected.map((snapshot) => ({ account: snapshot.name, owner: snapshot.owner })),
     excludedSnapshots: selection.excluded,
+    sourceUnitCount,
+    excludedSourceRows,
     totalConversations: indexRows.length,
     totalMessages,
     conversations: indexRows,

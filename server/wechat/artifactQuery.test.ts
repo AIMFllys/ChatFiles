@@ -3,6 +3,7 @@ import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
 import { queryArtifacts } from './artifactQuery.js'
+import { stableMessageUid } from './legacyMessageIdentity.js'
 
 function fixtureDatabases() {
   const assetDb = new DatabaseSync(':memory:')
@@ -17,8 +18,8 @@ function fixtureDatabases() {
   `)
   wechatDb.exec(`
     CREATE TABLE messages(
-      conv_id TEXT, message_uid TEXT PRIMARY KEY, time INTEGER, sender_name TEXT,
-      type INTEGER, text TEXT
+      conv_id TEXT, message_uid TEXT PRIMARY KEY, canonical_seq INTEGER,
+      occurred_at_epoch_s INTEGER, time INTEGER, sender_name TEXT, type INTEGER, text TEXT
     );
   `)
   const insertAsset = assetDb.prepare('INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -28,9 +29,9 @@ function fixtureDatabases() {
   insertAsset.run('d'.repeat(64), 'conv-b', 'link', 'link', 'OpenAI', 'link', 'https://example.test/a_b%20', null, null, 90, 'Bob', '参考链接', 'exported', 'ready', null)
   insertAsset.run('e'.repeat(64), null, 'document', 'resource', '全局孤立文档.docx', 'docx', null, 'private/global.docx', 50, 80, '系统', '未关联会话', 'missing_source', 'missing_source', 'private failure')
   wechatDb.exec(`
-    INSERT INTO messages VALUES ('conv-a', 'm-1', 100, '张三', 1, '中文消息 100%');
-    INSERT INTO messages VALUES ('conv-a', 'm-2', 99, '李四', 49, '非文本消息');
-    INSERT INTO messages VALUES ('conv-b', 'm-3', 100, 'Alice', 1, '下划线_a');
+    INSERT INTO messages VALUES ('conv-a', 'm-a', 0, 100, 100, '张三', 1, '中文消息 100%');
+    INSERT INTO messages VALUES ('conv-a', 'm-2', 1, 100, 100, '李四', 49, '非文本消息');
+    INSERT INTO messages VALUES ('conv-b', 'm-3', 0, 100, 100, 'Alice', 1, '下划线_a');
   `)
   return { assetDb, wechatDb }
 }
@@ -152,6 +153,20 @@ test('uses a unique stable order for offset pagination at identical timestamps',
   wechatDb.close()
 })
 
+test('orders canonical chat text by sequence instead of same-second message UID', () => {
+  const { assetDb, wechatDb } = fixtureDatabases()
+  wechatDb.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)')
+    .run('conv-a', 'm-z', 2, 100, 100, '王五', 1, '同秒后续消息')
+
+  const page = queryArtifacts(assetDb, wechatDb, {
+    conversationId: 'conv-a', tab: 'chatText', query: '', limit: 60, offset: 0,
+  })
+
+  assert.deepEqual(page.items.map((item) => item.id), ['chat:m-z', 'chat:m-a'])
+  assetDb.close()
+  wechatDb.close()
+})
+
 test('returns only path-free public DTO fields and no ordinary artifact text', () => {
   const { assetDb, wechatDb } = fixtureDatabases()
   const page = queryArtifacts(assetDb, wechatDb, { tab: 'document', query: '', limit: 60, offset: 0 })
@@ -190,4 +205,63 @@ test('fails closed when list rows contain an invalid evidence-state combination'
   assert.equal(page.items[0]?.itemType === 'artifact' ? page.items[0].availability : null, 'source_unavailable')
   assetDb.close()
   wechatDb.close()
+})
+
+test('lists chat text from the exact legacy schema without pretending its anchor is canonical', () => {
+  const assetDb = new DatabaseSync(':memory:')
+  const wechatDb = new DatabaseSync(':memory:')
+  assetDb.exec(`CREATE TABLE artifacts(
+    asset_id TEXT PRIMARY KEY,conv_id TEXT,category TEXT,kind TEXT,name TEXT,preview TEXT,
+    url TEXT,source_size INTEGER,created_at INTEGER,sender_name TEXT,text TEXT,
+    materialization TEXT,preview_status TEXT
+  )`)
+  wechatDb.exec(`CREATE TABLE messages(
+    conv_id TEXT,seq INTEGER,time INTEGER,sender TEXT,sender_name TEXT,
+    type INTEGER,type_label TEXT,text TEXT
+  ); INSERT INTO messages VALUES
+    ('legacy-conv',3,100,'member','成员',1,'text','旧版聊天素材');`)
+
+  const first = queryArtifacts(assetDb, wechatDb, {
+    tab: 'chatText', query: '旧版', limit: 10, offset: 0,
+  })
+  const repeated = queryArtifacts(assetDb, wechatDb, {
+    tab: 'chatText', query: '旧版', limit: 10, offset: 0,
+  })
+
+  assert.equal(first.items[0]?.itemType, 'chatText')
+  assert.match(first.items[0]?.id ?? '', /^chat:legacy:/u)
+  assert.equal(repeated.items[0]?.id, first.items[0]?.id)
+  assetDb.close()
+  wechatDb.close()
+})
+
+test('lists nullable legacy message identities in descending sequence order', () => {
+  const assetDb = new DatabaseSync(':memory:')
+  const wechatDb = new DatabaseSync(':memory:')
+  try {
+    assetDb.exec(`CREATE TABLE artifacts(
+      asset_id TEXT PRIMARY KEY,conv_id TEXT,category TEXT,kind TEXT,name TEXT,preview TEXT,
+      url TEXT,source_size INTEGER,created_at INTEGER,sender_name TEXT,text TEXT,
+      materialization TEXT,preview_status TEXT
+    )`)
+    wechatDb.exec(`CREATE TABLE messages(
+      conv_id TEXT,message_uid TEXT,seq INTEGER,time INTEGER,sender TEXT,sender_name TEXT,
+      type INTEGER,type_label TEXT,text TEXT
+    ); INSERT INTO messages VALUES
+      ('legacy-conv',NULL,2,100,'member','成员',1,'text','旧版聊天素材'),
+      ('legacy-conv',NULL,0,100,'member','成员',1,'text','旧版聊天素材'),
+      ('legacy-conv',NULL,1,100,'member','成员',1,'text','旧版聊天素材');`)
+    const page = queryArtifacts(assetDb, wechatDb, {
+      tab: 'chatText', query: '旧版', limit: 10, offset: 0,
+    })
+    const expected = [
+      stableMessageUid({ conv_id: 'legacy-conv', sequence: 2, time: 100, legacy_rowid: 1 }, true),
+      stableMessageUid({ conv_id: 'legacy-conv', sequence: 1, time: 100, legacy_rowid: 3 }, true),
+      stableMessageUid({ conv_id: 'legacy-conv', sequence: 0, time: 100, legacy_rowid: 2 }, true),
+    ]
+    assert.deepEqual(page.items.map((item) => item.itemType === 'chatText' ? item.messageUid : ''), expected)
+  } finally {
+    assetDb.close()
+    wechatDb.close()
+  }
 })

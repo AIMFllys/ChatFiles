@@ -1,13 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
+import { archiveDay } from '../../pipeline/wechat/archiveTime.js'
+import { createCanonicalSchema } from '../../pipeline/wechat/canonicalSchema.js'
+import { parseMessageContent } from '../../pipeline/wechat/messageTypeRegistry.js'
+import { readSourceMessages } from '../../pipeline/wechat/sourceReader.js'
 import {
   createMessageSemanticFingerprint,
   normalizeMessageType,
   resolveSenderIdentity,
 } from './messageModel.js'
-import { decodeContent, extractText, typeLabel } from './messageParsing.js'
-import { readSourceMessages } from './sourceReader.js'
+import { decodeContent, typeLabel } from './messageParsing.js'
 import { truncateCodePoints } from './unicodeText.js'
 import {
   compareText,
@@ -33,8 +36,10 @@ function createMessageUid(owner: string, username: string, sourceDb: string, tab
 }
 
 function stableMessageSort(left: ParsedMessage, right: ParsedMessage) {
+  const domainOrder = { regular: 0, biz: 1 } as const
   return left.time - right.time
     || left.sortSeq - right.sortSeq
+    || domainOrder[left.sourceDomain] - domainOrder[right.sourceDomain]
     || compareText(left.sourceDb, right.sourceDb)
     || left.localId - right.localId
 }
@@ -44,7 +49,7 @@ function deduplicateMessages(messages: readonly ParsedMessage[]) {
   const serverIds = new Map<string, ParsedMessage>()
   const evidenceKeys = new Map<string, ParsedMessage>()
   const messageUids = new Map<string, ParsedMessage>()
-  let deduplicatedCount = 0
+  const deduplicatedMessages: ParsedMessage[] = []
   for (const message of messages) {
     const evidenceKey = `${message.sourceDb}\u0000${message.sourceTable}\u0000${message.localId}`
     if (evidenceKeys.has(evidenceKey)) {
@@ -66,17 +71,22 @@ function deduplicateMessages(messages: readonly ParsedMessage[]) {
       }
     }
     if (duplicates.length > 0) {
-      deduplicatedCount++
+      deduplicatedMessages.push(message)
       continue
     }
     if (hasServerId(message.serverId)) serverIds.set(message.serverId, message)
     messageUids.set(message.messageUid, message)
     result.push(message)
   }
-  return { messages: result, deduplicatedCount }
+  return { messages: result, deduplicatedMessages }
 }
 
-export function parseConversationMessages(snapshot: SnapshotDescriptor, username: string, sources: readonly MessageSource[]) {
+export function parseConversationMessages(
+  snapshot: SnapshotDescriptor,
+  username: string,
+  sources: readonly MessageSource[],
+  timeZone = 'Asia/Shanghai',
+) {
   const table = `Msg_${md5(username)}`
   const isGroup = username.endsWith('@chatroom')
   const displayNames = new Map([...snapshot.contactMap].map(([id, contact]) => [id, contact.display]))
@@ -89,7 +99,7 @@ export function parseConversationMessages(snapshot: SnapshotDescriptor, username
       const primary = decodeContent(row.messageContent, `${context}:message_content`)
       const content = primary || decodeContent(row.compressedContent, `${context}:compress_content`)
       const type = normalizeMessageType(row.rawType)
-      const extracted = extractText(type, content, isGroup)
+      const extracted = parseMessageContent(type, content, isGroup)
       const identity = resolveSenderIdentity({
         isGroup,
         conversationUsername: username,
@@ -103,11 +113,13 @@ export function parseConversationMessages(snapshot: SnapshotDescriptor, username
         messageUid: createMessageUid(snapshot.owner, username, source.filename, table, row.localId, row.serverId),
         sourceSnapshot: snapshot.name,
         sourceDb: source.filename,
+        sourceDomain: source.domain,
         sourceTable: table,
         localId: row.localId,
         serverId: row.serverId,
         sortSeq: row.sortSeq,
         time: row.createTime,
+        archiveDay: archiveDay(row.createTime, timeZone),
         sender: identity.sender,
         senderName: identity.senderName,
         senderPrefix: extracted.senderPrefix,
@@ -117,6 +129,8 @@ export function parseConversationMessages(snapshot: SnapshotDescriptor, username
         rawType: row.rawType,
         type,
         typeLabel: typeLabel(type),
+        contentKind: extracted.kind,
+        structuredContentJson: JSON.stringify(extracted.structured),
         text: extracted.text,
       })
     }
@@ -130,34 +144,7 @@ export function parseConversationMessages(snapshot: SnapshotDescriptor, username
 }
 
 export function createSchema(out: DatabaseSync) {
-  out.exec(`
-    PRAGMA journal_mode=WAL;
-    CREATE TABLE contacts(
-      account TEXT, owner TEXT, username TEXT, display TEXT, nick TEXT, remark TEXT, alias TEXT, is_group INTEGER
-    );
-    CREATE TABLE conversations(
-      id TEXT PRIMARY KEY, account TEXT, owner TEXT, username TEXT, display TEXT, is_group INTEGER,
-      msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
-    );
-    CREATE TABLE messages(
-      conv_id TEXT, message_uid TEXT, seq INTEGER, source_snapshot TEXT, source_db TEXT, source_table TEXT,
-      local_id INTEGER, server_id TEXT, sort_seq INTEGER, time INTEGER, sender TEXT, sender_name TEXT,
-      sender_prefix TEXT, is_own INTEGER, sender_source TEXT, sender_audit TEXT,
-      raw_type INTEGER, type INTEGER, type_label TEXT, text TEXT
-    );
-    CREATE TABLE parse_runs(
-      run_id TEXT PRIMARY KEY, status TEXT, completed_at TEXT,
-      selected_snapshot_count INTEGER, selected_source_count INTEGER,
-      source_conversation_count INTEGER, source_message_count INTEGER,
-      output_conversation_count INTEGER, output_message_count INTEGER, output_text_count INTEGER,
-      deduplicated_message_count INTEGER
-    );
-    CREATE INDEX idx_msg_conv_order ON messages(conv_id, time, sort_seq, source_db, local_id);
-    CREATE UNIQUE INDEX idx_msg_uid ON messages(message_uid);
-    CREATE UNIQUE INDEX idx_msg_evidence ON messages(conv_id, source_db, source_table, local_id);
-    CREATE UNIQUE INDEX idx_msg_server ON messages(conv_id, server_id)
-      WHERE server_id IS NOT NULL AND trim(server_id)<>'' AND server_id<>'0';
-  `)
+  createCanonicalSchema(out)
 }
 
 function buildRunId() {

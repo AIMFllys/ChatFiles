@@ -4,10 +4,11 @@ import path from 'node:path'
 import test from 'node:test'
 import type { TimelineMessage, TimelineParticipant } from '../../types'
 
-function message(id: string, time: number, sender = 'u-1'): TimelineMessage {
+function message(id: string, time: number, sender = 'u-1', canonicalSequence?: number): TimelineMessage {
   return {
     message_uid: id,
     seq: Number(id.replace(/\D/gu, '')) || 0,
+    ...(canonicalSequence === undefined ? {} : { canonical_seq: canonicalSequence }),
     time,
     sender,
     sender_name: sender === 'u-1' ? '张三' : '李四',
@@ -44,10 +45,35 @@ test('merges duplicate message pages in canonical order', async () => {
   const timeline = await model()
   if (!timeline) return
   const merged = timeline.mergeTimelineMessages(
-    [message('m2', 100), message('m3', 200)],
-    [message('m1', 100), message('m2', 100)],
+    [message('m-z', 100, 'u-1', 0), message('m-3', 200, 'u-1', 2)],
+    [message('m-a', 100, 'u-1', 1), message('m-z', 100, 'u-1', 0)],
   )
-  assert.deepEqual(merged.map((item: TimelineMessage) => item.message_uid), ['m1', 'm2', 'm3'])
+  assert.deepEqual(merged.map((item: TimelineMessage) => item.message_uid), ['m-z', 'm-a', 'm-3'])
+})
+
+test('groups archive days in the bundle time zone instead of the browser time zone', async () => {
+  const timeline = await model()
+  if (!timeline) return
+  const items = timeline.groupTimelineMessages([
+    message('before-midnight', 1_704_036_600, 'u-1', 0),
+    message('after-midnight', 1_704_040_200, 'u-1', 1),
+  ], 'Asia/Shanghai')
+
+  assert.deepEqual(
+    items.filter((item) => item.kind === 'day').map((item) => item.key),
+    ['day:2023-12-31', 'day:2024-01-01'],
+  )
+})
+
+test('encodes run-bound cursor v2 anchors and formats bundle-zone seconds', async () => {
+  const timeline = await model()
+  if (!timeline) return
+  const anchor = message('uid-anchor', 1_700_000_000, 'u-1', 7)
+  const cursor = timeline.encodeBrowserTimelineCursor(anchor, 'run-v2')
+  const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+
+  assert.deepEqual(decoded, [2, 'run-v2', 7, 'uid-anchor'])
+  assert.equal(timeline.formatTimelineClock(1_700_000_000, 'Asia/Shanghai'), '06:13:20')
 })
 
 test('retains at most five page windows around the active anchor', async () => {

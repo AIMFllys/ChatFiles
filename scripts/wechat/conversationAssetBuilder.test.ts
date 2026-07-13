@@ -31,25 +31,40 @@ function bytesField(field: number, value: Uint8Array | string) {
 function createWechatDatabase(filename: string, table: string) {
   const db = new DatabaseSync(filename)
   db.exec(`
-    CREATE TABLE conversations(id TEXT PRIMARY KEY, username TEXT NOT NULL);
+    CREATE TABLE conversations(id TEXT PRIMARY KEY,owner TEXT NOT NULL,username TEXT NOT NULL);
     CREATE TABLE messages(
-      conv_id TEXT, message_uid TEXT, source_db TEXT, source_table TEXT, local_id INTEGER,
+      conv_id TEXT, message_uid TEXT, canonical_seq INTEGER, occurred_at_epoch_s INTEGER,
+      source_snapshot TEXT, source_adapter TEXT, source_db TEXT, source_table TEXT, local_id INTEGER,
       server_id TEXT, time INTEGER, sender_name TEXT, raw_type INTEGER, type INTEGER, text TEXT
     );
+    CREATE TABLE source_inventory(
+      source_snapshot TEXT,domain TEXT,source_db TEXT,source_table TEXT,
+      discovered_rows INTEGER,parsed_rows INTEGER,deduplicated_rows INTEGER,
+      excluded_rows INTEGER,exclusion_reason TEXT
+    );
   `)
-  db.prepare('INSERT INTO conversations VALUES (?, ?)').run('wx:owner:wxid_peer', 'wxid_peer')
-  const insert = db.prepare('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  db.prepare('INSERT INTO conversations VALUES (?, ?, ?)')
+    .run('wx:owner:wxid_peer', 'owner', 'wxid_peer')
+  db.prepare('INSERT INTO source_inventory VALUES (?,?,?,?,?,?,?,?,?)')
+    .run('snapshot', 'regular', 'message_0.db', table, 4, 4, 0, 0, null)
+  const insert = db.prepare(`INSERT INTO messages VALUES (${Array.from({ length: 15 }, () => '?').join(',')})`)
   insert.run(
-    'wx:owner:wxid_peer', 'wxm:file', 'message_0.db', table, 42, '9001',
-    1_783_800_000, '陈同学', 25_769_803_825, 49, '课程讲义 https://example.com/lesson',
+    'wx:owner:wxid_peer', 'wxm:z-file', 0, 1_783_800_000, 'snapshot', 'regular',
+    'message_0.db', table, 42, '9001', 1_783_800_000, '陈同学',
+    25_769_803_825, 49, '课程讲义 https://example.com/lesson',
   )
   insert.run(
-    'wx:owner:wxid_peer', 'wxm:voice', 'message_0.db', table, 43, '9002',
-    1_783_800_001, '陈同学', 34, 34, '[语音 3秒]',
+    'wx:owner:wxid_peer', 'wxm:a-link', 1, 1_783_800_000, 'snapshot', 'regular',
+    'message_0.db', table, 45, '9004', 1_783_800_000, '陈同学',
+    9_223_372_036_854_775_807n, 1, '补充链接 https://example.com/second',
   )
   insert.run(
-    'wx:owner:wxid_peer', 'wxm:text', 'message_0.db', table, 44, '9003',
-    1_783_800_002, '陈同学', 1, 1, '普通聊天文字',
+    'wx:owner:wxid_peer', 'wxm:voice', 2, 1_783_800_001, 'snapshot', 'regular',
+    'message_0.db', table, 43, '9002', 1_783_800_001, '陈同学', 34, 34, '[语音 3秒]',
+  )
+  insert.run(
+    'wx:owner:wxid_peer', 'wxm:text', 3, 1_783_800_002, 'snapshot', 'regular',
+    'message_0.db', table, 44, '9003', 1_783_800_002, '陈同学', 1, 1, '普通聊天文字',
   )
   db.close()
 }
@@ -124,12 +139,12 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
   })
 
   assert.deepEqual(result.counts, {
-    all: 3,
+    all: 4,
     work: 1,
     document: 1,
     skill: 0,
-    link: 1,
-    chatText: 1,
+    link: 2,
+    chatText: 2,
   })
   const output = new DatabaseSync(path.join(bundleDir, 'artifacts.db'), { readOnly: true })
   try {
@@ -140,6 +155,12 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
     assert.deepEqual(rows, [
       {
         kind: 'link', category: 'link', name: 'https://example.com/lesson',
+        link_status: 'confirmed', link_reason: null,
+        materialization: 'exported', preview_status: 'ready',
+        failure_reason: null,
+      },
+      {
+        kind: 'link', category: 'link', name: 'https://example.com/second',
         link_status: 'confirmed', link_reason: null,
         materialization: 'exported', preview_status: 'ready',
         failure_reason: null,
@@ -157,6 +178,9 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
         failure_reason: 'voice_source_not_exposed_by_message_resource',
       },
     ])
+    const linkOrder = output.prepare("SELECT message_uid FROM artifacts WHERE kind='link' ORDER BY rowid")
+      .all().map((row) => String(row.message_uid))
+    assert.deepEqual(linkOrder, ['wxm:z-file', 'wxm:a-link'])
     assert.equal(output.prepare('PRAGMA integrity_check').get()?.integrity_check, 'ok')
   } finally {
     output.close()

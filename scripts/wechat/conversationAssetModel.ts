@@ -15,6 +15,10 @@ import type { ResourceFileMatch } from './resourceFileMatcher.js'
 
 export interface AssetCanonicalMessage extends CanonicalMessage {
   conv_id: string
+  canonical_seq: number
+  occurred_at_epoch_s: number
+  source_snapshot: string
+  source_adapter: 'biz' | 'regular'
   conversation_username: string
   sender_name: string
   text: string

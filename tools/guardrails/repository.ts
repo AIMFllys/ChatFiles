@@ -1,56 +1,13 @@
 import { execFileSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { TextDecoder } from 'node:util'
 
+import { privacyReason } from './privacyPolicy.js'
+import { isSourceFile, shouldInspectAsText } from './repositoryPolicy.js'
+
 const MAX_SOURCE_LINES = 300
-const SOURCE_ROOTS = new Set(['shared', 'src', 'server', 'scripts', 'tools'])
-const SOURCE_EXTENSIONS = new Set([
-  '.c',
-  '.cjs',
-  '.css',
-  '.cts',
-  '.go',
-  '.h',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.mts',
-  '.ts',
-  '.tsx',
-])
-const TEXT_EXTENSIONS = new Set([
-  ...SOURCE_EXTENSIONS,
-  '.example',
-  '.html',
-  '.json',
-  '.md',
-  '.mod',
-  '.ps1',
-  '.sh',
-  '.sum',
-  '.svg',
-  '.toml',
-  '.txt',
-  '.xml',
-  '.yaml',
-  '.yml',
-])
-const TEXT_FILENAMES = new Set(['.gitignore', 'AGENTS.md', 'Dockerfile', 'LICENSE'])
-const PRIVATE_ROOTS = new Set(['.uploads', 'archive', 'data', 'imports', 'secrets', 'work'])
-const PRIVATE_EXTENSIONS = new Set([
-  '.db',
-  '.db-shm',
-  '.db-wal',
-  '.exe',
-  '.key',
-  '.keystore',
-  '.p12',
-  '.pem',
-  '.pfx',
-  '.sqlite',
-  '.sqlite3',
-])
 
 export interface RepositoryBaseline {
   allowedReplacementSignatures: string[]
@@ -58,7 +15,7 @@ export interface RepositoryBaseline {
 }
 
 export interface RepositoryIssue {
-  kind: 'invalid-utf8' | 'privacy-path' | 'replacement-character' | 'source-size'
+  kind: 'baseline-stale' | 'invalid-utf8' | 'privacy-path' | 'replacement-character' | 'source-size'
   path: string
   signature: string
   message: string
@@ -81,12 +38,6 @@ export function listGitCandidateFiles(root: string) {
   )
   const decoded = new TextDecoder('utf-8', { fatal: true }).decode(output)
   return decoded.split('\0').filter(Boolean).map(portable).sort()
-}
-
-function isSourceFile(relativePath: string) {
-  const normalized = portable(relativePath)
-  const root = normalized.split('/')[0]
-  return Boolean(root && SOURCE_ROOTS.has(root) && SOURCE_EXTENSIONS.has(path.extname(normalized).toLowerCase()))
 }
 
 function physicalLineCount(content: Buffer) {
@@ -117,15 +68,27 @@ export function inspectSourceSizes(
   baseline: RepositoryBaseline = EMPTY_REPOSITORY_BASELINE,
 ) {
   const issues: RepositoryIssue[] = []
+  const observed = new Set<string>()
   for (const candidate of [...new Set(relativePaths.map(portable))].sort()) {
-    if (!isSourceFile(candidate)) continue
     const content = readRegularCandidate(root, candidate)
-    if (!content) continue
+    if (!content || !isSourceFile(candidate, content)) continue
+    observed.add(candidate)
     const lineCount = physicalLineCount(content)
     const baselineCap = baseline.oversizedLineCaps[candidate]
-    const allowedLines = Math.max(MAX_SOURCE_LINES, baselineCap ?? MAX_SOURCE_LINES)
-    if (lineCount <= allowedLines) continue
-    const suffix = baselineCap ? `; baseline ceiling ${baselineCap}` : ''
+    if (baselineCap !== undefined && (lineCount <= MAX_SOURCE_LINES || lineCount < baselineCap)) {
+      const action = lineCount <= MAX_SOURCE_LINES
+        ? 'remove its obsolete baseline entry'
+        : `lower its baseline ceiling ${baselineCap}`
+      issues.push({
+        kind: 'baseline-stale',
+        path: candidate,
+        signature: `baseline-stale:source-size:${candidate}:${baselineCap}`,
+        message: `${candidate} is now ${lineCount} lines; ${action}`,
+      })
+      continue
+    }
+    if (lineCount <= MAX_SOURCE_LINES || lineCount === baselineCap) continue
+    const suffix = baselineCap !== undefined ? `; baseline ceiling ${baselineCap}` : ''
     issues.push({
       kind: 'source-size',
       path: candidate,
@@ -133,36 +96,43 @@ export function inspectSourceSizes(
       message: `${candidate} has ${lineCount} lines; maximum ${MAX_SOURCE_LINES}${suffix}`,
     })
   }
+  for (const [candidate, baselineCap] of Object.entries(baseline.oversizedLineCaps)) {
+    const normalized = portable(candidate)
+    if (observed.has(normalized)) continue
+    issues.push({
+      kind: 'baseline-stale',
+      path: normalized,
+      signature: `baseline-stale:source-size:${normalized}:${baselineCap}`,
+      message: `${normalized} no longer has observable oversized source debt`,
+    })
+  }
   return issues
-}
-
-function isTextFile(relativePath: string) {
-  const basename = path.basename(relativePath)
-  return TEXT_FILENAMES.has(basename) || TEXT_EXTENSIONS.has(path.extname(basename).toLowerCase())
 }
 
 function replacementIssues(relativePath: string, content: string) {
   const issues: RepositoryIssue[] = []
-  let line = 1
-  let column = 1
-  for (const character of content) {
-    if (character === '\uFFFD') {
-      const signature = `replacement-character:${relativePath}:${line}:${column}`
-      issues.push({
-        kind: 'replacement-character',
-        path: relativePath,
-        signature,
-        message: `${relativePath} contains U+FFFD at ${line}:${column}`,
-      })
-    }
-    if (character === '\n') {
-      line += 1
-      column = 1
-    } else {
+  for (const [lineIndex, lineContent] of content.split('\n').entries()) {
+    const digest = crypto.createHash('sha256').update(lineContent, 'utf8').digest('hex').slice(0, 16)
+    let column = 1
+    for (const character of lineContent) {
+      if (character === '\uFFFD') {
+        const line = lineIndex + 1
+        const signature = `replacement-character:${relativePath}:${line}:${column}:${digest}`
+        issues.push({
+          kind: 'replacement-character',
+          path: relativePath,
+          signature,
+          message: `${relativePath} contains U+FFFD at ${line}:${column}`,
+        })
+      }
       column += 1
     }
   }
   return issues
+}
+
+function replacementBaselinePath(signature: string) {
+  return /^replacement-character:(.*):\d+:\d+:[0-9a-f]{16}$/u.exec(signature)?.[1] ?? '<baseline>'
 }
 
 export function inspectUtf8Files(
@@ -172,10 +142,20 @@ export function inspectUtf8Files(
 ) {
   const allowed = new Set(baseline.allowedReplacementSignatures)
   const issues: RepositoryIssue[] = []
+  const actualReplacements = new Set<string>()
   for (const candidate of [...new Set(relativePaths.map(portable))].sort()) {
-    if (!isTextFile(candidate)) continue
+    if (!shouldInspectAsText(candidate)) continue
     const source = readRegularCandidate(root, candidate)
     if (!source) continue
+    if (source.includes(0)) {
+      issues.push({
+        kind: 'invalid-utf8',
+        path: candidate,
+        signature: `invalid-utf8:${candidate}`,
+        message: `${candidate} contains NUL bytes and is not UTF-8 text`,
+      })
+      continue
+    }
     let content: string
     try {
       content = new TextDecoder('utf-8', { fatal: true }).decode(source)
@@ -188,25 +168,21 @@ export function inspectUtf8Files(
       })
       continue
     }
-    issues.push(...replacementIssues(candidate, content).filter((issue) => !allowed.has(issue.signature)))
+    const replacements = replacementIssues(candidate, content)
+    for (const issue of replacements) actualReplacements.add(issue.signature)
+    issues.push(...replacements.filter((issue) => !allowed.has(issue.signature)))
+  }
+  for (const signature of allowed) {
+    if (actualReplacements.has(signature)) continue
+    const candidate = replacementBaselinePath(signature)
+    issues.push({
+      kind: 'baseline-stale',
+      path: candidate,
+      signature: `baseline-stale:${signature}`,
+      message: `${candidate} no longer contains the baselined U+FFFD occurrence`,
+    })
   }
   return issues
-}
-
-function privacyReason(relativePath: string) {
-  const normalized = portable(relativePath)
-  const lower = normalized.toLowerCase()
-  const segments = lower.split('/')
-  const basename = segments.at(-1) ?? ''
-  if (segments[0] && PRIVATE_ROOTS.has(segments[0])) return `private root ${segments[0]}`
-  if (lower === 'docs/tmp' || lower.startsWith('docs/tmp/')) return 'private temporary documentation'
-  if ((basename === '.env' || basename.startsWith('.env.')) && basename !== '.env.example') return 'private environment file'
-  if (basename === 'image_key.json') return 'private image key'
-  if (basename.startsWith('secrets.')) return 'private secrets file'
-  if (PRIVATE_EXTENSIONS.has(path.extname(basename).toLowerCase())) return 'private file extension'
-  if (/^scripts\/exportip.*\.mjs$/u.test(lower)) return 'private export helper'
-  if (/^scripts\/(batch_.*_insights_data|missing.*_overrides)\.json$/u.test(lower)) return 'private local override'
-  return undefined
 }
 
 export function inspectPrivacyPaths(relativePaths: readonly string[]) {

@@ -24,6 +24,10 @@ const canonical: CanonicalMessage = {
 const message: AssetCanonicalMessage = {
   ...canonical,
   conv_id: 'wx:owner:wxid_peer',
+  canonical_seq: 0,
+  occurred_at_epoch_s: canonical.create_time,
+  source_snapshot: 'snapshot',
+  source_adapter: 'regular',
   conversation_username: 'wxid_peer',
   sender_name: '陈同学',
   text: '课程讲义 https://example.com/path?a=1',

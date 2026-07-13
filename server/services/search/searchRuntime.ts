@@ -5,7 +5,7 @@ import type { AgentRequestConfig } from '../../../shared/contracts/aiAgent.js'
 import { hybridSearch, type HybridSearchResult } from './hybridSearch.js'
 import { keywordSearch } from './keywordSearch.js'
 import { liveMessageSearch } from './liveMessageSearch.js'
-import { readSearchMetadata } from './searchSchema.js'
+import { readSearchMetadata, validateSearchMetadata } from './searchSchema.js'
 
 type SearchInput = {
   query: string
@@ -24,7 +24,7 @@ function openIndex(projectRoot: string, sourceFingerprint: string) {
     const stat = fs.lstatSync(target)
     if (!stat.isFile() || stat.isSymbolicLink()) return null
     db = new DatabaseSync(target, { readOnly: true, allowExtension: true })
-    if (readSearchMetadata(db)?.sourceFingerprint !== sourceFingerprint) {
+    if (!validateSearchMetadata(db, { sourceFingerprint }).ok) {
       db.close()
       return null
     }

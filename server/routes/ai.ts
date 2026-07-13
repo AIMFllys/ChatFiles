@@ -1,9 +1,8 @@
 import { Router } from 'express'
+import { readConversationTranscript } from '../services/conversationTranscript.js'
 import { wechatDb } from './wechat.js'
 
 const router = Router()
-
-type Row = { time: number; sender_name: string; sender: string; type: number; type_label: string; text: string }
 
 /**
  * Full plaintext transcript of one conversation, for injecting into the AI
@@ -16,29 +15,9 @@ router.get('/api/wechat/conversation/:id/transcript', (req, res) => {
   try {
     const id = req.params.id
     const maxChars = Math.min(Number(req.query.maxChars ?? 1_600_000) || 1_600_000, 4_000_000)
-    const meta = db.prepare('SELECT display, is_group, msg_count FROM conversations WHERE id=?').get(id) as
-      | { display: string; is_group: number; msg_count: number }
-      | undefined
-    if (!meta) return res.status(404).json({ error: 'conversation not found' })
-    const rowCap = Math.ceil(maxChars / 6) + 2000
-    const rows = db
-      .prepare('SELECT time,sender_name,sender,type,type_label,text FROM messages WHERE conv_id=? ORDER BY time LIMIT ?')
-      .all(id, rowCap) as Row[]
-    const lines: string[] = []
-    let chars = 0
-    let truncated = rows.length >= rowCap
-    for (const m of rows) {
-      const who = m.sender_name || m.sender || '?'
-      const body = m.text && m.text.trim() ? m.text.trim() : `[${m.type_label || '消息'}]`
-      const line = `${who}: ${body}`
-      if (chars + line.length > maxChars) {
-        truncated = true
-        break
-      }
-      lines.push(line)
-      chars += line.length + 1
-    }
-    res.json({ meta, text: lines.join('\n'), chars, lines: lines.length, truncated })
+    const transcript = readConversationTranscript(db, { conversationId: id, maxCharacters: maxChars })
+    if (!transcript) return res.status(404).json({ error: 'conversation not found' })
+    res.json(transcript)
   } finally {
     db.close()
   }

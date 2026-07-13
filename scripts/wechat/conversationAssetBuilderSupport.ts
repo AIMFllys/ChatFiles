@@ -5,6 +5,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { relativePathWithinRoot, type ResourceMessageProbe } from './assetEvidence.js'
 import type { AssetCanonicalMessage } from './conversationAssetModel.js'
 import type { ResourceFileCandidate } from './resourceFileMatcher.js'
+import { discoverSourceDatabases } from '../../pipeline/wechat/sourceInventory.js'
 
 export type ConversationAssetCounts = {
   all: number
@@ -56,13 +57,16 @@ export type ResourceRow = {
 export type OutputMessageRow = {
   conv_id: string
   message_uid: string
+  canonical_seq: number
+  occurred_at_epoch_s: number
+  source_snapshot: string
+  source_adapter: 'biz' | 'regular'
   source_db: string
   source_table: string
   local_id: number
   server_id: string | null
-  time: number
   sender_name: string
-  raw_type: number | string
+  raw_type: string
   type: number
   text: string
   username: string
@@ -90,8 +94,9 @@ export const RESOURCE_QUERY = `
 `
 
 export const MESSAGE_COLUMNS = `
-  m.conv_id, m.message_uid, m.source_db, m.source_table, m.local_id,
-  m.server_id, m.time, m.sender_name, m.raw_type, m.type, m.text,
+  m.conv_id, m.message_uid, m.canonical_seq, m.occurred_at_epoch_s,
+  m.source_snapshot, m.source_adapter, m.source_db, m.source_table, m.local_id,
+  m.server_id, m.sender_name, CAST(m.raw_type AS TEXT) AS raw_type, m.type, m.text,
   c.username
 `
 
@@ -174,12 +179,26 @@ function quoteMessageTable(table: string) {
   return `"${table}"`
 }
 
-export function openSourceDatabases(sourceSnapshotRoot: string) {
+export function openSourceDatabases(
+  sourceSnapshotRoot: string,
+  requiredSourceDatabases?: readonly string[],
+) {
   const result = new Map<string, DatabaseSync>()
-  const messageRoot = path.join(sourceSnapshotRoot, 'db_storage', 'message')
-  for (const filename of ['message_0.db', 'message_1.db']) {
-    const target = path.join(messageRoot, filename)
-    if (fs.existsSync(target)) result.set(filename, new DatabaseSync(target, { readOnly: true }))
+  const discovered = discoverSourceDatabases(sourceSnapshotRoot)
+    .filter((source) => source.domain === 'regular' || source.domain === 'biz')
+  const byName = new Map(discovered.map((source) => [source.filename, source]))
+  const filenames = requiredSourceDatabases?.length
+    ? [...new Set(requiredSourceDatabases)].sort()
+    : [...byName.keys()].sort()
+  try {
+    for (const filename of filenames) {
+      const source = byName.get(filename)
+      if (!source) throw new Error(`Canonical source shard is missing: ${filename}`)
+      result.set(filename, new DatabaseSync(source.absolutePath, { readOnly: true }))
+    }
+  } catch (error) {
+    for (const database of result.values()) database.close()
+    throw error
   }
   if (result.size === 0) throw new Error('No source message shards were found')
   return result
@@ -213,13 +232,17 @@ export function toAssetMessage(
   return {
     conv_id: row.conv_id,
     message_uid: row.message_uid,
+    canonical_seq: Number(row.canonical_seq),
+    occurred_at_epoch_s: Number(row.occurred_at_epoch_s),
+    source_snapshot: row.source_snapshot,
+    source_adapter: row.source_adapter,
     source_db: row.source_db,
     chat_table: row.username,
     message_table: row.source_table,
     local_id: Number(row.local_id),
     normalized_type: Number(row.type),
     raw_type: String(row.raw_type),
-    create_time: Number(row.time),
+    create_time: Number(row.occurred_at_epoch_s),
     server_id: normalizeServerId(row.server_id),
     message_origin_source: messageOriginSource,
     conversation_username: row.username,

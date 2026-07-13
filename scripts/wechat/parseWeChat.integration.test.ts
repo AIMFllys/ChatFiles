@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
+import { canonicalPersonId } from '../../pipeline/wechat/personIdentity.js'
 import { createFixtureRoot, md5, owner, peer, room, runParser } from './parseWeChatTestFixtures.js'
 
 test('builds a non-destructive identity-aligned next database from strict snapshot coverage', () => {
@@ -38,34 +39,57 @@ test('builds a non-destructive identity-aligned next database from strict snapsh
       ])
 
       const privateRows = db.prepare(`
-        SELECT server_id, CAST(raw_type AS TEXT) AS raw_type, type, sender, sender_source, sender_audit,
-          source_db, local_id, sort_seq, text
-        FROM messages WHERE conv_id=? ORDER BY seq
+        SELECT canonical_seq, server_id, CAST(raw_type AS TEXT) AS raw_type, type, sender, person_id,
+          sender_source, sender_audit, source_adapter, source_db, local_id, source_sort_seq, text
+        FROM messages WHERE conv_id=? ORDER BY canonical_seq
       `).all(`wx:${owner}:${peer}`).map((row) => ({ ...row }))
       assert.deepEqual(privateRows, [
         {
-          server_id: '1002', raw_type: '1', type: 1, sender: peer,
-          sender_source: 'message-name2id', sender_audit: '', source_db: 'message_1.db',
-          local_id: 5, sort_seq: 10, text: '对端先发出的中文',
+          canonical_seq: 0, server_id: '1002', raw_type: '1', type: 1, sender: peer,
+          person_id: canonicalPersonId(owner, peer), sender_source: 'message-name2id', sender_audit: '',
+          source_adapter: 'regular', source_db: 'message_1.db', local_id: 5, source_sort_seq: 10,
+          text: '对端先发出的中文',
         },
         {
-          server_id: '1001', raw_type: '9223372032559808513', type: 1, sender: owner,
-          sender_source: 'message-name2id', sender_audit: '', source_db: 'message_0.db',
-          local_id: 1, sort_seq: 20, text: '机主发出的中文',
+          canonical_seq: 1, server_id: '1004', raw_type: '1', type: 1, sender: peer,
+          person_id: canonicalPersonId(owner, peer), sender_source: 'message-name2id', sender_audit: '',
+          source_adapter: 'biz', source_db: 'biz_message_0.db', local_id: 7, source_sort_seq: 15,
+          text: '企业消息进入统一顺序',
         },
         {
-          server_id: '0', raw_type: '1', type: 1, sender: '', sender_source: 'unknown',
-          sender_audit: 'private-direction-unknown', source_db: 'message_0.db',
-          local_id: 2, sort_seq: 30, text: '身份未知但正文保留',
+          canonical_seq: 2, server_id: '1001', raw_type: '9223372032559808513', type: 1, sender: owner,
+          person_id: canonicalPersonId(owner, owner), sender_source: 'message-name2id', sender_audit: '',
+          source_adapter: 'regular', source_db: 'message_0.db', local_id: 1, source_sort_seq: 20,
+          text: '机主发出的中文',
+        },
+        {
+          canonical_seq: 3, server_id: '0', raw_type: '1', type: 1, sender: '', person_id: null,
+          sender_source: 'unknown', sender_audit: 'private-direction-unknown', source_adapter: 'regular',
+          source_db: 'message_0.db', local_id: 2, source_sort_seq: 30, text: '身份未知但正文保留',
         },
       ])
+      assert.deepEqual(
+        db.prepare('SELECT username,display_name FROM people ORDER BY username').all().map((row) => ({ ...row })),
+        [
+          { username: room, display_name: '中文项目群' },
+          { username: owner, display_name: '机主' },
+          { username: peer, display_name: '陈同学' },
+          { username: 'wxid_member', display_name: '群成员甲' },
+        ].sort((left, right) => left.username.localeCompare(right.username)),
+      )
+      assert.equal(
+        db.prepare("SELECT count(*) AS total FROM messages WHERE time_precision='second' AND archive_day='2023-11-15'")
+          .get()?.total,
+        5,
+      )
       assert.equal(
         db.prepare("SELECT count(*) AS total FROM messages WHERE sender_audit='group-prefix-mismatch'").get()?.total,
         0,
       )
       assert.deepEqual(
         db.prepare(`
-          SELECT run_id, status, selected_snapshot_count, selected_source_count,
+          SELECT run_id, status, schema_version, time_zone, selected_snapshot_count, selected_source_count,
+            source_unit_count, excluded_source_row_count,
             source_conversation_count, source_message_count, output_conversation_count,
             output_message_count, output_text_count, deduplicated_message_count
           FROM parse_runs
@@ -73,15 +97,38 @@ test('builds a non-destructive identity-aligned next database from strict snapsh
         [{
           run_id: 'fixture-run',
           status: 'complete',
+          schema_version: 2,
+          time_zone: 'Asia/Shanghai',
           selected_snapshot_count: 1,
-          selected_source_count: 2,
+          selected_source_count: 5,
+          source_unit_count: 7,
+          excluded_source_row_count: 3,
           source_conversation_count: 2,
-          source_message_count: 5,
+          source_message_count: 6,
           output_conversation_count: 2,
-          output_message_count: 4,
-          output_text_count: 4,
+          output_message_count: 5,
+          output_text_count: 5,
           deduplicated_message_count: 1,
         }],
+      )
+      assert.deepEqual(
+        db.prepare(`
+          SELECT domain,source_db,source_table,discovered_rows,parsed_rows,
+            deduplicated_rows,excluded_rows,exclusion_reason
+          FROM source_inventory ORDER BY source_db,source_table
+        `).all().map((row) => ({ ...row })),
+        [
+          ['biz', 'biz_message_0.db', `Msg_${md5(peer)}`, 1, 1, 0, 0, null],
+          ['regular', 'message_0.db', `Msg_${md5(peer)}`, 3, 2, 1, 0, null],
+          ['regular', 'message_1.db', `Msg_${md5(peer)}`, 1, 1, 0, 0, null],
+          ['regular', 'message_1.db', `Msg_${md5(room)}`, 1, 1, 0, 0, null],
+          ['resource', 'message_resource.db', 'MessageResourceDetail', 1, 0, 0, 1, 'deferred_resource_adapter'],
+          ['resource', 'message_resource.db', 'MessageResourceInfo', 1, 0, 0, 1, 'deferred_resource_adapter'],
+          ['media', 'media_0.db', 'VoiceInfo', 1, 0, 0, 1, 'deferred_media_adapter'],
+        ].sort((left, right) => `${left[1]}\0${left[2]}`.localeCompare(`${right[1]}\0${right[2]}`))
+          .map(([domain, source_db, source_table, discovered_rows, parsed_rows, deduplicated_rows, excluded_rows, exclusion_reason]) => ({
+            domain, source_db, source_table, discovered_rows, parsed_rows, deduplicated_rows, excluded_rows, exclusion_reason,
+          })),
       )
     } finally {
       db.close()
@@ -94,6 +141,8 @@ test('builds a non-destructive identity-aligned next database from strict snapsh
       .join('\n')
     assert.match(transcriptText, /机主发出的中文/)
     assert.match(transcriptText, /群聊中文正文/)
+    assert.match(transcriptText, /\[2023-11-15 06:13:20 \+08:00\]/u)
+    assert.match(transcriptText, /time-zone: Asia\/Shanghai/u)
     assert.equal(transcriptText.includes('\uFFFD'), false)
 
     const before = fs.readFileSync(dbPath)
@@ -126,6 +175,31 @@ test('keeps transcript filenames and index summaries on Unicode code-point bound
     const peerTranscript = transcriptFiles.find((name) => name.endsWith(peerSuffix))
     assert.equal(peerTranscript, `${'陈'.repeat(79)}${emoji}${peerSuffix}`)
     assert.equal(peerTranscript?.includes('\uFFFD'), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('uses one configured archive time zone for database days and transcript seconds', () => {
+  const root = createFixtureRoot()
+  try {
+    const result = runParser(root, 'America/Los_Angeles')
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const bundleDir = path.join(root, 'data', 'wechat.next')
+    const db = new DatabaseSync(path.join(bundleDir, 'wechat.db'), { readOnly: true })
+    try {
+      assert.deepEqual(
+        db.prepare('SELECT DISTINCT archive_day FROM messages').all().map((row) => ({ ...row })),
+        [{ archive_day: '2023-11-14' }],
+      )
+      assert.equal(db.prepare("SELECT value FROM bundle_metadata WHERE key='time_zone'").get()?.value, 'America/Los_Angeles')
+    } finally {
+      db.close()
+    }
+    const transcript = fs.readdirSync(path.join(bundleDir, 'transcripts'))
+      .map((name) => fs.readFileSync(path.join(bundleDir, 'transcripts', name), 'utf8'))
+      .join('\n')
+    assert.match(transcript, /\[2023-11-14 14:13:20 -08:00\]/u)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

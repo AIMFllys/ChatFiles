@@ -83,6 +83,7 @@ function hydrate(db: DatabaseSync, chunkId: string): SearchChunk | null {
   return {
     chunkId: String(row.chunk_id), conversationId: String(row.conversation_id),
     firstMessageUid: String(row.first_message_uid), lastMessageUid: String(row.last_message_uid),
+    firstSequence: Number(row.first_sequence), lastSequence: Number(row.last_sequence),
     startTime: Number(row.start_time), endTime: Number(row.end_time),
     senderIds: parseSenders(String(row.sender_ids)), text: String(row.text),
     ngrams: String(row.ngrams), tokenCount: Number(row.token_count),

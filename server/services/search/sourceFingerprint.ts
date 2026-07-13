@@ -27,16 +27,19 @@ export function wechatSourceFingerprint(
     // Legacy databases have no parse run, so hash their canonical public rows below.
   }
   const columns = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
+  const available = new Set(columns.map((column) => column.name))
+  const canonical = available.has('canonical_seq') && available.has('occurred_at_epoch_s')
   const identity = columns.some((column) => column.name === 'message_uid')
     ? 'message_uid'
     : 'CAST(seq AS TEXT)'
-  const rows = db.prepare(`
-    SELECT conv_id,${identity} AS uid,time,sender,sender_name,text
-    FROM messages ORDER BY conv_id,time,uid
-  `).iterate() as Iterable<Record<string, unknown>>
+  const sequence = canonical ? 'canonical_seq AS sequence' : 'seq AS sequence'
+  const time = canonical ? 'occurred_at_epoch_s AS time' : 'time'
+  const order = canonical ? 'conv_id,canonical_seq' : 'conv_id,time,uid'
+  const rows = db.prepare(`SELECT conv_id,${identity} AS uid,${sequence},${time},sender,sender_name,text
+    FROM messages ORDER BY ${order}`).iterate() as Iterable<Record<string, unknown>>
   for (const row of rows) {
     hash.update(JSON.stringify([
-      row.conv_id, row.uid, row.time, row.sender, row.sender_name, row.text,
+      row.conv_id, row.uid, row.sequence, row.time, row.sender, row.sender_name, row.text,
     ]), 'utf8')
     hash.update('\n', 'utf8')
   }

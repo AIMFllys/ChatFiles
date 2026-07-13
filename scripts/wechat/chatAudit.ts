@@ -1,29 +1,23 @@
 import fs from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import {
+  appendAuditIssue as addIssue,
+  auditColumnNames as columnNames,
+  auditScalar as scalar,
+} from '../../pipeline/wechat/auditSupport.js'
+import { auditCanonicalV2 } from '../../pipeline/wechat/canonicalAudit.js'
+import {
+  requiredBundleMetadataColumns,
   requiredConversationColumns,
   requiredMessageColumns,
   requiredParseRunColumns,
+  requiredPeopleColumns,
+  requiredSourceInventoryColumns,
   type ChatAuditIssue,
   type ChatAuditResult,
 } from './chatAuditSchema.js'
 
 export type { ChatAuditIssue, ChatAuditResult } from './chatAuditSchema.js'
-
-function columnNames(db: DatabaseSync, table: string) {
-  return new Set(
-    (db.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all() as Array<{ name: string }>).map((row) => row.name),
-  )
-}
-
-function scalar(db: DatabaseSync, sql: string, ...params: Array<string | number>) {
-  const row = db.prepare(sql).get(...params) as { value?: number } | undefined
-  return Number(row?.value ?? 0)
-}
-
-function addIssue(issues: ChatAuditIssue[], code: string, count: number, detail: string) {
-  if (count > 0) issues.push({ code, count, detail })
-}
 
 export function auditWechatDatabase(dbPath: string): ChatAuditResult {
   if (!fs.existsSync(dbPath)) throw new Error(`WeChat database not found: ${dbPath}`)
@@ -34,10 +28,16 @@ export function auditWechatDatabase(dbPath: string): ChatAuditResult {
     const conversationColumns = columnNames(db, 'conversations')
     const messageColumns = columnNames(db, 'messages')
     const parseRunColumns = columnNames(db, 'parse_runs')
+    const peopleColumns = columnNames(db, 'people')
+    const inventoryColumns = columnNames(db, 'source_inventory')
+    const metadataColumns = columnNames(db, 'bundle_metadata')
     const missingColumns = [
       ...requiredConversationColumns.filter((name) => !conversationColumns.has(name)).map((name) => `conversations.${name}`),
       ...requiredMessageColumns.filter((name) => !messageColumns.has(name)).map((name) => `messages.${name}`),
       ...requiredParseRunColumns.filter((name) => !parseRunColumns.has(name)).map((name) => `parse_runs.${name}`),
+      ...requiredPeopleColumns.filter((name) => !peopleColumns.has(name)).map((name) => `people.${name}`),
+      ...requiredSourceInventoryColumns.filter((name) => !inventoryColumns.has(name)).map((name) => `source_inventory.${name}`),
+      ...requiredBundleMetadataColumns.filter((name) => !metadataColumns.has(name)).map((name) => `bundle_metadata.${name}`),
     ]
 
     if (missingColumns.length > 0) {
@@ -119,7 +119,8 @@ export function auditWechatDatabase(dbPath: string): ChatAuditResult {
             OR source_snapshot IS NULL OR trim(source_snapshot)=''
             OR source_db IS NULL OR trim(source_db)=''
             OR source_table IS NULL OR trim(source_table)=''
-            OR local_id IS NULL OR sort_seq IS NULL
+            OR local_id IS NULL OR sort_seq IS NULL OR source_sort_seq IS NULL
+            OR canonical_seq IS NULL OR occurred_at_epoch_s IS NULL
             OR sender_source IS NULL OR trim(sender_source)=''`,
       ),
       'Every message must retain its source shard, table, local id, sort sequence and sender-resolution source.',
@@ -144,9 +145,9 @@ export function auditWechatDatabase(dbPath: string): ChatAuditResult {
       scalar(
         db,
         `SELECT count(*) AS value FROM (
-           SELECT conv_id, source_db, local_id
+           SELECT conv_id, source_db, source_table, local_id
            FROM messages
-           GROUP BY conv_id, source_db, local_id
+           GROUP BY conv_id, source_db, source_table, local_id
            HAVING count(*) > 1
          )`,
       ),
@@ -248,16 +249,16 @@ export function auditWechatDatabase(dbPath: string): ChatAuditResult {
       scalar(
         db,
         `SELECT count(*) AS value FROM (
-           SELECT conv_id, seq, time,
-             lag(seq) OVER (PARTITION BY conv_id ORDER BY seq) AS previous_seq,
-             lag(time) OVER (PARTITION BY conv_id ORDER BY seq) AS previous_time
+           SELECT conv_id, canonical_seq, occurred_at_epoch_s,
+             lag(canonical_seq) OVER (PARTITION BY conv_id ORDER BY canonical_seq) AS previous_seq,
+             lag(occurred_at_epoch_s) OVER (PARTITION BY conv_id ORDER BY canonical_seq) AS previous_time
            FROM messages
          )
-         WHERE (previous_seq IS NULL AND seq<>0)
-            OR (previous_seq IS NOT NULL AND seq<>previous_seq+1)
-            OR (previous_time IS NOT NULL AND time<previous_time)`,
+         WHERE (previous_seq IS NULL AND canonical_seq<>0)
+            OR (previous_seq IS NOT NULL AND canonical_seq<>previous_seq+1)
+            OR (previous_time IS NOT NULL AND occurred_at_epoch_s<previous_time)`,
       ),
-      'Message seq values must be contiguous and time must not move backwards.',
+      'Message canonical_seq values must be contiguous and source time must not move backwards.',
     )
 
     addIssue(
@@ -286,6 +287,7 @@ export function auditWechatDatabase(dbPath: string): ChatAuditResult {
       'One canonical owner is represented by multiple decrypted snapshot directories.',
     )
 
+    issues.push(...auditCanonicalV2(db))
     return { ok: issues.length === 0, metrics, issues }
   } finally {
     db.close()

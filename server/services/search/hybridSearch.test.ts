@@ -10,6 +10,7 @@ import { insertSearchVectors } from './vectorSearch.js'
 function chunk(id: string, text: string): SearchChunk {
   return {
     chunkId: id, conversationId: 'conv', firstMessageUid: `${id}-first`, lastMessageUid: `${id}-last`,
+    firstSequence: 0, lastSequence: 1,
     startTime: 1, endTime: 2, senderIds: ['u'], text, ngrams: chineseNgrams(text), tokenCount: 10,
   }
 }

@@ -34,6 +34,7 @@ export type {
   WechatConversation,
   WechatConversationList,
   WechatMessage,
+  MessageDto,
   WechatMessagePage,
   ChatArtifactTab,
   ChatArtifactAvailability,
@@ -81,6 +82,7 @@ export type {
 } from './insights.js'
 
 export {
+  archiveDateSchema,
   isoTimestampSchema,
   sha256IdSchema,
   stableIdSchema,
@@ -88,7 +90,7 @@ export {
   timeZoneSchema,
   unixSecondsSchema,
 } from './primitives.js'
-export type { IsoTimestamp, Sha256Id, StableId, TimeZone, UnixSeconds } from './primitives.js'
+export type { ArchiveDate, IsoTimestamp, Sha256Id, StableId, TimeZone, UnixSeconds } from './primitives.js'
 
 export { apiErrorCodeSchema, apiErrorSchema, makeApiError } from './errors.js'
 export type { ApiError, ApiErrorCode } from './errors.js'
@@ -110,4 +112,5 @@ export {
   timelinePageSchema,
   timelineParticipantSchema,
   wechatMessageSchema,
+  messageDtoSchema,
 } from './chat.js'

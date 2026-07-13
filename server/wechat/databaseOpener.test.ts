@@ -1,111 +1,16 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import test, { type TestContext } from 'node:test'
+import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
 import { wechatDb } from '../routes/wechat.js'
 import { openValidatedWechatDatabase } from './databaseOpener.js'
-
-type ParseRunOverrides = {
-  status?: string
-  completedAt?: string
-  sourceMessages?: number
-  outputMessages?: number
-  deduplicatedMessages?: number | null
-}
-
-function fixtureRoot(t: TestContext) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-wechat-opener-'))
-  t.after(() => {
-    const currentPath = path.join(root, 'data', 'wechat.current', 'wechat.db')
-    const legacyPath = path.join(root, 'data', 'wechat.db')
-    if (fs.existsSync(currentPath)) {
-      if (fs.statSync(currentPath).isDirectory()) fs.rmdirSync(currentPath)
-      else fs.unlinkSync(currentPath)
-    }
-    if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath)
-    const currentDir = path.dirname(currentPath)
-    if (fs.existsSync(currentDir)) fs.rmdirSync(currentDir)
-    const dataDir = path.join(root, 'data')
-    if (fs.existsSync(dataDir)) fs.rmdirSync(dataDir)
-    fs.rmdirSync(root)
-  })
-  return root
-}
-
-function createLegacyDatabase(root: string) {
-  const databasePath = path.join(root, 'data', 'wechat.db')
-  fs.mkdirSync(path.dirname(databasePath), { recursive: true })
-  const db = new DatabaseSync(databasePath)
-  db.exec(`
-    CREATE TABLE conversations(
-      id TEXT, account TEXT, username TEXT, display TEXT, is_group INTEGER,
-      msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
-    );
-    CREATE TABLE messages(
-      conv_id TEXT, seq INTEGER, time INTEGER, sender TEXT, sender_name TEXT,
-      type INTEGER, type_label TEXT, text TEXT
-    );
-    INSERT INTO conversations VALUES (
-      'fixture-conversation', 'legacy', 'fixture-user', '回退会话', 0, 1, 1, 1, 1, ''
-    );
-  `)
-  db.close()
-  return databasePath
-}
-
-function createCurrentDatabase(
-  root: string,
-  options: { missingMessageUid?: boolean; parseRuns?: number; run?: ParseRunOverrides } = {},
-) {
-  const databasePath = path.join(root, 'data', 'wechat.current', 'wechat.db')
-  fs.mkdirSync(path.dirname(databasePath), { recursive: true })
-  const db = new DatabaseSync(databasePath)
-  const messageUidColumn = options.missingMessageUid ? '' : 'message_uid TEXT,'
-  db.exec(`
-    CREATE TABLE contacts(
-      account TEXT, owner TEXT, username TEXT, display TEXT, nick TEXT, remark TEXT, alias TEXT, is_group INTEGER
-    );
-    CREATE TABLE conversations(
-      id TEXT, account TEXT, owner TEXT, username TEXT, display TEXT, is_group INTEGER,
-      msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
-    );
-    CREATE TABLE messages(
-      conv_id TEXT, ${messageUidColumn} seq INTEGER, source_snapshot TEXT, source_db TEXT, source_table TEXT,
-      local_id INTEGER, server_id TEXT, sort_seq INTEGER, time INTEGER, sender TEXT, sender_name TEXT,
-      sender_prefix TEXT, is_own INTEGER, sender_source TEXT, sender_audit TEXT,
-      raw_type INTEGER, type INTEGER, type_label TEXT, text TEXT
-    );
-    CREATE TABLE parse_runs(
-      run_id TEXT, status TEXT, completed_at TEXT,
-      selected_snapshot_count INTEGER, selected_source_count INTEGER,
-      source_conversation_count INTEGER, source_message_count INTEGER,
-      output_conversation_count INTEGER, output_message_count INTEGER, output_text_count INTEGER,
-      deduplicated_message_count INTEGER
-    );
-  `)
-  const run = options.run ?? {}
-  const insert = db.prepare('INSERT INTO parse_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-  for (let index = 0; index < (options.parseRuns ?? 1); index++) {
-    insert.run(
-      `run-${index}`,
-      run.status ?? 'complete',
-      run.completedAt ?? '2026-07-12T12:00:00.000Z',
-      1,
-      2,
-      1,
-      run.sourceMessages ?? 2,
-      1,
-      run.outputMessages ?? 2,
-      1,
-      run.deduplicatedMessages === undefined ? 0 : run.deduplicatedMessages,
-    )
-  }
-  db.close()
-  return databasePath
-}
+import {
+  createCurrentDatabase,
+  createLegacyDatabase,
+  fixtureRoot,
+} from './databaseOpenerTestFixtures.js'
 
 function currentRejection(root: string) {
   const opened = openValidatedWechatDatabase(root)
@@ -116,6 +21,23 @@ function currentRejection(root: string) {
   assert.equal(opened.resolution.rejections[0].source, 'current')
   return opened
 }
+
+test('opens the exact minimal legacy messages schema without requiring message_uid', (t) => {
+  const root = fixtureRoot(t)
+  createLegacyDatabase(root)
+
+  const opened = openValidatedWechatDatabase(root)
+  try {
+    assert.equal(opened.resolution.source, 'legacy')
+    assert.ok(opened.db)
+    const columns = opened.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
+    assert.deepEqual(columns.map((column) => column.name), [
+      'conv_id', 'seq', 'time', 'sender', 'sender_name', 'type', 'type_label', 'text',
+    ])
+  } finally {
+    opened.db?.close()
+  }
+})
 
 test('rejects a current database path that is a directory and opens valid legacy', (t) => {
   const root = fixtureRoot(t)
@@ -209,6 +131,66 @@ test('rejects missing canonical columns and opens valid legacy', (t) => {
   } finally {
     opened.db?.close()
   }
+})
+
+test('requires canonical v2 sequence columns on the current bundle', (t) => {
+  const root = fixtureRoot(t)
+  createCurrentDatabase(root, { missingCanonicalSequence: true })
+  createLegacyDatabase(root)
+
+  const opened = currentRejection(root)
+  try {
+    assert.equal(opened.resolution.rejections[0].code, 'invalid-schema')
+    assert.match(opened.resolution.rejections[0].detail, /messages\.canonical_seq/u)
+  } finally {
+    opened.db?.close()
+  }
+})
+
+test('rejects unsupported schema versions and invalid IANA archive time zones', (t) => {
+  const unsupportedRoot = fixtureRoot(t)
+  createCurrentDatabase(unsupportedRoot, { run: { schemaVersion: 1 } })
+  createLegacyDatabase(unsupportedRoot)
+  const unsupported = currentRejection(unsupportedRoot)
+  assert.equal(unsupported.resolution.rejections[0].code, 'invalid-parse-run')
+  unsupported.db?.close()
+
+  const invalidZoneRoot = fixtureRoot(t)
+  createCurrentDatabase(invalidZoneRoot, { run: { timeZone: 'localtime' } })
+  createLegacyDatabase(invalidZoneRoot)
+  const invalidZone = currentRejection(invalidZoneRoot)
+  assert.equal(invalidZone.resolution.rejections[0].code, 'invalid-parse-run')
+  invalidZone.db?.close()
+})
+
+test('rejects non-continuous canonical sequences even when legacy time fields look valid', (t) => {
+  const root = fixtureRoot(t)
+  createCurrentDatabase(root, { canonicalSequences: [0, 2] })
+  createLegacyDatabase(root)
+
+  const opened = currentRejection(root)
+  try {
+    assert.equal(opened.resolution.rejections[0].code, 'invalid-parse-run')
+    assert.match(opened.resolution.rejections[0].detail, /canonical sequence/iu)
+  } finally {
+    opened.db?.close()
+  }
+})
+
+test('rejects receipts that do not match actual canonical rows or bundle metadata', (t) => {
+  const countRoot = fixtureRoot(t)
+  createCurrentDatabase(countRoot, { run: { sourceMessages: 3, outputMessages: 3 } })
+  createLegacyDatabase(countRoot)
+  const countMismatch = currentRejection(countRoot)
+  assert.equal(countMismatch.resolution.rejections[0].code, 'invalid-parse-run')
+  countMismatch.db?.close()
+
+  const metadataRoot = fixtureRoot(t)
+  createCurrentDatabase(metadataRoot, { metadataTimeZone: 'America/Los_Angeles' })
+  createLegacyDatabase(metadataRoot)
+  const metadataMismatch = currentRejection(metadataRoot)
+  assert.equal(metadataMismatch.resolution.rejections[0].code, 'invalid-parse-run')
+  metadataMismatch.db?.close()
 })
 
 test('prefers a valid complete canonical current database', (t) => {

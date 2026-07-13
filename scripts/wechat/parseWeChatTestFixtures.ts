@@ -96,6 +96,33 @@ function createMessageDatabase(
   return dbPath
 }
 
+function createMediaDatabase(snapshotDir: string) {
+  const target = path.join(snapshotDir, 'db_storage', 'message', 'media_0.db')
+  const db = new DatabaseSync(target)
+  db.exec(`
+    CREATE TABLE VoiceInfo(
+      chat_name_id INTEGER, create_time INTEGER, local_id INTEGER,
+      svr_id INTEGER, voice_data BLOB, data_index TEXT
+    );
+    INSERT INTO VoiceInfo VALUES (1,1700000000,2,1004,x'0102','0');
+  `)
+  db.close()
+  return target
+}
+
+function createResourceDatabase(snapshotDir: string) {
+  const target = path.join(snapshotDir, 'db_storage', 'message', 'message_resource.db')
+  const db = new DatabaseSync(target)
+  db.exec(`
+    CREATE TABLE MessageResourceInfo(message_id INTEGER PRIMARY KEY, packed_info BLOB);
+    CREATE TABLE MessageResourceDetail(resource_id INTEGER PRIMARY KEY, message_id INTEGER, packed_info BLOB);
+    INSERT INTO MessageResourceInfo VALUES (1,x'01');
+    INSERT INTO MessageResourceDetail VALUES (2,1,x'02');
+  `)
+  db.close()
+  return target
+}
+
 export function createFixtureRoot(options: {
   conflictingDuplicate?: boolean
   conflictingEvidence?: boolean
@@ -160,19 +187,34 @@ export function createFixtureRoot(options: {
       realSenderId: 8, time: 1700000001, content: 'wxid_member:\n群聊中文正文',
     },
   ])
+  const newBizDb = createMessageDatabase(newSnapshot, 'biz_message_0.db', [[10, peer]], [
+    {
+      conversation: peer, localId: 7, serverId: '1004', rawType: '1', sortSeq: 15,
+      realSenderId: 10, time: 1700000000, content: '企业消息进入统一顺序',
+    },
+  ])
+  const mediaDb = createMediaDatabase(newSnapshot)
+  const resourceDb = createResourceDatabase(newSnapshot)
 
   const oldTime = new Date('2025-01-01T00:00:00Z')
   const newTime = new Date('2026-01-01T00:00:00Z')
   fs.utimesSync(oldDb, oldTime, oldTime)
   fs.utimesSync(newDb0, newTime, newTime)
   fs.utimesSync(newDb1, newTime, newTime)
+  fs.utimesSync(newBizDb, newTime, newTime)
+  fs.utimesSync(mediaDb, newTime, newTime)
+  fs.utimesSync(resourceDb, newTime, newTime)
   return root
 }
 
-export function runParser(root: string) {
+export function runParser(root: string, timeZone?: string) {
   return spawnSync(process.execPath, [tsxCli, parserPath], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, CHATFILES_RUN_ID: 'fixture-run' },
+    env: {
+      ...process.env,
+      CHATFILES_RUN_ID: 'fixture-run',
+      ...(timeZone ? { CHATFILES_TIME_ZONE: timeZone } : {}),
+    },
   })
 }

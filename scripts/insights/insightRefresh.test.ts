@@ -104,7 +104,10 @@ test('plans only new and materially grown conversations while preserving small i
     { ...current, id: 'wx:wxid_owner:same-peer', display: '未变化', textCount: 40 },
   ]
   const currentStates: InsightState[] = [
-    { ...states[0]!, convId: current.id, analyzedLastMessageUid: 'message-30' },
+    {
+      ...states[0]!, convId: current.id, analyzedLastMessageUid: 'message-30',
+      analyzedLastSequence: 29,
+    },
     { ...states[1]!, convId: 'wx:wxid_owner:small-peer' },
     { ...states[1]!, convId: 'wx:wxid_owner:same-peer' },
   ]
@@ -117,9 +120,13 @@ test('plans only new and materially grown conversations while preserving small i
       kind: 'grown',
       since: states[0]!.analyzedLastTime,
       sinceMessageUid: 'message-30',
+      sinceSequence: 29,
       previousTextCount: 30,
     },
-    { conversation: conversations[1], kind: 'new', since: 0, sinceMessageUid: '', previousTextCount: 0 },
+    {
+      conversation: conversations[1], kind: 'new', since: 0, sinceMessageUid: '',
+      sinceSequence: null, previousTextCount: 0,
+    },
   ])
   assert.deepEqual(result.metrics, {
     new: 1,
@@ -181,12 +188,14 @@ test('formats a bounded UTF-8 digest without splitting emoji or Chinese text', (
     current,
     'new',
     [{ time: 1_700_000_420, senderName: '孔德羽', text: `中文😀${'内容'.repeat(80)}` }],
-    90,
+    150,
+    'Asia/Shanghai',
   )
 
   assert.match(digest, /^会话：中文测试群（群聊）/u)
   assert.match(digest, /首次提炼/u)
-  assert.equal(Array.from(digest).length <= 90, true)
+  assert.match(digest, /\[2023-11-15 06:20:20 \+08:00\] 孔德羽:/u)
+  assert.equal(Array.from(digest).length <= 150, true)
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(digest), false)
 })
 
@@ -199,7 +208,7 @@ test('creates an evidence-bounded summary and topics for a new conversation', ()
     ],
   })
 
-  assert.match(result.conversation.summary, /新会话.*2023-11-14.*1 条/u)
+  assert.match(result.conversation.summary, /新会话.*2023-11-15.*1 条/u)
   assert.deepEqual(result.conversation.topics, ['资源工具'])
   assert.deepEqual(result.conversation.keyPeople, ['乙'])
 })

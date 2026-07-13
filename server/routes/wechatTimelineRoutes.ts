@@ -1,5 +1,5 @@
 import type { Router } from 'express'
-import { decodeTimelineCursor, encodeTimelineCursor, queryTimeline } from '../services/chatTimeline.js'
+import { decodeTimelineCursor, encodeTimelineAnchor, queryTimeline } from '../services/chatTimeline.js'
 import {
   canonicalWechatDatabase,
   sendError,
@@ -52,12 +52,11 @@ export function registerWechatTimelineRoutes(router: Router, deps: WechatRouterD
       if (!exists) return sendError(response, 404, 'not_found')
       let timelineInput = input
       if (input.aroundUid) {
-        const anchor = lease.db.prepare('SELECT time,message_uid FROM messages WHERE conv_id=? AND message_uid=?')
-          .get(conversationId, input.aroundUid) as { time: number; message_uid: string } | undefined
-        if (!anchor) return sendError(response, 404, 'not_found')
+        const around = encodeTimelineAnchor(lease.db, conversationId, input.aroundUid)
+        if (!around) return sendError(response, 404, 'not_found')
         const rest = { ...input }
         delete rest.aroundUid
-        timelineInput = { ...rest, around: encodeTimelineCursor({ time: Number(anchor.time), messageUid: anchor.message_uid }) }
+        timelineInput = { ...rest, around }
       }
       return response.json(queryTimeline(lease.db, { conversationId, ...timelineInput }))
     } catch {

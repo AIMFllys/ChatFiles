@@ -8,6 +8,7 @@ import type {
   ChatArtifactTab,
   ChatTextItem,
 } from '../../shared/contracts/chat.js'
+import { inspectMessageStorage, stableMessageUid } from './legacyMessageIdentity.js'
 
 export type ArtifactQueryInput = {
   collection?: 'outputs' | 'library'
@@ -36,9 +37,11 @@ type ArtifactRow = {
 }
 
 type ChatTextRow = {
-  message_uid: string
+  message_uid: string | null
   conv_id: string
+  sequence: number
   time: number
+  legacy_rowid: number
   sender_name: string
   text: string
 }
@@ -161,6 +164,8 @@ function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput) {
 }
 
 function queryChatTextItems(wechatDb: DatabaseSync, input: ArtifactQueryInput) {
+  const storage = inspectMessageStorage(wechatDb)
+  const canonical = storage.canonical
   const clauses = ['type=1']
   const params: string[] = []
   if (input.conversationId !== undefined) {
@@ -175,22 +180,34 @@ function queryChatTextItems(wechatDb: DatabaseSync, input: ArtifactQueryInput) {
   const where = clauses.join(' AND ')
   const matching = wechatDb.prepare(`SELECT count(*) AS count FROM messages WHERE ${where}`)
     .get(...params) as { count: number } | undefined
+  const timeProjection = canonical ? 'occurred_at_epoch_s AS time' : 'time'
+  const sequenceProjection = canonical ? 'canonical_seq AS sequence' : 'seq AS sequence'
+  const messageUidProjection = storage.hasMessageUid ? 'message_uid' : 'NULL AS message_uid'
+  const order = canonical
+    ? 'occurred_at_epoch_s DESC,conv_id,canonical_seq DESC'
+    : storage.messageUidGuaranteed
+      ? 'time DESC,message_uid ASC,rowid'
+      : 'time DESC,seq DESC,rowid DESC'
   const rows = wechatDb.prepare(`
-    SELECT message_uid, conv_id, time, sender_name, text
+    SELECT ${messageUidProjection}, conv_id, ${sequenceProjection}, ${timeProjection},
+           rowid AS legacy_rowid, sender_name, text
     FROM messages
     WHERE ${where}
-    ORDER BY time DESC, message_uid ASC
+    ORDER BY ${order}
     LIMIT ? OFFSET ?
   `).all(...params, input.limit, input.offset) as ChatTextRow[]
-  const items: ChatTextItem[] = rows.map((row) => ({
-    id: `chat:${row.message_uid}`,
-    itemType: 'chatText',
-    conversationId: row.conv_id,
-    messageUid: row.message_uid,
-    createdAt: Number(row.time),
-    senderName: row.sender_name,
-    content: row.text,
-  }))
+  const items: ChatTextItem[] = rows.map((row) => {
+    const messageUid = stableMessageUid(row, storage.hasMessageUid)
+    return {
+      id: `chat:${messageUid}`,
+      itemType: 'chatText',
+      conversationId: row.conv_id,
+      messageUid,
+      createdAt: Number(row.time),
+      senderName: row.sender_name,
+      content: row.text,
+    }
+  })
   return { matchingTotal: Number(matching?.count ?? 0), items }
 }
 

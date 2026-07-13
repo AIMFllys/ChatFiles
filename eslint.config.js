@@ -32,7 +32,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['{server,scripts,tools}/**/*.ts', 'vite.config.ts'],
+    files: ['{pipeline,server,scripts,tools}/**/*.ts', 'vite.config.ts'],
     languageOptions: {
       globals: globals.node,
     },

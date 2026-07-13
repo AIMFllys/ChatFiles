@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TimelineBucket, TimelineMessage, TimelinePage, TimelineParticipant } from '../../types'
-import { mergeTimelineMessages, trimTimelinePages, type TimelinePageWindow } from './timelineModel'
+import { DEFAULT_ARCHIVE_TIME_ZONE } from '../../../shared/time/archiveTime'
+import {
+  encodeBrowserTimelineCursor,
+  mergeTimelineMessages,
+  trimTimelinePages,
+  type TimelinePageWindow,
+} from './timelineModel'
 
 const PAGE_SIZE = 120
 const MAX_PAGES = 5
@@ -33,13 +39,6 @@ function pageWindow(page: TimelinePage): LoadedWindow {
   return { id: `${first}:${last}`, messages: page.messages, pageInfo: page.pageInfo }
 }
 
-function browserCursor(message: TimelineMessage) {
-  const bytes = new TextEncoder().encode(JSON.stringify([message.time, message.message_uid]))
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
-}
-
 export function useChatTimeline(conversationId: string, query: string, focusMessageUid?: string) {
   const [sender, setSender] = useState('')
   const [anchorRequest, setAnchorRequest] = useState<AnchorRequest>(() => (
@@ -48,6 +47,8 @@ export function useChatTimeline(conversationId: string, query: string, focusMess
   const [pages, setPages] = useState<LoadedWindow[]>([])
   const [participants, setParticipants] = useState<TimelineParticipant[]>([])
   const [buckets, setBuckets] = useState<TimelineBucket[]>([])
+  const [runId, setRunId] = useState('legacy')
+  const [timeZone, setTimeZone] = useState(DEFAULT_ARCHIVE_TIME_ZONE)
   const [resolvedScope, setResolvedScope] = useState('')
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [loadingNewer, setLoadingNewer] = useState(false)
@@ -77,6 +78,8 @@ export function useChatTimeline(conversationId: string, query: string, focusMess
         setPages([pageWindow(page)])
         setParticipants(page.participants)
         setBuckets(page.buckets)
+        setRunId(page.runId)
+        setTimeZone(page.timeZone)
         setFocusUid(anchorRequest?.messageUid)
         setErrorState(undefined)
         setResolvedScope(scope)
@@ -114,6 +117,8 @@ export function useChatTimeline(conversationId: string, query: string, focusMess
         const anchor = page.messages[Math.floor(page.messages.length / 2)]?.message_uid
         return trimTimelinePages(next, MAX_PAGES, anchor)
       })
+      setRunId(page.runId)
+      setTimeZone(page.timeZone)
       setRevision((value) => value + 1)
       return true
     } catch (reason) {
@@ -134,13 +139,16 @@ export function useChatTimeline(conversationId: string, query: string, focusMess
 
   const filterBySender = useCallback((nextSender: string, anchor?: TimelineMessage) => {
     setSender(nextSender)
-    setAnchorRequest(anchor ? { kind: 'cursor', value: browserCursor(anchor), messageUid: anchor.message_uid } : null)
-  }, [])
+    setAnchorRequest(anchor ? {
+      kind: 'cursor', value: encodeBrowserTimelineCursor(anchor, runId), messageUid: anchor.message_uid,
+    } : null)
+  }, [runId])
 
   return {
     messages,
     participants: active ? participants : [],
     buckets: active ? buckets : [],
+    timeZone,
     sender,
     loading,
     loadingOlder,

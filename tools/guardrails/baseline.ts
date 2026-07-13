@@ -14,9 +14,7 @@ export const GUARDRAIL_BASELINE = {
     ],
   },
   repository: {
-    allowedReplacementSignatures: [
-      'replacement-character:scripts/wechat/chatAudit.test.ts:106:67',
-    ],
+    allowedReplacementSignatures: [],
     oversizedLineCaps: {
       'tools/sqlcipher-snapshot/main.c': 355,
     },

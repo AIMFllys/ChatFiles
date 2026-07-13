@@ -7,6 +7,8 @@ type ChunkRow = {
   conversation_id: string
   first_message_uid: string
   last_message_uid: string
+  first_sequence: number
+  last_sequence: number
   start_time: number
   end_time: number
   sender_ids: string
@@ -29,6 +31,8 @@ function chunkFromRow(row: ChunkRow): SearchChunk {
     conversationId: row.conversation_id,
     firstMessageUid: row.first_message_uid,
     lastMessageUid: row.last_message_uid,
+    firstSequence: Number(row.first_sequence),
+    lastSequence: Number(row.last_sequence),
     startTime: row.start_time,
     endTime: row.end_time,
     senderIds,
@@ -83,7 +87,7 @@ export function keywordSearch(
   ]
   const exact = db.prepare(`
     SELECT c.* FROM search_chunks c WHERE ${exactWhere.join(' AND ')}
-    ORDER BY c.start_time DESC,c.chunk_id LIMIT ?
+    ORDER BY c.end_time DESC,c.conversation_id,c.last_sequence DESC,c.chunk_id LIMIT ?
   `).all(query, query, query, query, query, query, ...exactScope.values, candidates) as ChunkRow[]
 
   const merged = new Map<string, RankedSearchHit>()
@@ -98,7 +102,7 @@ export function keywordSearch(
       SELECT c.*,bm25(search_chunks_fts,1.0,0.45) AS relevance
       FROM search_chunks_fts JOIN search_chunks c ON c.id=search_chunks_fts.rowid
       WHERE search_chunks_fts MATCH ?${ftsScope.sql.length ? ` AND ${ftsScope.sql.join(' AND ')}` : ''}
-      ORDER BY relevance,c.chunk_id LIMIT ?
+      ORDER BY relevance,c.conversation_id,c.last_sequence DESC,c.chunk_id LIMIT ?
     `).all(expression, ...ftsScope.values, candidates) as ChunkRow[]
     for (const row of fts) {
       if (merged.has(row.chunk_id)) continue

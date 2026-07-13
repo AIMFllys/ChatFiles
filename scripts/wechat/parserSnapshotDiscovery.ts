@@ -2,10 +2,14 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import {
+  closeSnapshotSources,
+  openSnapshotSources,
+} from '../../pipeline/wechat/sourceDatabaseAdapter.js'
+import { readSourceMessages } from '../../pipeline/wechat/sourceReader.js'
 import { createMessageCoverageKey, type AccountSnapshot } from './messageModel.js'
 import { contactDisplayName, decodeContent, strictUtf8 } from './messageParsing.js'
-import { listMessageTables, loadMessageName2Id, readSourceMessages } from './sourceReader.js'
-import type { Contact, MessageSource, Session, SnapshotDescriptor } from './parserTypes.js'
+import type { Contact, Session, SnapshotDescriptor } from './parserTypes.js'
 
 export function compareText(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0
@@ -137,33 +141,6 @@ function readSessions(snapshotDir: string) {
   }
 }
 
-export function openMessageSources(snapshotDir: string): MessageSource[] {
-  const sourceDir = path.join(snapshotDir, 'db_storage', 'message')
-  const sources: MessageSource[] = []
-  try {
-    for (const filename of ['message_0.db', 'message_1.db']) {
-      const sourcePath = path.join(sourceDir, filename)
-      if (!fs.existsSync(sourcePath)) continue
-      const db = new DatabaseSync(sourcePath, { readOnly: true })
-      sources.push({
-        db,
-        filename,
-        tables: listMessageTables(db),
-        idToName: loadMessageName2Id(db),
-      })
-    }
-    if (sources.length === 0) throw new Error(`No message shards found under ${sourceDir}`)
-    return sources
-  } catch (error) {
-    for (const source of sources) source.db.close()
-    throw error
-  }
-}
-
-export function closeMessageSources(sources: readonly MessageSource[]) {
-  for (const source of sources) source.db.close()
-}
-
 export function hasServerId(serverId: string) {
   const value = serverId.trim()
   return value !== '' && value !== '0'
@@ -173,8 +150,14 @@ function loadSnapshot(snapshotDir: string, snapshotName: string, ownerFragment: 
   const contactMap = readContacts(snapshotDir)
   const owner = resolveOwner(contactMap, ownerFragment, snapshotName)
   const sessionMap = readSessions(snapshotDir)
-  const usernames = [...new Set([...contactMap.keys(), ...sessionMap.keys()])].sort(compareText)
-  const sources = openMessageSources(snapshotDir)
+  const opened = openSnapshotSources(snapshotDir)
+  const sources = opened.messageSources
+  if (sources.length === 0) throw new Error(`No supported message shards found in snapshot ${snapshotName}`)
+  const usernames = [...new Set([
+    ...contactMap.keys(),
+    ...sessionMap.keys(),
+    ...sources.flatMap((source) => [...source.conversationUsernames]),
+  ])].sort(compareText)
   try {
     const conversations: Array<AccountSnapshot['conversations'][number]> = []
     let sourceMessageCount = 0
@@ -216,8 +199,9 @@ function loadSnapshot(snapshotDir: string, snapshotName: string, ownerFragment: 
       owner,
       contactMap,
       sessionMap,
-      sourceCount: sources.length,
+      sourceCount: new Set(opened.inventory.map((unit) => unit.sourceDb)).size,
       sourceMessageCount,
+      sourceInventory: opened.inventory,
       selection: {
         snapshotId: snapshotName,
         ownerIdentity: owner,
@@ -226,7 +210,7 @@ function loadSnapshot(snapshotDir: string, snapshotName: string, ownerFragment: 
       },
     }
   } finally {
-    closeMessageSources(sources)
+    closeSnapshotSources(sources)
   }
 }
 

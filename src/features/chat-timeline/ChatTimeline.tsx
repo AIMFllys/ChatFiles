@@ -2,20 +2,14 @@ import { Loader2, MessageCircle, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TimelineMessage } from '../../types'
 import { firstCodePoint } from '../chat-library/artifactModel'
-import { groupTimelineMessages } from './timelineModel'
+import {
+  formatTimelineClock,
+  formatTimelineDateTime,
+  groupTimelineMessages,
+} from './timelineModel'
 import { PeoplePopover } from './PeoplePopover'
 import { TimelineRail } from './TimelineRail'
 import { useChatTimeline } from './useChatTimeline'
-
-function messageTime(timestamp: number) {
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    .format(new Date(timestamp * 1000))
-}
-
-function messageDateTime(timestamp: number) {
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'medium' })
-    .format(new Date(timestamp * 1000))
-}
 
 export function ChatTimeline({
   conversationId,
@@ -29,7 +23,10 @@ export function ChatTimeline({
   const timeline = useChatTimeline(conversationId, query, focusMessageUid)
   const [peopleOpen, setPeopleOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const renderItems = useMemo(() => groupTimelineMessages(timeline.messages), [timeline.messages])
+  const renderItems = useMemo(
+    () => groupTimelineMessages(timeline.messages, timeline.timeZone),
+    [timeline.messages, timeline.timeZone],
+  )
 
   useEffect(() => {
     const scroller = scrollRef.current
@@ -89,9 +86,12 @@ export function ChatTimeline({
           ) : (
             <div className="timeline-thread">
               {timeline.loadingOlder && <div className="timeline-page-loader"><Loader2 className="spin" size={13} /> 载入更早记录</div>}
-              {renderItems.map((item) => item.kind === 'day' ? (
-                <div className="timeline-day" key={item.key}><time>{item.label}</time></div>
-              ) : (
+              {renderItems.map((item) => {
+                if (item.kind === 'day') {
+                  return <div className="timeline-day" key={item.key}><time>{item.label}</time></div>
+                }
+                const timestamp = item.message.occurred_at_epoch_s ?? item.message.time
+                return (
                 <article
                   className={`timeline-message${item.showIdentity ? ' starts-run' : ''}${timeline.focusUid === item.message.message_uid ? ' is-highlighted' : ''}`}
                   id={`timeline-${item.message.message_uid}`}
@@ -103,14 +103,18 @@ export function ChatTimeline({
                       <button className="timeline-message-name" onClick={() => filterFromMessage(item.message)} type="button">
                         {item.message.sender_name || item.message.sender || '未知发送者'}
                       </button>
-                      <time dateTime={new Date(item.message.time * 1000).toISOString()} title={messageDateTime(item.message.time)}>
-                        {messageTime(item.message.time)}
+                      <time
+                        dateTime={new Date(timestamp * 1000).toISOString()}
+                        title={formatTimelineDateTime(timestamp, timeline.timeZone)}
+                      >
+                        {formatTimelineClock(timestamp, timeline.timeZone)}
                       </time>
                     </div>
                     <p>{item.message.text || `[${item.message.type_label || '消息'}]`}</p>
                   </div>
                 </article>
-              ))}
+                )
+              })}
               {timeline.loadingNewer && <div className="timeline-page-loader"><Loader2 className="spin" size={13} /> 载入更新记录</div>}
             </div>
           )}

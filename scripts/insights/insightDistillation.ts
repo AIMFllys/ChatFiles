@@ -1,4 +1,10 @@
 import { insightNuggetEvidenceKey } from './insightReconciliation.js'
+import {
+  DEFAULT_ARCHIVE_TIME_ZONE,
+  archiveDay,
+  formatArchiveTimestamp,
+  resolveArchiveTimeZone,
+} from '../../shared/time/archiveTime.js'
 import type {
   CurrentInsightConversation,
   InsightConversation,
@@ -64,7 +70,9 @@ export function distillInsightMessages(input: {
   kind: 'new' | 'grown'
   existing?: InsightConversation
   messages: InsightMessage[]
+  timeZone?: string
 }) {
+  const timeZone = resolveArchiveTimeZone(input.timeZone ?? DEFAULT_ARCHIVE_TIME_ZONE)
   const base: InsightConversation = input.existing
     ? {
         ...input.existing,
@@ -87,7 +95,10 @@ export function distillInsightMessages(input: {
   const eligible = input.messages.filter(isDistillableMessage)
   const selected = eligible
     .map((message) => ({ message, score: messageScore(message) }))
-    .sort((a, b) => b.score - a.score || a.message.time - b.message.time)
+    .sort((a, b) => b.score - a.score
+      || (a.message.canonicalSequence ?? Number.MAX_SAFE_INTEGER)
+        - (b.message.canonicalSequence ?? Number.MAX_SAFE_INTEGER)
+      || a.message.time - b.message.time)
     .slice(0, 5)
   const seen = new Set(base.nuggets.map(insightNuggetEvidenceKey))
   let addedNuggets = 0
@@ -99,7 +110,7 @@ export function distillInsightMessages(input: {
       title: insightTitle(normalized),
       content: truncateCodePoints(normalized, 140),
       people: message.senderName ? [message.senderName] : [],
-      date: new Date(message.time * 1000).toISOString().slice(0, 7),
+      date: archiveDay(message.time, timeZone).slice(0, 7),
       importance: Math.max(1, Math.min(5, Math.round(score / 50))),
     }
     const key = insightNuggetEvidenceKey(nugget)
@@ -121,8 +132,8 @@ export function distillInsightMessages(input: {
     const times = input.messages.map((message) => message.time).filter((time) => Number.isFinite(time))
     const firstTime = times.length > 0 ? Math.min(...times) : input.conversation.firstTime
     const lastTime = times.length > 0 ? Math.max(...times) : input.conversation.lastTime
-    const first = new Date(firstTime * 1000).toISOString().slice(0, 10)
-    const last = new Date(lastTime * 1000).toISOString().slice(0, 10)
+    const first = archiveDay(firstTime, timeZone)
+    const last = archiveDay(lastTime, timeZone)
     base.summary = `${input.conversation.display}${input.conversation.isGroup ? '群聊' : '私聊'}，覆盖 ${first} 至 ${last}，本轮提炼 ${addedNuggets} 条长期价值记录。`
   }
   return {
@@ -142,14 +153,16 @@ export function formatInsightDigest(
   kind: 'new' | 'grown',
   messages: InsightMessage[],
   cap = 52_000,
+  timeZone = DEFAULT_ARCHIVE_TIME_ZONE,
 ) {
+  const archiveTimeZone = resolveArchiveTimeZone(timeZone)
   const header = [
     `会话：${conversation.display}${conversation.isGroup ? '（群聊）' : '（私聊）'}`,
     `${kind === 'new' ? '全量（首次提炼）' : '增量（仅本次新增的尾部消息）'} · ${messages.length} 条文本`,
     '',
   ].join('\n')
   const lines = messages.map((message) => {
-    const time = new Date(message.time * 1000).toISOString().slice(0, 16).replace('T', ' ')
+    const time = formatArchiveTimestamp(message.time, archiveTimeZone)
     const sender = truncateCodePoints(message.senderName || '某人', 18)
     const text = message.text.replace(/\s+/gu, ' ').trim()
     return `[${time}] ${sender}: ${text}`

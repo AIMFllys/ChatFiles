@@ -24,6 +24,8 @@ export function reciprocalRankFusion(
     .sort((left, right) => (
       right.score - left.score
       || left.bestRank - right.bestRank
+      || left.hit.conversationId.localeCompare(right.hit.conversationId)
+      || right.hit.lastSequence - left.hit.lastSequence
       || left.hit.chunkId.localeCompare(right.hit.chunkId)
     ))
     .slice(0, limit)

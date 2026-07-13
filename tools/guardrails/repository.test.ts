@@ -45,6 +45,26 @@ test('allows 300 lines and rejects a new 301-line source file', (t) => {
   assert.match(issues[0]?.message ?? '', /src\/oversized\.ts.*301/u)
 })
 
+test('applies the source-size boundary to pipeline modules', (t) => {
+  const root = createFixture(t)
+  writeFixture(root, 'pipeline/oversized.ts', lines(301))
+  const issues = inspectSourceSizes(root, ['pipeline/oversized.ts'], EMPTY_REPOSITORY_BASELINE)
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0]?.path, 'pipeline/oversized.ts')
+})
+
+test('applies the source-size boundary to Python, SQL, and extensionless scripts', (t) => {
+  const root = createFixture(t)
+  const candidates = ['pipeline/query.sql', 'scripts/tool.py', 'tools/run']
+  writeFixture(root, candidates[0]!, lines(301))
+  writeFixture(root, candidates[1]!, lines(301))
+  writeFixture(root, candidates[2]!, `#!/usr/bin/env node\n${lines(300)}`)
+
+  const issues = inspectSourceSizes(root, candidates, EMPTY_REPOSITORY_BASELINE)
+
+  assert.deepEqual(issues.map((issue) => issue.path), candidates)
+})
+
 test('an oversized baseline is a per-file ceiling and never a blanket exemption', (t) => {
   const root = createFixture(t)
   writeFixture(root, 'tools/legacy.c', lines(333))
@@ -59,6 +79,34 @@ test('an oversized baseline is a per-file ceiling and never a blanket exemption'
   const issues = inspectSourceSizes(root, ['tools/legacy.c'], baseline)
   assert.equal(issues.length, 1)
   assert.match(issues[0]?.message ?? '', /baseline ceiling 333/u)
+})
+
+test('requires an oversized baseline cap to ratchet down with the current file', (t) => {
+  const root = createFixture(t)
+  writeFixture(root, 'tools/legacy.c', lines(332))
+  const baseline: RepositoryBaseline = {
+    allowedReplacementSignatures: [],
+    oversizedLineCaps: { 'tools/legacy.c': 333 },
+  }
+
+  const issues = inspectSourceSizes(root, ['tools/legacy.c'], baseline)
+
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0]?.kind, 'baseline-stale')
+})
+
+test('rejects an oversized baseline entry for a compliant 300-line file', (t) => {
+  const root = createFixture(t)
+  writeFixture(root, 'tools/compliant.c', lines(300))
+  const baseline: RepositoryBaseline = {
+    allowedReplacementSignatures: [],
+    oversizedLineCaps: { 'tools/compliant.c': 300 },
+  }
+
+  const issues = inspectSourceSizes(root, ['tools/compliant.c'], baseline)
+
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0]?.kind, 'baseline-stale')
 })
 
 test('accepts strict UTF-8 Chinese and rejects malformed byte sequences without leaking content', (t) => {
@@ -76,6 +124,45 @@ test('accepts strict UTF-8 Chinese and rejects malformed byte sequences without 
   assert.equal(issues[0]?.kind, 'invalid-utf8')
   assert.match(issues[0]?.message ?? '', /src\/broken\.ts/u)
   assert.doesNotMatch(issues[0]?.message ?? '', /export/u)
+})
+
+test('checks CSV and unknown text extensions while skipping declared binary formats', (t) => {
+  const root = createFixture(t)
+  writeFixture(root, 'docs/table.csv', Buffer.from([0x61, 0xff]))
+  writeFixture(root, 'docs/notes.custom', Buffer.from([0x62, 0xff]))
+  writeFixture(root, 'public/pixel.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff]))
+
+  const issues = inspectUtf8Files(
+    root,
+    ['docs/notes.custom', 'docs/table.csv', 'public/pixel.png'],
+    EMPTY_REPOSITORY_BASELINE,
+  )
+
+  assert.deepEqual(issues.map((issue) => issue.path), ['docs/notes.custom', 'docs/table.csv'])
+})
+
+test('rejects UTF-16LE and UTF-16BE text with or without a BOM', (t) => {
+  const root = createFixture(t)
+  const text = 'export const value = 1\n'
+  const littleEndian = Buffer.from(text, 'utf16le')
+  const bigEndian = Buffer.from(littleEndian)
+  for (let index = 0; index < bigEndian.length; index += 2) {
+    const first = bigEndian[index]!
+    bigEndian[index] = bigEndian[index + 1]!
+    bigEndian[index + 1] = first
+  }
+  const fixtures = {
+    'src/le-no-bom.ts': littleEndian,
+    'src/le-bom.ts': Buffer.concat([Buffer.from([0xff, 0xfe]), littleEndian]),
+    'src/be-no-bom.ts': bigEndian,
+    'src/be-bom.ts': Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]),
+  }
+  for (const [relativePath, content] of Object.entries(fixtures)) writeFixture(root, relativePath, content)
+
+  const issues = inspectUtf8Files(root, Object.keys(fixtures), EMPTY_REPOSITORY_BASELINE)
+
+  assert.deepEqual(issues.map((issue) => issue.path), Object.keys(fixtures).sort())
+  assert.equal(issues.every((issue) => issue.kind === 'invalid-utf8'), true)
 })
 
 test('replacement-character baseline is occurrence-exact and does not hide a new occurrence', (t) => {
@@ -103,6 +190,23 @@ test('replacement-character baseline is occurrence-exact and does not hide a new
   assert.match(second[0]?.signature ?? '', /:2:/u)
 })
 
+test('replacement baseline cannot be reused by different content at the same coordinate', (t) => {
+  const root = createFixture(t)
+  const replacement = String.fromCodePoint(0xfffd)
+  writeFixture(root, 'scripts/audit.test.ts', `export const fixture = '旧${replacement}'\n`)
+  const original = inspectUtf8Files(root, ['scripts/audit.test.ts'], EMPTY_REPOSITORY_BASELINE)
+  const baseline: RepositoryBaseline = {
+    allowedReplacementSignatures: [original[0]!.signature],
+    oversizedLineCaps: {},
+  }
+
+  writeFixture(root, 'scripts/audit.test.ts', `export const fixture = '新${replacement}'\n`)
+  const issues = inspectUtf8Files(root, ['scripts/audit.test.ts'], baseline)
+
+  assert.equal(issues.some((issue) => issue.kind === 'replacement-character'), true)
+  assert.equal(issues.some((issue) => issue.kind === 'baseline-stale'), true)
+})
+
 test('privacy guard rejects tracked private paths while allowing public templates', () => {
   const issues = inspectPrivacyPaths([
     '.env.example',
@@ -111,13 +215,43 @@ test('privacy guard rejects tracked private paths while allowing public template
     '.env.local',
     'data/wechat.db',
     'keys/private.pem',
+    'logs/chat.log',
+    'machine.local',
+    'scripts/_test_contact.png',
+    'scripts/aggregateInsightsByCategory.ts',
+    'scripts/find_image_key.py',
+    'scripts/tmp/chat.json',
     'tools/debug.exe',
   ])
 
   assert.deepEqual(
     issues.map((issue) => issue.path),
-    ['.env.local', 'data/wechat.db', 'keys/private.pem', 'tools/debug.exe'],
+    [
+      '.env.local',
+      'data/wechat.db',
+      'keys/private.pem',
+      'logs/chat.log',
+      'machine.local',
+      'scripts/_test_contact.png',
+      'scripts/aggregateInsightsByCategory.ts',
+      'scripts/find_image_key.py',
+      'scripts/tmp/chat.json',
+      'tools/debug.exe',
+    ],
   )
+})
+
+test('privacy guard catches representative ignored paths even when force-added', (t) => {
+  const root = createFixture(t)
+  execFileSync('git', ['init', '--quiet'], { cwd: root })
+  writeFixture(root, '.gitignore', 'logs/\nscripts/tmp/\nscripts/_test_*.png\n')
+  const privateFiles = ['logs/chat.log', 'scripts/_test_contact.png', 'scripts/tmp/chat.json']
+  for (const privateFile of privateFiles) writeFixture(root, privateFile, 'private')
+  execFileSync('git', ['add', '-f', ...privateFiles], { cwd: root })
+
+  const issues = inspectPrivacyPaths(listGitCandidateFiles(root))
+
+  assert.deepEqual(issues.map((issue) => issue.path), privateFiles)
 })
 
 test('git candidate discovery includes tracked private files and untracked non-ignored files', (t) => {

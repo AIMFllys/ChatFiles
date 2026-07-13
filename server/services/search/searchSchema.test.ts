@@ -23,8 +23,12 @@ test('creates a versioned FTS5 schema with a source and embedding fingerprint', 
   assert.ok(tables.includes('search_chunks'))
   assert.ok(tables.includes('search_chunks_fts'))
   assert.ok(tables.includes('search_vectors'))
+  const chunkColumns = db.prepare('PRAGMA table_info(search_chunks)').all()
+    .map((row) => String((row as { name: string }).name))
+  assert.ok(chunkColumns.includes('first_sequence'))
+  assert.ok(chunkColumns.includes('last_sequence'))
   assert.deepEqual(readSearchMetadata(db), {
-    schemaVersion: 1, sourceFingerprint: 'source-v1', chunkCount: 0,
+    schemaVersion: 2, sourceFingerprint: 'source-v1', chunkCount: 0,
     embeddingModel: 'fixture-embedding', embeddingDimensions: 3,
   })
   assert.deepEqual(validateSearchMetadata(db, {

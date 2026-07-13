@@ -8,6 +8,7 @@ import { insertSearchVectors, vectorSearch } from './vectorSearch.js'
 function chunk(id: string, conversationId: string, sender: string, time: number): SearchChunk {
   return {
     chunkId: id, conversationId, firstMessageUid: `${id}-first`, lastMessageUid: `${id}-last`,
+    firstSequence: time, lastSequence: time + 1,
     startTime: time, endTime: time + 5, senderIds: [sender], text: `向量证据 ${id}`,
     ngrams: '向量 证据', tokenCount: 20,
   }

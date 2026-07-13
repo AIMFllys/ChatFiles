@@ -4,15 +4,16 @@ import path from 'node:path'
 import ts from 'typescript'
 
 const MODULE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'] as const
-const SOURCE_LAYERS = ['shared', 'src', 'server', 'scripts', 'tools'] as const
+const SOURCE_LAYERS = ['shared', 'pipeline', 'src', 'server', 'scripts', 'tools'] as const
 
 type SourceLayer = (typeof SOURCE_LAYERS)[number]
 
 const ALLOWED_DEPENDENCIES: Record<SourceLayer, ReadonlySet<SourceLayer>> = {
   shared: new Set(['shared']),
+  pipeline: new Set(['pipeline', 'shared']),
   src: new Set(['src', 'shared']),
   server: new Set(['server', 'shared']),
-  scripts: new Set(['scripts', 'shared']),
+  scripts: new Set(['pipeline', 'scripts', 'shared']),
   tools: new Set(['tools']),
 }
 
@@ -21,7 +22,7 @@ export interface ArchitectureBaseline {
 }
 
 export interface ArchitectureIssue {
-  kind: 'dependency-direction' | 'cycle-edge'
+  kind: 'baseline-stale' | 'dependency-direction' | 'cycle-edge'
   signature: string
   message: string
 }
@@ -127,10 +128,11 @@ function buildGraph(root: string, relativePaths?: readonly string[]) {
 
   for (const modulePath of modules) {
     const relativePath = relativeModule(root, modulePath)
-    const imports = ts.preProcessFile(fs.readFileSync(modulePath, 'utf8'), true, true).importedFiles
+    const preprocessed = ts.preProcessFile(fs.readFileSync(modulePath, 'utf8'), true, true)
+    const references = [...preprocessed.importedFiles, ...preprocessed.referencedFiles]
     const dependencies = new Set<string>()
-    for (const imported of imports) {
-      const resolved = resolveImport(root, modulePath, imported.fileName, absoluteModules)
+    for (const reference of references) {
+      const resolved = resolveImport(root, modulePath, reference.fileName, absoluteModules)
       if (resolved) dependencies.add(relativeModule(root, resolved))
     }
     graph.set(relativePath, dependencies)
@@ -225,5 +227,15 @@ export function inspectArchitecture(
     left.signature.localeCompare(right.signature),
   )
   const allowed = new Set(baseline.allowedIssueSignatures)
-  return { allIssues, issues: allIssues.filter((issue) => !allowed.has(issue.signature)) }
+  const actual = new Set(allIssues.map((issue) => issue.signature))
+  const staleBaseline = [...allowed]
+    .filter((signature) => !actual.has(signature))
+    .map((signature): ArchitectureIssue => ({
+      kind: 'baseline-stale',
+      signature: `baseline-stale:${signature}`,
+      message: `architecture baseline no longer matches an existing issue: ${signature}`,
+    }))
+  const issues = [...allIssues.filter((issue) => !allowed.has(issue.signature)), ...staleBaseline]
+    .sort((left, right) => left.signature.localeCompare(right.signature))
+  return { allIssues, issues }
 }

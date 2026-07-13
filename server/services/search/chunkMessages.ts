@@ -95,6 +95,8 @@ function makeChunk(units: readonly Unit[], index: number): SearchChunk {
     conversationId: first.conversationId,
     firstMessageUid: first.messageUid,
     lastMessageUid: last.messageUid,
+    firstSequence: first.sequence,
+    lastSequence: last.sequence,
     startTime: first.time,
     endTime: last.time,
     senderIds: [...new Set(units.map((unit) => unit.sender).filter(Boolean))],

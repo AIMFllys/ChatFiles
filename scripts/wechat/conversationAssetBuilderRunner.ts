@@ -8,6 +8,7 @@ import { normalizeMessageType } from './messageModel.js'
 import { createResourceFileIndex, matchResourceFile } from './resourceFileMatcher.js'
 import { parsePackedInfoEvidence } from './resourcePackedInfo.js'
 import { artifactCounts, artifactInserter, createOutputSchema } from './conversationAssetBuilderSchema.js'
+import { resolveConversationAssetSourceScope } from './conversationAssetSourceScope.js'
 import {
   CANONICAL_LOCAL_LOOKUP_PREDICATE,
   CANONICAL_SERVER_LOOKUP_PREDICATE,
@@ -55,11 +56,16 @@ export function runConversationAssetBuilder(options: {
 
   const wechat = new DatabaseSync(options.wechatDbPath, { readOnly: true })
   const resources = new DatabaseSync(options.resourceDbPath, { readOnly: true })
-  const sourceDatabases = openSourceDatabases(options.sourceSnapshotRoot)
+  const sourceDatabases = new Map<string, DatabaseSync>()
   const output = new DatabaseSync(databasePath)
   const metrics = emptyConversationAssetMetrics()
 
   try {
+    const sourceScope = resolveConversationAssetSourceScope(wechat, options.sourceSnapshotRoot)
+    for (const [filename, database] of openSourceDatabases(
+      options.sourceSnapshotRoot,
+      sourceScope.sourceDatabases,
+    )) sourceDatabases.set(filename, database)
     createOutputSchema(output)
     const insertArtifact = artifactInserter(output)
     const fileIndex = createResourceFileIndex(discoverResourceFiles(options.accountRoot))
@@ -70,24 +76,17 @@ export function runConversationAssetBuilder(options: {
     }>) {
       chats.set(Number(row.id), row.user_name)
     }
-    const conversationIds = new Map<string, string>()
-    for (const row of wechat.prepare('SELECT id, username FROM conversations').all() as Array<{
-      id: string
-      username: string
-    }>) {
-      conversationIds.set(row.username, row.id)
-    }
     const canonicalLocalStatement = wechat.prepare(`
       SELECT ${MESSAGE_COLUMNS}
       FROM messages m JOIN conversations c ON c.id=m.conv_id
       WHERE ${CANONICAL_LOCAL_LOOKUP_PREDICATE}
-      ORDER BY m.source_db, m.message_uid
+      ORDER BY m.canonical_seq
     `)
     const canonicalServerStatement = wechat.prepare(`
       SELECT ${MESSAGE_COLUMNS}
       FROM messages m JOIN conversations c ON c.id=m.conv_id
       WHERE ${CANONICAL_SERVER_LOOKUP_PREDICATE}
-      ORDER BY m.source_db, m.message_uid
+      ORDER BY m.canonical_seq
     `)
     const readOrigin = sourceOriginReader(sourceDatabases)
     const resourceStatement = resources.prepare(RESOURCE_QUERY)
@@ -112,7 +111,7 @@ export function runConversationAssetBuilder(options: {
           const table = chatScope
             ? `Msg_${crypto.createHash('md5').update(chatScope, 'utf8').digest('hex')}`
             : ''
-          const convId = conversationIds.get(chatScope)
+          const convId = sourceScope.conversationIds.get(chatScope)
           const localId = safeInteger(row.message_local_id, 'message_local_id')
           const serverId = normalizeServerId(row.message_svr_id)
           const outputRowsByUid = new Map<string, OutputMessageRow>()
@@ -132,7 +131,7 @@ export function runConversationAssetBuilder(options: {
             }
           }
           const outputRows = [...outputRowsByUid.values()]
-            .sort((left, right) => left.source_db < right.source_db ? -1 : left.source_db > right.source_db ? 1 : 0)
+            .sort((left, right) => left.canonical_seq - right.canonical_seq)
           const messages = outputRows.map((messageRow) => toAssetMessage(
             messageRow,
             readOrigin(messageRow.source_db, messageRow.source_table, Number(messageRow.local_id)),
@@ -215,10 +214,10 @@ export function runConversationAssetBuilder(options: {
       const textStatement = wechat.prepare(`
         SELECT ${MESSAGE_COLUMNS}
         FROM messages m JOIN conversations c ON c.id=m.conv_id
-        WHERE m.text<>''
-        ORDER BY m.time, m.message_uid
+        WHERE m.source_snapshot=? AND m.text<>''
+        ORDER BY m.conv_id, m.canonical_seq
       `)
-      for (const row of textStatement.iterate() as Iterable<OutputMessageRow>) {
+      for (const row of textStatement.iterate(sourceScope.snapshotId) as Iterable<OutputMessageRow>) {
         const message = toAssetMessage(row, 0)
         for (const link of createLinkArtifacts(message)) insertArtifact(link)
         if (message.normalized_type === 34) {
@@ -233,7 +232,7 @@ export function runConversationAssetBuilder(options: {
       throw error
     }
 
-    const counts = artifactCounts(output, wechat)
+    const counts = artifactCounts(output, wechat, sourceScope.snapshotId)
     output.prepare('INSERT INTO asset_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
       options.runId,
       'complete',

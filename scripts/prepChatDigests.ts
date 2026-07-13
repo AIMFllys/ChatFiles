@@ -7,9 +7,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import {
+  DEFAULT_ARCHIVE_TIME_ZONE,
+  archiveDay,
+  formatArchiveTimestamp,
+  resolveArchiveTimeZone,
+} from '../shared/time/archiveTime.js'
 
 const root = path.resolve(process.cwd())
-const db = new DatabaseSync(path.join(root, 'data', 'wechat.db'), { readOnly: true })
+const currentDatabase = path.join(root, 'data', 'wechat.current', 'wechat.db')
+const legacyDatabase = path.join(root, 'data', 'wechat.db')
+const db = new DatabaseSync(fs.existsSync(currentDatabase) ? currentDatabase : legacyDatabase, { readOnly: true })
 const digestDir = path.join(root, 'work', 'chat-digest')
 const manifestPath = path.join(root, 'data', 'insights', '_manifest.json')
 fs.mkdirSync(digestDir, { recursive: true })
@@ -17,6 +25,18 @@ fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
 
 const MIN_TEXT = 20
 const CAP_CHARS = 48000
+
+const messageColumns = new Set(
+  (db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>).map((row) => row.name),
+)
+const canonical = messageColumns.has('canonical_seq') && messageColumns.has('occurred_at_epoch_s')
+const parseRunColumns = new Set(
+  (db.prepare('PRAGMA table_info(parse_runs)').all() as Array<{ name: string }>).map((row) => row.name),
+)
+const configuredTimeZone = parseRunColumns.has('time_zone')
+  ? String((db.prepare('SELECT time_zone FROM parse_runs LIMIT 1').get() as { time_zone?: string } | undefined)?.time_zone ?? '')
+  : undefined
+const timeZone = resolveArchiveTimeZone(configuredTimeZone || DEFAULT_ARCHIVE_TIME_ZONE)
 
 function safe(id: string) {
   return id.replace(/[<>:"/\\|?*@ -]/g, '_').slice(0, 90)
@@ -34,12 +54,14 @@ for (const c of convs) {
   const name = String(c.display)
   const isGroup = Number(c.is_group) === 1
   const rows = db
-    .prepare(`SELECT time, sender_name, text FROM messages WHERE conv_id=? AND type=1 AND length(text)>0 ORDER BY time`)
+    .prepare(`SELECT ${canonical ? 'occurred_at_epoch_s AS time' : 'time'}, sender_name, text
+      FROM messages WHERE conv_id=? AND type=1 AND length(text)>0
+      ORDER BY ${canonical ? 'canonical_seq' : 'time,seq'}`)
     .all(convId) as Array<{ time: number; sender_name: string; text: string }>
   if (rows.length === 0) continue
 
   const fmt = (r: { time: number; sender_name: string; text: string }) => {
-    const dt = new Date(r.time * 1000).toISOString().slice(0, 16).replace('T', ' ')
+    const dt = formatArchiveTimestamp(Number(r.time), timeZone)
     const who = (r.sender_name || '某人').slice(0, 18)
     return `[${dt}] ${who}: ${r.text.replace(/\s+/g, ' ').trim()}`
   }
@@ -68,8 +90,8 @@ for (const c of convs) {
     lines = [...head, '... [按信息量抽样的其余消息] ...', ...picked.map((p) => p.line)]
   }
 
-  const firstS = new Date(Number(c.first_time) * 1000).toISOString().slice(0, 10)
-  const lastS = new Date(Number(c.last_time) * 1000).toISOString().slice(0, 10)
+  const firstS = archiveDay(Number(c.first_time), timeZone)
+  const lastS = archiveDay(Number(c.last_time), timeZone)
   const header = `会话：${name}${isGroup ? '（群聊）' : '（私聊）'}\n消息数：${c.msg_count}（文本 ${c.text_count}）\n时间：${firstS} ~ ${lastS}${sampled ? '\n注意：本会话很大，已按信息量抽样' : ''}\n\n`
   const body = (header + lines.join('\n')).slice(0, CAP_CHARS + 4000)
   const digestPath = path.join(digestDir, `${safe(convId)}.txt`)

@@ -1,4 +1,7 @@
-import type { DatabaseSync } from 'node:sqlite'
+import type {
+  MessageDatabaseSource,
+  SourceInventoryUnit,
+} from '../../pipeline/wechat/sourceDatabaseAdapter.js'
 import type { AccountSnapshot } from './messageModel.js'
 
 export type Contact = {
@@ -21,24 +24,22 @@ export type SnapshotDescriptor = {
   selection: AccountSnapshot
   sourceCount: number
   sourceMessageCount: number
+  sourceInventory: SourceInventoryUnit[]
 }
 
-export type MessageSource = {
-  db: DatabaseSync
-  filename: string
-  tables: Set<string>
-  idToName: Map<number, string>
-}
+export type MessageSource = MessageDatabaseSource
 
 export type ParsedMessage = {
   messageUid: string
   sourceSnapshot: string
   sourceDb: string
+  sourceDomain: 'biz' | 'regular'
   sourceTable: string
   localId: number
   serverId: string
   sortSeq: number
   time: number
+  archiveDay: string
   sender: string
   senderName: string
   senderPrefix: string
@@ -48,6 +49,8 @@ export type ParsedMessage = {
   rawType: string
   type: number
   typeLabel: string
+  contentKind: string
+  structuredContentJson: string
   text: string
 }
 

@@ -1,4 +1,5 @@
-export type { WechatMessage } from './chatIdentity.js'
+export type { MessageDto, WechatMessage } from './chatIdentity.js'
+export { messageDtoSchema } from './chatIdentity.js'
 export type {
   TimelineBucket,
   TimelineCursor,
