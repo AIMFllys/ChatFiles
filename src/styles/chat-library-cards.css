@@ -28,12 +28,12 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: color-mix(in srgb, var(--bg-3) 88%, var(--jade));
+  background: color-mix(in srgb, var(--bg-3) 94%, var(--jade));
 }
 
-.artifact-document .artifact-card-preview { background: color-mix(in srgb, var(--bg-3) 82%, var(--accent)); }
-.artifact-skill .artifact-card-preview { background: color-mix(in srgb, var(--bg-3) 82%, var(--warning)); }
-.artifact-link .artifact-card-preview { background: color-mix(in srgb, var(--bg-3) 82%, var(--violet)); }
+.artifact-document .artifact-card-preview { background: color-mix(in srgb, var(--bg-3) 91%, var(--accent)); }
+.artifact-skill .artifact-card-preview { background: color-mix(in srgb, var(--bg-3) 91%, var(--warning)); }
+.artifact-link .artifact-card-preview { background: color-mix(in srgb, var(--bg-3) 91%, var(--violet)); }
 
 .artifact-card-preview img {
   width: 100%;
@@ -76,22 +76,31 @@
   padding: 3px 7px;
   overflow: hidden;
   border-radius: 6px;
-  background: var(--success);
-  color: var(--chromatic-contrast);
+  border: 1px solid color-mix(in srgb, var(--success) 35%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-2));
+  color: var(--success);
   font-size: 10px;
   font-weight: 750;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 40%, transparent);
+  box-shadow: none;
 }
 
 .artifact-card[data-availability="missing_source"] .artifact-state,
 .artifact-card[data-availability="source_unavailable"] .artifact-state,
 .artifact-card[data-availability="source_ambiguous"] .artifact-state,
-.artifact-card[data-availability="hash_mismatch"] .artifact-state { background: var(--ink-mute); }
+.artifact-card[data-availability="hash_mismatch"] .artifact-state {
+  border-color: var(--line);
+  background: var(--bg-2);
+  color: var(--ink-mute);
+}
 .artifact-card[data-availability="decrypt_failed"] .artifact-state,
-.artifact-card[data-availability="unsupported_codec"] .artifact-state { background: var(--warning); }
+.artifact-card[data-availability="unsupported_codec"] .artifact-state {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--line));
+  background: color-mix(in srgb, var(--warning) 12%, var(--bg-2));
+  color: var(--warning);
+}
 
 .artifact-card-copy {
   min-height: 92px;

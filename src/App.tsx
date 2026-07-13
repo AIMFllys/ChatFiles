@@ -42,7 +42,15 @@ import {
 import { loadAIConfig, type AIConfig } from './utils/aiConfig'
 import type { BrowsableFile } from './utils/tree'
 import { useTheme } from './hooks/useTheme'
+import { nextThemePreference, type ThemePreference } from './hooks/themeModel'
+import { BrandMark } from './components/brand/BrandMark'
 import './App.css'
+
+const themeNames: Record<ThemePreference, string> = {
+  system: '跟随系统',
+  light: '浅色模式',
+  dark: '深色模式',
+}
 
 function App() {
   const { preference: themePreference, setPreference: setThemePreference } = useTheme()
@@ -97,6 +105,8 @@ function App() {
     isConfig ? 'cfg' : '',
     activeTab === 'chat' ? 'chat-workspace' : '',
   ].filter(Boolean).join(' ')
+  const nextTheme = nextThemePreference(themePreference)
+  const ThemeIcon = themePreference === 'system' ? Monitor : themePreference === 'light' ? Sun : Moon
 
   const renderNav = (items: typeof PRIMARY_NAV, label: string) => (
     <nav className={`rail-nav${label === '配置' ? ' secondary' : ''}`} aria-label={label}>
@@ -120,16 +130,7 @@ function App() {
     <main className="app-shell">
       <aside className="left-rail">
         <div className="brand-mark" title="午夜书斋">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor" width="28" height="28">
-            <path d="M32 3 Q32 10 39 10 Q32 10 32 17 Q32 10 25 10 Q32 10 32 3 Z" />
-            <path d="M19 12 Q19 15 22 15 Q19 15 19 18 Q19 15 16 15 Q19 15 19 12 Z" opacity="0.8" />
-            <path d="M45 8 Q45 11 48 11 Q45 11 45 14 Q45 11 42 11 Q45 11 45 8 Z" opacity="0.8" />
-            <path d="M10 45 C17 42 24 42 29 46" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-            <path d="M54 45 C47 42 40 42 35 46" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-            <path d="M30 24 C24 20 17 20 12 23 C11.4 23.3 11 23.9 11 24.5 L11 42.5 C11 43.4 11.8 44 12.6 43.8 C17.6 42.5 24 42.5 29.4 44.3 C29.8 44.4 30 44.2 30 43.8 Z" />
-            <path d="M34 24 C40 20 47 20 52 23 C52.6 23.3 53 23.9 53 24.5 L53 42.5 C53 43.4 52.2 44 51.4 43.8 C46.4 42.5 40 42.5 34.6 44.3 C34.2 44.4 34 44.2 34 43.8 Z" />
-            <path d="M31 22 L31 51 L32 49 L33 51 L33 22 Z" opacity="0.9" />
-          </svg>
+          <BrandMark />
         </div>
         {renderNav(PRIMARY_NAV, '成果')}
         <div className="rail-div" />
@@ -158,25 +159,15 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="theme-switcher" role="group" aria-label="外观模式">
-          {([
-            { id: 'system' as const, label: '跟随系统', icon: <Monitor size={14} /> },
-            { id: 'light' as const, label: '浅色模式', icon: <Sun size={14} /> },
-            { id: 'dark' as const, label: '深色模式', icon: <Moon size={14} /> },
-          ]).map((theme) => (
-            <button
-              aria-label={theme.label}
-              aria-pressed={themePreference === theme.id}
-              className={themePreference === theme.id ? 'active' : ''}
-              key={theme.id}
-              onClick={() => setThemePreference(theme.id)}
-              title={theme.label}
-              type="button"
-            >
-              {theme.icon}
-            </button>
-          ))}
-        </div>
+        <button
+          aria-label={`当前${themeNames[themePreference]}，切换到${themeNames[nextTheme]}`}
+          className="theme-cycle-button"
+          onClick={() => setThemePreference(nextTheme)}
+          title={`外观：${themeNames[themePreference]}`}
+          type="button"
+        >
+          <ThemeIcon size={17} />
+        </button>
       </aside>
 
       <section className={workspaceClass}>

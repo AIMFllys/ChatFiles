@@ -30,8 +30,9 @@ test('removes every chat chrome blur when reduced transparency is requested', ()
 })
 
 test('keeps the compact theme control above the minimum pointer target', () => {
-  assert.match(layoutCss, /\.theme-switcher\s*\{[\s\S]*?width:\s*82px/u)
-  assert.match(layoutCss, /\.theme-switcher button\s*\{[\s\S]*?min-width:\s*24px[\s\S]*?height:\s*30px/u)
+  assert.match(layoutCss, /\.theme-cycle-button\s*\{[\s\S]*?width:\s*38px[\s\S]*?height:\s*38px/u)
+  assert.doesNotMatch(layoutCss, /\.theme-switcher/u)
+  assert.match(appSource, /className="theme-cycle-button"/u)
 })
 
 test('announces the current global destination', () => {

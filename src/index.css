@@ -1,54 +1,60 @@
 :root,
 :root[data-theme='light'] {
-  --bg: #f5f5f7;
-  --bg-2: #ffffff;
-  --bg-3: #ececf0;
-  --line: #d7d7dc;
-  --line-2: #b8bbc2;
-  --ink: #1d1d1f;
-  --ink-soft: #424245;
-  --ink-mute: #6e6e73;
-  --accent: #0677d8;
-  --accent-strong: #005eb8;
+  --bg: #f1f1ef;
+  --bg-2: #fbfbfa;
+  --bg-3: #e8e9e7;
+  --line: #d0d2d0;
+  --line-2: #aeb2b1;
+  --ink: #202326;
+  --ink-soft: #454a4e;
+  --ink-mute: #71777b;
+  --accent: #315d80;
+  --accent-strong: #234864;
   --accent-contrast: #ffffff;
   --chromatic-contrast: #ffffff;
-  --success: #13835f;
-  --warning: #a65300;
-  --danger: #c53d37;
-  --violet: #7657c7;
-  --surface-material: rgba(255, 255, 255, 0.82);
-  --surface-strong: rgba(255, 255, 255, 0.96);
+  --brand: #20394e;
+  --brand-contrast: #f7f3ea;
+  --copper: #936943;
+  --success: #4c725f;
+  --warning: #89663e;
+  --danger: #95544f;
+  --violet: #655f76;
+  --surface-material: rgba(244, 244, 241, 0.88);
+  --surface-strong: rgba(251, 251, 250, 0.97);
   --scrim: rgba(0, 0, 0, 0.34);
-  --shadow: 0 16px 38px -22px rgba(28, 28, 30, 0.34);
-  --shadow-raised: 0 24px 60px -30px rgba(28, 28, 30, 0.42);
+  --shadow: 0 16px 36px -24px rgba(23, 31, 37, 0.32);
+  --shadow-raised: 0 24px 54px -30px rgba(23, 31, 37, 0.4);
 }
 
 :root[data-theme='dark'] {
-  --bg: #101012;
-  --bg-2: #1c1c1e;
-  --bg-3: #2c2c2e;
-  --line: #38383a;
-  --line-2: #515154;
-  --ink: #f5f5f7;
-  --ink-soft: #d1d1d6;
-  --ink-mute: #98989d;
-  --accent: #64a9ff;
-  --accent-strong: #8ec1ff;
-  --accent-contrast: #07182b;
+  --bg: #111416;
+  --bg-2: #1a1e21;
+  --bg-3: #24292d;
+  --line: #343a3f;
+  --line-2: #50585e;
+  --ink: #f2f1ed;
+  --ink-soft: #ced0ce;
+  --ink-mute: #969c9e;
+  --accent: #8eb2ce;
+  --accent-strong: #b1ccdf;
+  --accent-contrast: #12202b;
   --chromatic-contrast: #101012;
-  --success: #4bd69a;
-  --warning: #ffad33;
-  --danger: #ff6961;
-  --violet: #b89cff;
-  --surface-material: rgba(28, 28, 30, 0.84);
-  --surface-strong: rgba(28, 28, 30, 0.97);
+  --brand: #d3b38b;
+  --brand-contrast: #17232b;
+  --copper: #c9a277;
+  --success: #83ad96;
+  --warning: #c4a16f;
+  --danger: #d18a83;
+  --violet: #aaa2bd;
+  --surface-material: rgba(26, 30, 33, 0.9);
+  --surface-strong: rgba(26, 30, 33, 0.98);
   --scrim: rgba(0, 0, 0, 0.54);
   --shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.72);
   --shadow-raised: 0 30px 76px -34px rgba(0, 0, 0, 0.88);
 }
 
 :root {
-  --gold: var(--accent);
+  --gold: var(--copper);
   --gold-2: var(--accent-strong);
   --jade: var(--success);
   --rust: var(--danger);

@@ -153,7 +153,7 @@
 }
 
 .collection-icon-library { background: var(--success); }
-.collection-icon-outputs { background: var(--warning); }
+.collection-icon-outputs { background: var(--copper); }
 
 .collection-row > span:last-child {
   min-width: 0;
@@ -217,12 +217,13 @@
   width: 42px;
   height: 42px;
   border-radius: 8px;
-  background: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--line-2) 72%, transparent);
+  background: color-mix(in srgb, var(--ink-mute) 72%, var(--bg-3));
   font-size: 15px;
 }
 
-.conversation-avatar.is-group { background: var(--danger); }
-.conversation-avatar.is-private { background: var(--success); }
+.conversation-avatar.is-group { background: color-mix(in srgb, var(--accent) 72%, var(--bg-3)); }
+.conversation-avatar.is-private { background: color-mix(in srgb, var(--success) 72%, var(--bg-3)); }
 
 .conversation-copy {
   min-width: 0;

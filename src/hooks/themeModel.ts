@@ -13,3 +13,9 @@ export function resolveTheme(preference: ThemePreference, systemPrefersDark: boo
 export function serializeThemePreference(preference: ThemePreference) {
   return preference
 }
+
+export function nextThemePreference(preference: ThemePreference): ThemePreference {
+  if (preference === 'system') return 'light'
+  if (preference === 'light') return 'dark'
+  return 'system'
+}
