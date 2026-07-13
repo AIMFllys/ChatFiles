@@ -1,107 +1,10 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import test, { type TestContext } from 'node:test'
-import { DatabaseSync } from 'node:sqlite'
-
-import express from 'express'
+import test from 'node:test'
 import JSZip from 'jszip'
-
-import { createApp } from '../app.js'
-import { createWechatRouter, type WechatRouterDependencies } from './wechat.js'
-
-function fixture(t: TestContext) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-wechat-http-'))
-  const accountRoot = path.join(root, 'wxid_fixture')
-  fs.mkdirSync(accountRoot)
-  const assetDb = new DatabaseSync(':memory:')
-  const wechatDb = new DatabaseSync(':memory:')
-  assetDb.exec(`
-    CREATE TABLE artifacts(
-      asset_id TEXT PRIMARY KEY, conv_id TEXT, category TEXT, kind TEXT, name TEXT,
-      preview TEXT, url TEXT, source_relative_path TEXT, source_size INTEGER,
-      created_at INTEGER, sender_name TEXT, text TEXT, materialization TEXT,
-      preview_status TEXT, failure_reason TEXT
-    );
-  `)
-  wechatDb.exec(`
-    CREATE TABLE conversations(
-      id TEXT PRIMARY KEY, account TEXT, username TEXT, display TEXT, is_group INTEGER,
-      msg_count INTEGER, text_count INTEGER, first_time INTEGER, last_time INTEGER, summary TEXT
-    );
-    CREATE TABLE messages(
-      conv_id TEXT, message_uid TEXT PRIMARY KEY, seq INTEGER, time INTEGER,
-      sender TEXT, sender_name TEXT, type INTEGER, type_label TEXT, text TEXT
-    );
-    INSERT INTO conversations VALUES ('conv-a', 'private-account', 'user-a', '测试会话', 0, 1, 1, 100, 100, '');
-    INSERT INTO messages VALUES ('conv-a', 'm-1', 1, 100, 'sender', '张三', 1, 'text', '中文消息');
-  `)
-  const insert = assetDb.prepare('INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-  let sequence = 0
-  const addAsset = (options: {
-    kind?: string
-    name?: string
-    preview?: string
-    relativePath?: string | null
-    content?: string | Buffer
-    materialization?: string
-    previewStatus?: string
-    url?: string | null
-    convId?: string | null
-  } = {}) => {
-    sequence += 1
-    const id = sequence.toString(16).padStart(64, '0')
-    const relativePath = options.relativePath === undefined ? `file-${sequence}.txt` : options.relativePath
-    let sourceSize: number | null = null
-    if (relativePath !== null && options.content !== undefined) {
-      const target = path.join(accountRoot, ...relativePath.split('/'))
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      fs.writeFileSync(target, options.content)
-      sourceSize = fs.statSync(target).size
-    }
-    insert.run(
-      id, options.convId === undefined ? 'conv-a' : options.convId, 'document', options.kind ?? 'resource',
-      options.name ?? path.basename(relativePath ?? 'missing'), options.preview ?? 'text', options.url ?? null,
-      relativePath, sourceSize, 100, '张三', 'private full text',
-      options.materialization ?? 'exported', options.previewStatus ?? 'ready', 'private failure detail',
-    )
-    return id
-  }
-  const dependencies: WechatRouterDependencies = {
-    openWechatDatabase: () => ({ db: wechatDb, release() {} }),
-    openArtifactDatabase: () => ({ db: assetDb, release() {} }),
-    accountRootProvider: () => accountRoot,
-    imageThumbnail: (target) => target,
-    videoThumbnail: (target) => target,
-  }
-  t.after(() => {
-    assetDb.close()
-    wechatDb.close()
-    fs.rmSync(root, { recursive: true, force: true })
-  })
-  return { root, accountRoot, assetDb, wechatDb, addAsset, dependencies }
-}
-
-async function withServer(
-  handler: express.RequestHandler,
-  run: (baseUrl: string) => Promise<void>,
-) {
-  const app = express()
-  app.use(handler)
-  const server = app.listen(0, '127.0.0.1')
-  await new Promise<void>((resolve, reject) => {
-    server.once('listening', resolve)
-    server.once('error', reject)
-  })
-  const address = server.address()
-  assert.ok(address && typeof address === 'object')
-  try {
-    await run(`http://127.0.0.1:${address.port}`)
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-  }
-}
+import { createWechatRouter } from './wechat.js'
+import { fixture, withServer } from './wechatRouteTestFixtures.js'
 
 test('serves global and conversation collections and strictly validates query parameters', async (t) => {
   const fixtureData = fixture(t)
@@ -401,32 +304,4 @@ test('strictly normalizes thumbnail widths and serves only image or video artifa
     assert.equal((await fetch(`${baseUrl}/api/wechat/artifact/${image}/thumbnail?w=96.5`)).status, 400)
     assert.equal((await fetch(`${baseUrl}/api/wechat/artifact/${document}/thumbnail`)).status, 415)
   })
-})
-
-test('the production app does not grant cross-origin read access', async (t) => {
-  const fixtureData = fixture(t)
-  fixtureData.addAsset({ content: 'ready' })
-  const privateDatabasePath = path.join(fixtureData.root, 'data', 'chat-assets.current', 'artifacts.db')
-  fs.mkdirSync(path.dirname(privateDatabasePath), { recursive: true })
-  fs.writeFileSync(privateDatabasePath, 'PRIVATE_DATABASE_BYTES')
-  const app = createApp({ projectRoot: fixtureData.root, wechatRouter: createWechatRouter(fixtureData.dependencies) })
-  const server = app.listen(0, '127.0.0.1')
-  await new Promise<void>((resolve) => server.once('listening', resolve))
-  const address = server.address()
-  assert.ok(address && typeof address === 'object')
-  try {
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/wechat/artifacts`, {
-      headers: { Origin: 'https://evil.example' },
-    })
-    assert.equal(response.status, 200)
-    assert.equal(response.headers.get('access-control-allow-origin'), null)
-
-    const directDatabase = await fetch(
-      `http://127.0.0.1:${address.port}/data/chat-assets.current/artifacts.db`,
-    )
-    assert.notEqual(directDatabase.status, 200)
-    assert.doesNotMatch(await directDatabase.text(), /PRIVATE_DATABASE_BYTES/u)
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()))
-  }
 })
