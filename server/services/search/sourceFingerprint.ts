@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto'
+import fs from 'node:fs'
 import type { DatabaseSync } from 'node:sqlite'
+
+export function sourceFileIdentity(target: string | null) {
+  if (!target) return undefined
+  try {
+    const stat = fs.statSync(target)
+    return { size: stat.size, mtimeMs: stat.mtimeMs }
+  } catch { return undefined }
+}
 
 export function wechatSourceFingerprint(
   db: DatabaseSync,

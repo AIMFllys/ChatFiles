@@ -8,6 +8,7 @@ import aiAgentRouter from './routes/aiAgent.js'
 import dataRouter from './routes/data.js'
 import filesRouter from './routes/files.js'
 import insightsRouter from './routes/insights.js'
+import { createLocalApiRouter } from './routes/localApi.js'
 import sourceFilesRouter from './routes/source-files.js'
 import defaultWechatRouter from './routes/wechat.js'
 import { root } from './utils/helpers.js'
@@ -16,6 +17,7 @@ export type AppOptions = {
   projectRoot?: string
   wechatRouter?: Router
   aiAgentRouter?: Router
+  localApiRouter?: Router
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -23,6 +25,7 @@ export function createApp(options: AppOptions = {}) {
   const app = express()
   app.use(express.json({ limit: '24mb' }))
 
+  app.use(options.localApiRouter ?? createLocalApiRouter({ projectRoot }))
   app.use(dataRouter)
   app.use(filesRouter)
   app.use(sourceFilesRouter)

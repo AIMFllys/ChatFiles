@@ -1,4 +1,3 @@
-import fs from 'node:fs'
 import path from 'node:path'
 import type { AgentRequestConfig, AgentStreamEvent, AgentStreamRequest } from '../../../src/types/aiAgent.js'
 import { openValidatedArtifactDatabase } from '../../wechat/artifactDatabase.js'
@@ -8,22 +7,12 @@ import { root } from '../../utils/helpers.js'
 import { createLinkPreviewService } from '../linkPreview/linkPreviewService.js'
 import { readDocument } from '../documents/readDocument.js'
 import { createRuntimeSearch } from '../search/searchRuntime.js'
-import { wechatSourceFingerprint } from '../search/sourceFingerprint.js'
+import { sourceFileIdentity, wechatSourceFingerprint } from '../search/sourceFingerprint.js'
 import { buildSearchIndex } from '../search/buildSearchIndex.js'
 import { runAgent } from './agentLoop.js'
 import { prepareHistoryContext } from './historySummary.js'
 import { createOpenAIUpstream } from './openAIUpstream.js'
 import { createToolRegistry } from './toolRegistry.js'
-
-function fileIdentity(target: string | null) {
-  if (!target) return undefined
-  try {
-    const stat = fs.statSync(target)
-    return { size: stat.size, mtimeMs: stat.mtimeMs }
-  } catch {
-    return undefined
-  }
-}
 
 export async function executeAgentRuntime(
   request: AgentStreamRequest,
@@ -40,7 +29,7 @@ export async function executeAgentRuntime(
   }
   const sourceFingerprint = wechatSourceFingerprint(
     wechat.db,
-    fileIdentity(wechat.resolution.selectedPath),
+    sourceFileIdentity(wechat.resolution.selectedPath),
   )
   const search = createRuntimeSearch({
     wechatDb: wechat.db, projectRoot, sourceFingerprint, config: request.config, signal,
@@ -101,7 +90,7 @@ export async function rebuildSearchIndexRuntime(
   const opened = openValidatedWechatDatabase(projectRoot)
   try {
     if (!opened.db) throw new Error('database_unavailable')
-    const fingerprint = wechatSourceFingerprint(opened.db, fileIdentity(opened.resolution.selectedPath))
+    const fingerprint = wechatSourceFingerprint(opened.db, sourceFileIdentity(opened.resolution.selectedPath))
     const dataDir = path.join(projectRoot, 'data')
     return await buildSearchIndex({
       sourceDb: opened.db,
