@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 import type {
-  ChatArtifactAvailability,
   ChatArtifactCounts,
   ChatArtifactItem,
   ChatArtifactPage,
@@ -9,6 +8,8 @@ import type {
   ChatTextItem,
 } from '../../shared/contracts/chat.js'
 import { inspectMessageStorage, stableMessageUid } from './legacyMessageIdentity.js'
+import { inspectArtifactStorage, type ArtifactStorageShape } from './artifactStorageShape.js'
+import { artifactAvailabilityFor } from './artifactAvailability.js'
 
 export type ArtifactQueryInput = {
   collection?: 'outputs' | 'library'
@@ -34,6 +35,9 @@ type ArtifactRow = {
   sender_name: string
   materialization: string
   preview_status: string
+  association_status: ChatArtifactItem['association']['status']
+  association_evidence: string
+  source_presence: ChatArtifactItem['source']['presence']
 }
 
 type ChatTextRow = {
@@ -44,27 +48,6 @@ type ChatTextRow = {
   legacy_rowid: number
   sender_name: string
   text: string
-}
-
-const matchingFailureStates = new Set<ChatArtifactAvailability>([
-  'missing_source',
-  'decrypt_failed',
-  'source_ambiguous',
-  'hash_mismatch',
-])
-
-function availabilityFor(materialization: string, previewStatus: string): ChatArtifactAvailability {
-  if (materialization === 'exported' && previewStatus === 'ready') return 'ready'
-  if (materialization === 'exported' && previewStatus === 'unsupported_codec') return 'unsupported_codec'
-  if (materialization === 'exported' && previewStatus === 'unavailable') return 'source_unavailable'
-  if (materialization === 'thumbnail_only' && previewStatus === 'thumbnail_only') return 'thumbnail_only'
-  if (
-    materialization === previewStatus
-    && matchingFailureStates.has(previewStatus as ChatArtifactAvailability)
-  ) {
-    return previewStatus as ChatArtifactAvailability
-  }
-  return 'source_unavailable'
 }
 
 function escapedLike(value: string) {
@@ -83,16 +66,19 @@ function readCounts(
   assetDb: DatabaseSync,
   wechatDb: DatabaseSync,
   input: Pick<ArtifactQueryInput, 'collection' | 'conversationId'>,
+  shape: ArtifactStorageShape,
 ) {
+  const readyMaterialization = shape.version === 2 ? "materialization='ready'" : "materialization='exported'"
   const libraryOnly = input.collection === 'library'
-    ? " AND materialization='exported' AND preview_status='ready'"
+    ? ` AND ${readyMaterialization} AND preview_status='ready'`
     : ''
   const scoped = scopeClause(input.conversationId)
   const params = scopeParams(input.conversationId)
   const rows = assetDb.prepare(`
     SELECT category, count(*) AS count
     FROM artifacts
-    WHERE category IN ('work', 'document', 'skill', 'link')${libraryOnly}${scoped}
+    WHERE category IN ('work', 'document', 'skill', 'link')
+      AND ${shape.verifiedPredicate}${libraryOnly}${scoped}
     GROUP BY category
   `).all(...params) as CountRow[]
   const counts: ChatArtifactCounts = { all: 0, work: 0, document: 0, skill: 0, link: 0, chatText: 0 }
@@ -111,11 +97,14 @@ function readCounts(
   return counts
 }
 
-function artifactWhere(input: ArtifactQueryInput) {
-  const clauses = ["category IN ('work', 'document', 'skill', 'link')"]
+function artifactWhere(input: ArtifactQueryInput, shape: ArtifactStorageShape) {
+  const clauses = ["category IN ('work', 'document', 'skill', 'link')", shape.verifiedPredicate]
   const params: Array<string | number> = []
   if (input.collection === 'library') {
-    clauses.push("materialization='exported'", "preview_status='ready'")
+    clauses.push(
+      shape.version === 2 ? "materialization='ready'" : "materialization='exported'",
+      "preview_status='ready'",
+    )
   }
   if (input.tab !== 'all' && input.tab !== 'chatText') {
     clauses.push('category=?')
@@ -133,13 +122,16 @@ function artifactWhere(input: ArtifactQueryInput) {
   return { sql: clauses.join(' AND '), params }
 }
 
-function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput) {
-  const where = artifactWhere(input)
+function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput, shape: ArtifactStorageShape) {
+  const where = artifactWhere(input, shape)
   const matching = assetDb.prepare(`SELECT count(*) AS count FROM artifacts WHERE ${where.sql}`)
     .get(...where.params) as { count: number } | undefined
   const rows = assetDb.prepare(`
     SELECT asset_id, conv_id, category, kind, name, preview, url, source_size, created_at,
-           sender_name, materialization, preview_status
+           sender_name, materialization, preview_status,
+           ${shape.associationStatus} AS association_status,
+           ${shape.associationEvidence} AS association_evidence,
+           ${shape.sourcePresence} AS source_presence
     FROM artifacts
     WHERE ${where.sql}
     ORDER BY created_at DESC, asset_id ASC
@@ -157,7 +149,11 @@ function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput) {
     createdAt: Number(row.created_at),
     senderName: row.sender_name,
     size: row.source_size === null ? null : Number(row.source_size),
-    availability: availabilityFor(row.materialization, row.preview_status),
+    availability: artifactAvailabilityFor(row.materialization, row.preview_status, shape.version),
+    association: { status: row.association_status, evidence: row.association_evidence },
+    source: { presence: row.source_presence },
+    materialization: { status: row.materialization },
+    capability: { previewStatus: row.preview_status },
     metadataUrl: `/api/wechat/artifact/${row.asset_id}/metadata`,
   }))
   return { matchingTotal: Number(matching?.count ?? 0), items }
@@ -216,12 +212,13 @@ export function queryArtifacts(
   wechatDb: DatabaseSync,
   input: ArtifactQueryInput,
 ): ChatArtifactPage {
-  const counts = readCounts(assetDb, wechatDb, input)
+  const shape = inspectArtifactStorage(assetDb)
+  const counts = readCounts(assetDb, wechatDb, input, shape)
   const result = input.tab === 'chatText'
     ? input.collection === 'library'
       ? { matchingTotal: 0, items: [] }
       : queryChatTextItems(wechatDb, input)
-    : queryArtifactItems(assetDb, input)
+    : queryArtifactItems(assetDb, input, shape)
   return {
     tab: input.tab,
     counts,

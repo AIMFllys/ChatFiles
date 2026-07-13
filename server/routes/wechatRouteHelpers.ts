@@ -137,6 +137,10 @@ export function publicMetadata(
     senderName: asset.senderName,
     size: asset.size,
     availability,
+    association: { status: asset.associationStatus, evidence: asset.associationEvidence },
+    source: { presence: asset.sourcePresence },
+    materialization: { status: asset.materialization },
+    capability: { previewStatus: asset.previewStatus },
     metadataUrl: capabilities.metadata,
     capabilities,
   }

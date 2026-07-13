@@ -18,9 +18,9 @@ function bytesField(field: number, value: Uint8Array | string) {
   return Buffer.concat([varint((field << 3) | 2), varint(bytes.length), bytes])
 }
 
-test('extracts nested resource hashes and Unicode filenames from protobuf evidence', () => {
-  const hash = '41dc6069a2c1d5a8757704fc3dea0701'
-  const messageInfo = bytesField(2, bytesField(1, hash))
+test('extracts nested lookup evidence and Unicode filenames from protobuf evidence', () => {
+  const lookupEvidence = '41dc6069a2c1d5a8757704fc3dea0701'
+  const messageInfo = bytesField(2, bytesField(1, lookupEvidence))
   const fileName = '网站设计审美资料_64个网站整理.pdf'
   const detailInfo = bytesField(1, Buffer.concat([
     bytesField(1, fileName),
@@ -29,14 +29,14 @@ test('extracts nested resource hashes and Unicode filenames from protobuf eviden
 
   assert.deepEqual(parsePackedInfoEvidence(messageInfo), {
     valid: true,
-    strings: [hash],
-    hashes: [hash],
+    strings: [lookupEvidence],
+    lookupEvidence: [lookupEvidence],
     filenames: [],
   })
   assert.deepEqual(parsePackedInfoEvidence(detailInfo), {
     valid: true,
     strings: [fileName],
-    hashes: [],
+    lookupEvidence: [],
     filenames: [fileName],
   })
 })
@@ -52,7 +52,7 @@ test('deduplicates evidence in stable traversal order', () => {
   assert.deepEqual(parsePackedInfoEvidence(packed), {
     valid: true,
     strings: [name],
-    hashes: [],
+    lookupEvidence: [],
     filenames: [name],
   })
 })
@@ -63,7 +63,7 @@ test('reports malformed wire data without returning partial attacker evidence', 
   assert.deepEqual(parsePackedInfoEvidence(malformed), {
     valid: false,
     strings: [],
-    hashes: [],
+    lookupEvidence: [],
     filenames: [],
   })
 })
@@ -72,13 +72,13 @@ test('accepts empty packed info and ignores non-UTF8 length-delimited fields', (
   assert.deepEqual(parsePackedInfoEvidence(Buffer.alloc(0)), {
     valid: true,
     strings: [],
-    hashes: [],
+    lookupEvidence: [],
     filenames: [],
   })
   assert.deepEqual(parsePackedInfoEvidence(bytesField(1, Buffer.from([0xff, 0xfe]))), {
     valid: true,
     strings: [],
-    hashes: [],
+    lookupEvidence: [],
     filenames: [],
   })
 })

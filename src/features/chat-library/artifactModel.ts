@@ -29,11 +29,16 @@ export type ArtifactCounts = Record<ArtifactKind, number> & {
 
 const artifactAvailabilityLabels: Record<string, string> = {
   ready: '可预览',
+  not_attempted: '尚未物化',
+  key_unavailable: '缺少临时解密密钥',
+  source_missing: '未找到源文件',
+  cdn_only: '仅有 CDN 引用',
   thumbnail_only: '仅可预览缩略图',
   missing_source: '未找到源文件',
   decrypt_failed: '待解密',
   source_ambiguous: '来源待确认',
   hash_mismatch: '文件校验不一致',
+  source_changed: '源文件内容已变化',
   unsupported_codec: '格式暂不支持',
   source_unavailable: '源文件不可用',
 }

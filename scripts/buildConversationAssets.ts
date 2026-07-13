@@ -1,7 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 import { runConversationAssetBuilder } from './wechat/conversationAssetBuilder.js'
+import { fingerprintDirectory } from './wechat/assetBundleBinding.js'
+import { resolveConversationAssetSourceScope } from './wechat/conversationAssetSourceScope.js'
 import { loadLocalEnv } from './localEnv.js'
 
 type CliOptions = {
@@ -32,25 +35,78 @@ function parseArguments(args: readonly string[], root: string): CliOptions {
 }
 
 function accountCandidates(store: string) {
-  const resolved = path.resolve(store)
+  const resolved = fs.realpathSync(path.resolve(store))
+  if (!fs.statSync(resolved).isDirectory()) throw new Error('WECHAT_STORE_INVALID')
   const roots = path.basename(resolved).toLowerCase().startsWith('wxid_')
     ? [resolved]
     : fs.readdirSync(resolved, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith('wxid_'))
-      .map((entry) => path.join(resolved, entry.name))
-  return roots.flatMap((accountRoot) => {
-    const database = path.join(accountRoot, 'db_storage', 'message', 'message_0.db')
-    if (!fs.existsSync(database)) return []
-    return [{ accountRoot, databaseBytes: fs.statSync(database).size }]
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink()
+      && entry.name.toLowerCase().startsWith('wxid_'))
+    .map((entry) => fs.realpathSync(path.join(resolved, entry.name)))
+    .filter((candidate) => {
+      const relative = path.relative(resolved, candidate)
+      return relative !== '' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    })
+  return roots.filter((candidate) => {
+    const messageDatabase = path.join(candidate, 'db_storage', 'message', 'message_0.db')
+    try {
+      const leaf = fs.lstatSync(messageDatabase)
+      if (!leaf.isFile() || leaf.isSymbolicLink()) return false
+      const realMessageDatabase = fs.realpathSync(messageDatabase)
+      const relative = path.relative(candidate, realMessageDatabase)
+      return relative !== ''
+        && !relative.startsWith(`..${path.sep}`)
+        && relative !== '..'
+        && !path.isAbsolute(relative)
+        && fs.statSync(realMessageDatabase).isFile()
+    } catch {
+      return false
+    }
   })
 }
 
 export function primaryAccountRoot(store: string) {
   const candidates = accountCandidates(store)
-    .sort((left, right) => right.databaseBytes - left.databaseBytes)
-  const selected = candidates[0]
-  if (!selected) throw new Error('PRIMARY_WECHAT_ACCOUNT_NOT_FOUND')
-  return selected.accountRoot
+  if (candidates.length !== 1) throw new Error('WECHAT_ACCOUNT_BINDING_UNAVAILABLE')
+  return candidates[0]!
+}
+
+export function accountRootForOwner(store: string, owner: string) {
+  const normalizedOwner = owner.trim().toLowerCase()
+  const matches = accountCandidates(store)
+    .filter((candidate) => path.basename(candidate).toLowerCase() === normalizedOwner)
+  if (matches.length !== 1) throw new Error('WECHAT_ACCOUNT_FOR_OWNER_NOT_FOUND')
+  return matches[0]!
+}
+
+export function accountRootForAssetBundle(store: string, bundleDir: string) {
+  const database = new DatabaseSync(path.join(bundleDir, 'artifacts.db'), { readOnly: true })
+  try {
+    const rows = database.prepare(`
+      SELECT owner,account_root_fingerprint FROM asset_runs LIMIT 2
+    `).all() as Array<{ owner: string; account_root_fingerprint: string }>
+    if (rows.length !== 1) throw new Error('WECHAT_ACCOUNT_BINDING_UNAVAILABLE')
+    const row = rows[0]!
+    const selected = accountRootForOwner(store, row.owner)
+    if (fingerprintDirectory(selected) !== row.account_root_fingerprint) {
+      throw new Error('WECHAT_ACCOUNT_BINDING_MISMATCH')
+    }
+    return selected
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('WECHAT_ACCOUNT_')) throw error
+    return primaryAccountRoot(store)
+  } finally {
+    database.close()
+  }
+}
+
+function ownerForSnapshot(wechatDbPath: string, sourceSnapshotRoot: string) {
+  const database = new DatabaseSync(wechatDbPath, { readOnly: true })
+  try {
+    return resolveConversationAssetSourceScope(database, sourceSnapshotRoot).owner
+  } finally {
+    database.close()
+  }
 }
 
 export function runConversationAssetCli(args = process.argv.slice(2), root = path.resolve(process.cwd())) {
@@ -64,11 +120,13 @@ export function runConversationAssetCli(args = process.argv.slice(2), root = pat
     'message',
     'message_resource.db',
   )
+  const wechatDbPath = path.join(root, 'data', 'wechat.current', 'wechat.db')
+  const owner = ownerForSnapshot(wechatDbPath, options.sourceSnapshotRoot)
   const result = runConversationAssetBuilder({
-    wechatDbPath: path.join(root, 'data', 'wechat.current', 'wechat.db'),
+    wechatDbPath,
     resourceDbPath,
     sourceSnapshotRoot: options.sourceSnapshotRoot,
-    accountRoot: primaryAccountRoot(wechatStore),
+    accountRoot: accountRootForOwner(wechatStore, owner),
     bundleDir: options.bundleDir,
     runId: options.runId,
   })

@@ -6,8 +6,6 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import {
-  CANONICAL_LOCAL_LOOKUP_PREDICATE,
-  CANONICAL_SERVER_LOOKUP_PREDICATE,
   runConversationAssetBuilder,
 } from './conversationAssetBuilder.js'
 import { auditConversationAssetBundle } from './conversationAssetAudit.js'
@@ -42,6 +40,20 @@ function createWechatDatabase(filename: string, table: string) {
       discovered_rows INTEGER,parsed_rows INTEGER,deduplicated_rows INTEGER,
       excluded_rows INTEGER,exclusion_reason TEXT
     );
+    CREATE TABLE parse_runs(
+      run_id TEXT PRIMARY KEY,status TEXT,completed_at TEXT,schema_version INTEGER,time_zone TEXT,
+      selected_snapshot_count INTEGER,selected_source_count INTEGER,source_unit_count INTEGER,
+      source_conversation_count INTEGER,source_message_count INTEGER,excluded_source_row_count INTEGER,
+      output_conversation_count INTEGER,output_message_count INTEGER,output_text_count INTEGER,
+      deduplicated_message_count INTEGER
+    );
+    CREATE TABLE bundle_metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+    INSERT INTO parse_runs VALUES(
+      'canonical-fixture','complete','2026-07-12T12:00:00.000Z',2,'Asia/Shanghai',
+      1,1,1,1,4,0,1,4,2,0
+    );
+    INSERT INTO bundle_metadata VALUES('run_id','canonical-fixture');
+    INSERT INTO bundle_metadata VALUES('schema_version','2');
   `)
   db.prepare('INSERT INTO conversations VALUES (?, ?, ?)')
     .run('wx:owner:wxid_peer', 'owner', 'wxid_peer')
@@ -104,6 +116,13 @@ function createResourceDatabase(filename: string, hash: string, fileName: string
     501, 100, 3_342_339, 4, 1_783_800_000, 1_783_800_000, 1, '0',
     bytesField(1, Buffer.concat([bytesField(1, fileName), bytesField(2, fileName)])),
   )
+  db.prepare('INSERT INTO MessageResourceInfo VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    101, 7, 1, 25_769_803_825, 1_783_800_000, 42, 9001, 1, null,
+  )
+  db.prepare('INSERT INTO MessageResourceDetail VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    502, 101, 3_342_339, 4, 1_783_800_000, 1_783_800_000, 1, '1',
+    bytesField(1, bytesField(1, '未确认.pdf')),
+  )
   db.close()
 }
 
@@ -121,7 +140,9 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
   const table = `Msg_${crypto.createHash('md5').update(conversation, 'utf8').digest('hex')}`
   const hash = '0123456789abcdef0123456789abcdef'
   const localName = `${hash}.pdf`
+  const sourceDigest = `sha256:${crypto.createHash('sha256').update('PDF!').digest('hex')}`
   fs.writeFileSync(path.join(fileRoot, localName), Buffer.from('PDF!'))
+  fs.writeFileSync(path.join(fileRoot, '未确认.pdf'), Buffer.from('NOPE'))
 
   const wechatDbPath = path.join(root, 'wechat.db')
   const resourceDbPath = path.join(root, 'message_resource.db')
@@ -148,6 +169,23 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
   })
   const output = new DatabaseSync(path.join(bundleDir, 'artifacts.db'), { readOnly: true })
   try {
+    const normalizedTables = output.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name LIKE 'asset_%'
+      ORDER BY name
+    `).all().map((row) => String(row.name))
+    assert.deepEqual(normalizedTables, [
+      'asset_associations',
+      'asset_candidates',
+      'asset_materializations',
+      'asset_runs',
+      'asset_sources',
+      'assets',
+    ])
+    assert.equal(
+      output.prepare("SELECT type FROM sqlite_master WHERE name='artifacts'").get()?.type,
+      'view',
+    )
     const rows = output.prepare(`
       SELECT kind, category, name, link_status, link_reason, materialization, preview_status, failure_reason
       FROM artifacts ORDER BY kind
@@ -156,45 +194,97 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
       {
         kind: 'link', category: 'link', name: 'https://example.com/lesson',
         link_status: 'confirmed', link_reason: null,
-        materialization: 'exported', preview_status: 'ready',
+        materialization: 'ready', preview_status: 'ready',
         failure_reason: null,
       },
       {
         kind: 'link', category: 'link', name: 'https://example.com/second',
         link_status: 'confirmed', link_reason: null,
-        materialization: 'exported', preview_status: 'ready',
+        materialization: 'ready', preview_status: 'ready',
         failure_reason: null,
       },
       {
         kind: 'resource', category: 'document', name: '课程讲义.pdf',
         link_status: 'confirmed', link_reason: null,
-        materialization: 'exported', preview_status: 'ready',
+        materialization: 'ready', preview_status: 'ready',
         failure_reason: null,
       },
       {
         kind: 'voice', category: 'work', name: '语音消息',
-        link_status: 'unconfirmed', link_reason: 'voice_resource_not_available',
-        materialization: 'missing_source', preview_status: 'missing_source',
+        link_status: 'confirmed', link_reason: null,
+        materialization: 'not_attempted', preview_status: 'unavailable',
         failure_reason: 'voice_source_not_exposed_by_message_resource',
       },
     ])
-    const linkOrder = output.prepare("SELECT message_uid FROM artifacts WHERE kind='link' ORDER BY rowid")
+    const linkOrder = output.prepare(`
+      SELECT aa.message_uid
+      FROM assets a JOIN asset_associations aa ON aa.association_id=a.association_id
+      WHERE a.kind='link' ORDER BY a.canonical_seq,a.asset_id
+    `)
       .all().map((row) => String(row.message_uid))
     assert.deepEqual(linkOrder, ['wxm:z-file', 'wxm:a-link'])
+    assert.equal(output.prepare('SELECT count(*) AS count FROM asset_sources').get()?.count, 5)
+    assert.equal(output.prepare('SELECT count(*) AS count FROM assets').get()?.count, 4)
+    assert.equal(output.prepare('SELECT count(*) AS count FROM asset_associations WHERE quarantined=1').get()?.count, 1)
+    assert.deepEqual({ ...output.prepare(`
+      SELECT association_status,confirmation_status,reason
+      FROM asset_associations a JOIN asset_sources s ON s.source_id=a.source_id
+      WHERE s.resource_row_id='502'
+    `).get() }, {
+      association_status: 'exact',
+      confirmation_status: 'unconfirmed',
+      reason: 'filename_only',
+    })
+    assert.equal(output.prepare(`
+      SELECT source_content_sha256 FROM asset_sources WHERE resource_row_id='501'
+    `).get()?.source_content_sha256, sourceDigest)
+    const run = output.prepare(`
+      SELECT owner,source_snapshot_id,canonical_run_id,schema_version,
+             canonical_database_sha256,resource_database_sha256,account_root_fingerprint
+      FROM asset_runs
+    `).get() as Record<string, unknown>
+    assert.deepEqual({ owner: run.owner, snapshot: run.source_snapshot_id, canonicalRun: run.canonical_run_id }, {
+      owner: 'owner', snapshot: 'snapshot', canonicalRun: 'canonical-fixture',
+    })
+    assert.equal(run.schema_version, 2)
+    for (const key of ['canonical_database_sha256', 'resource_database_sha256', 'account_root_fingerprint']) {
+      assert.match(String(run[key]), /^sha256:[a-f0-9]{64}$/u)
+    }
     assert.equal(output.prepare('PRAGMA integrity_check').get()?.integrity_check, 'ok')
   } finally {
     output.close()
   }
 
   const index = JSON.parse(fs.readFileSync(path.join(bundleDir, 'index.json'), 'utf8'))
+  assert.equal(index.version, 2)
   assert.equal(index.runId, 'fixture-run')
   assert.deepEqual(index.counts, result.counts)
   const audit = auditConversationAssetBundle({ bundleDir, accountRoot })
   assert.equal(audit.ok, true)
   assert.deepEqual(audit.issues, [])
+  const missingDigest = new DatabaseSync(path.join(bundleDir, 'artifacts.db'))
+  missingDigest.prepare("UPDATE asset_sources SET source_content_sha256=NULL WHERE resource_row_id='501'").run()
+  missingDigest.close()
+  assert.equal(auditConversationAssetBundle({ bundleDir, accountRoot }).issues
+    .some((issue) => issue.code === 'present-source-evidence-missing'), true)
+  const restoreDigest = new DatabaseSync(path.join(bundleDir, 'artifacts.db'))
+  restoreDigest.prepare("UPDATE asset_sources SET source_content_sha256=? WHERE resource_row_id='501'").run(sourceDigest)
+  restoreDigest.close()
+
+  fs.writeFileSync(path.join(fileRoot, localName), Buffer.from('XXXX'))
+  const replacedAudit = auditConversationAssetBundle({ bundleDir, accountRoot })
+  assert.equal(replacedAudit.ok, false)
+  assert.equal(
+    replacedAudit.issues.some((issue) => issue.code === 'source-content-digest-mismatch'),
+    true,
+  )
+  fs.writeFileSync(path.join(fileRoot, localName), Buffer.from('PDF!'))
 
   const tampered = new DatabaseSync(path.join(bundleDir, 'artifacts.db'))
-  tampered.prepare("UPDATE artifacts SET failure_reason=NULL WHERE kind='voice'").run()
+  tampered.prepare(`
+    UPDATE asset_materializations SET failure_reason=NULL
+    WHERE source_id IN (SELECT source_id FROM asset_sources WHERE source_kind='voice')
+  `).run()
   tampered.close()
   const failedAudit = auditConversationAssetBundle({ bundleDir, accountRoot })
   assert.equal(failedAudit.ok, false)
@@ -207,31 +297,4 @@ test('builds a versioned resource, link, and voice asset bundle with exact count
     bundleDir,
     runId: 'fixture-run-2',
   }), /already exists/u)
-})
-
-test('canonical resource lookups bind every available identity index column', () => {
-  const db = new DatabaseSync(':memory:')
-  try {
-    db.exec(`
-      CREATE TABLE messages(
-        conv_id TEXT, source_db TEXT, source_table TEXT, local_id INTEGER, server_id TEXT,
-        message_uid TEXT
-      );
-      CREATE INDEX idx_msg_evidence ON messages(conv_id, source_db, source_table, local_id);
-      CREATE UNIQUE INDEX idx_msg_server ON messages(conv_id, server_id)
-        WHERE server_id IS NOT NULL AND trim(server_id)<>'' AND server_id<>'0';
-    `)
-    const localPlan = db.prepare(`
-      EXPLAIN QUERY PLAN SELECT message_uid FROM messages m
-      WHERE ${CANONICAL_LOCAL_LOOKUP_PREDICATE}
-    `).all('conv', 'message_0.db', 'Msg_0123456789abcdef0123456789abcdef', 42)
-    const serverPlan = db.prepare(`
-      EXPLAIN QUERY PLAN SELECT message_uid FROM messages m
-      WHERE ${CANONICAL_SERVER_LOOKUP_PREDICATE}
-    `).all('conv', '9001')
-    assert.equal(String(localPlan[0]?.detail).includes('idx_msg_evidence'), true)
-    assert.equal(String(serverPlan[0]?.detail).includes('idx_msg_server'), true)
-  } finally {
-    db.close()
-  }
 })

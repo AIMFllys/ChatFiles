@@ -13,8 +13,7 @@ test('creates a stable resource evidence signature in canonical field order', ()
     'message_uid',
     'canonical_chat_scope',
     'resource_kind',
-    'packed_info_digest',
-    'resource_hash',
+    'lookup_evidence',
     'xml_file_identifier',
   ])
 
@@ -22,14 +21,12 @@ test('creates a stable resource evidence signature in canonical field order', ()
     message_uid: exactMessage.message_uid,
     canonical_chat_scope: 'chat:中文项目群',
     resource_kind: 'document',
-    packed_info_digest: 'sha256:packed-info',
-    resource_hash: 'sha256:resource-content',
+    lookup_evidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
     xml_file_identifier: 'xml-file-id:42',
   }
   const reordered: ResourceEvidenceSignatureInput = {
     xml_file_identifier: 'xml-file-id:42',
-    resource_hash: 'sha256:resource-content',
-    packed_info_digest: 'sha256:packed-info',
+    lookup_evidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
     resource_kind: 'document',
     canonical_chat_scope: 'chat:中文项目群',
     message_uid: exactMessage.message_uid,
@@ -44,7 +41,7 @@ test('keeps snapshot and resource row audit coordinates out of the evidence sign
     message_uid: exactMessage.message_uid,
     canonical_chat_scope: 'chat:project-room',
     resource_kind: 'document',
-    resource_hash: 'sha256:resource-content',
+    lookup_evidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
   }
   const firstAuditRecord = {
     ...stableEvidence,
@@ -70,7 +67,7 @@ test('changes the resource signature when canonical or stable evidence changes',
     message_uid: exactMessage.message_uid,
     canonical_chat_scope: 'chat:project-room',
     resource_kind: 'document',
-    resource_hash: 'sha256:resource-content',
+    lookup_evidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
   }
   const base = createResourceEvidenceSignature(input)
 
@@ -80,12 +77,36 @@ test('changes the resource signature when canonical or stable evidence changes',
   }))
   assert.notEqual(base, createResourceEvidenceSignature({
     ...input,
-    resource_hash: 'sha256:different-content',
+    lookup_evidence: ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
   }))
   assert.notEqual(base, createResourceEvidenceSignature({
     ...input,
     xml_file_identifier: 'xml-file-id:added-evidence',
   }))
+})
+
+test('keeps raw packed payload and mutable source content out of stable identity', () => {
+  const stable: ResourceEvidenceSignatureInput = {
+    message_uid: exactMessage.message_uid,
+    canonical_chat_scope: 'chat:project-room',
+    resource_kind: 'document:0',
+    lookup_evidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
+  }
+  const withAuditOnlyFields = {
+    ...stable,
+    packed_info_payload_sha256: 'sha256:raw-protobuf-layout-a',
+    source_content_sha256: 'sha256:source-version-a',
+  }
+  const changedAuditOnlyFields = {
+    ...stable,
+    packed_info_payload_sha256: 'sha256:raw-protobuf-layout-b',
+    source_content_sha256: 'sha256:source-version-b',
+  }
+
+  assert.equal(
+    createResourceEvidenceSignature(withAuditOnlyFields),
+    createResourceEvidenceSignature(changedAuditOnlyFields),
+  )
 })
 
 test('requires at least one stable resource evidence value for a signature', () => {

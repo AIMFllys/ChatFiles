@@ -4,8 +4,7 @@ export const RESOURCE_EVIDENCE_SIGNATURE_FIELDS = [
   'message_uid',
   'canonical_chat_scope',
   'resource_kind',
-  'packed_info_digest',
-  'resource_hash',
+  'lookup_evidence',
   'xml_file_identifier',
 ] as const
 
@@ -13,8 +12,7 @@ export interface ResourceEvidenceSignatureInput {
   message_uid: string
   canonical_chat_scope: string
   resource_kind: string
-  packed_info_digest?: string | null
-  resource_hash?: string | null
+  lookup_evidence?: readonly string[] | null
   xml_file_identifier?: string | null
 }
 
@@ -33,23 +31,26 @@ export function createResourceEvidenceSignature(
   requireSignatureValue('canonical_chat_scope', input.canonical_chat_scope)
   requireSignatureValue('resource_kind', input.resource_kind)
 
-  const stableEvidence = [
-    input.packed_info_digest,
-    input.resource_hash,
-    input.xml_file_identifier,
-  ] as const
-  for (const [index, value] of stableEvidence.entries()) {
-    if (value === null || value === undefined) continue
-    requireSignatureValue(RESOURCE_EVIDENCE_SIGNATURE_FIELDS[index + 3] ?? 'resource evidence', value)
+  const lookupEvidence = [...new Set(input.lookup_evidence ?? [])]
+    .map((value) => value.trim().toLowerCase())
+    .sort()
+  for (const value of lookupEvidence) {
+    requireSignatureValue('lookup_evidence', value)
   }
-  if (!stableEvidence.some(hasNonemptyValue)) {
+  if (input.xml_file_identifier !== null && input.xml_file_identifier !== undefined) {
+    requireSignatureValue('xml_file_identifier', input.xml_file_identifier)
+  }
+  if (lookupEvidence.length === 0 && !hasNonemptyValue(input.xml_file_identifier)) {
     throw new TypeError('At least one stable resource evidence value is required')
   }
 
-  const canonicalPayload = RESOURCE_EVIDENCE_SIGNATURE_FIELDS.map((field) => [
-    field,
-    input[field] ?? null,
-  ])
+  const canonicalPayload = [
+    ['message_uid', input.message_uid],
+    ['canonical_chat_scope', input.canonical_chat_scope],
+    ['resource_kind', input.resource_kind],
+    ['lookup_evidence', lookupEvidence],
+    ['xml_file_identifier', input.xml_file_identifier ?? null],
+  ]
   const digest = createHash('sha256')
     .update(JSON.stringify(canonicalPayload), 'utf8')
     .digest('hex')

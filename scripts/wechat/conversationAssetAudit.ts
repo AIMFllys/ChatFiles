@@ -4,24 +4,12 @@ import { TextDecoder } from 'node:util'
 import { DatabaseSync } from 'node:sqlite'
 import { relativePathWithinRoot } from './assetEvidence.js'
 import type { ConversationAssetCounts } from './conversationAssetBuilder.js'
-
-export type ConversationAssetAuditIssue = {
-  code: string
-  count: number
-}
-
-export type ConversationAssetAuditResult = {
-  ok: boolean
-  counts: ConversationAssetCounts
-  metrics: {
-    artifacts: number
-    sourcePaths: number
-    resources: number
-    links: number
-    voiceAttempts: number
-  }
-  issues: ConversationAssetAuditIssue[]
-}
+import { auditConversationAssetV2Bundle } from './conversationAssetV2Audit.js'
+import type { ConversationAssetAuditResult } from './conversationAssetAuditTypes.js'
+export type {
+  ConversationAssetAuditIssue,
+  ConversationAssetAuditResult,
+} from './conversationAssetAuditTypes.js'
 
 function readStrictJson(filename: string) {
   const bytes = fs.readFileSync(filename)
@@ -46,7 +34,7 @@ function categoryCounts(database: DatabaseSync): ConversationAssetCounts {
   return { all: work + document + skill + link, work, document, skill, link, chatText: 0 }
 }
 
-export function auditConversationAssetBundle(options: {
+function auditLegacyConversationAssetBundle(options: {
   bundleDir: string
   accountRoot: string
 }): ConversationAssetAuditResult {
@@ -190,4 +178,23 @@ export function auditConversationAssetBundle(options: {
     .map(([code, count]) => ({ code, count }))
     .sort((left, right) => left.code < right.code ? -1 : left.code > right.code ? 1 : 0)
   return { ok: issues.length === 0, counts, metrics, issues }
+}
+
+export function auditConversationAssetBundle(options: {
+  bundleDir: string
+  accountRoot: string
+}): ConversationAssetAuditResult {
+  const databasePath = path.join(options.bundleDir, 'artifacts.db')
+  const database = new DatabaseSync(databasePath, { readOnly: true })
+  let normalized: boolean
+  try {
+    normalized = Boolean(database.prepare(`
+      SELECT 1 FROM sqlite_master WHERE type='table' AND name='asset_sources'
+    `).get())
+  } finally {
+    database.close()
+  }
+  return normalized
+    ? auditConversationAssetV2Bundle(options)
+    : auditLegacyConversationAssetBundle(options)
 }

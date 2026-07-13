@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -5,6 +6,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import { loadLocalEnv, type LocalEnvironment } from '../../scripts/localEnv.js'
 import type { ChatArtifactAvailability } from '../../shared/contracts/chat.js'
 import { root } from '../utils/helpers.js'
+import { inspectArtifactStorage } from './artifactStorageShape.js'
+import { digestFileContent } from './contentDigest.js'
+import { artifactAvailabilityFor } from './artifactAvailability.js'
 
 export type ArtifactSourcePurpose = 'content' | 'thumbnail'
 
@@ -21,6 +25,9 @@ export type ArtifactSourceAsset = {
   size: number | null
   materialization: string
   previewStatus: string
+  associationStatus: 'exact' | 'partial' | 'conflict' | 'missing' | 'legacy'
+  associationEvidence: string
+  sourcePresence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'not_applicable' | 'unknown'
 }
 
 type InternalArtifactRow = {
@@ -37,6 +44,10 @@ type InternalArtifactRow = {
   sender_name: string
   materialization: string
   preview_status: string
+  association_status: ArtifactSourceAsset['associationStatus']
+  association_evidence: string
+  source_presence: ArtifactSourceAsset['sourcePresence']
+  source_content_sha256: string | null
 }
 
 export type ArtifactSourceResolution =
@@ -70,13 +81,6 @@ export type ArtifactSourceResolverOptions = {
 
 export type ArtifactAccountRootProviderOptions = Omit<ArtifactSourceResolverOptions, 'assetDb' | 'accountRootProvider'>
 
-const matchingFailureStates = new Set<ChatArtifactAvailability>([
-  'missing_source',
-  'decrypt_failed',
-  'source_ambiguous',
-  'hash_mismatch',
-])
-
 const dosDevice = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu
 
 function publicAsset(row: InternalArtifactRow): ArtifactSourceAsset {
@@ -93,47 +97,63 @@ function publicAsset(row: InternalArtifactRow): ArtifactSourceAsset {
     size: row.source_size === null ? null : Number(row.source_size),
     materialization: row.materialization,
     previewStatus: row.preview_status,
+    associationStatus: row.association_status,
+    associationEvidence: row.association_evidence,
+    sourcePresence: row.source_presence,
   }
-}
-
-function stateFor(row: InternalArtifactRow): ChatArtifactAvailability {
-  if (row.materialization === 'exported' && row.preview_status === 'ready') return 'ready'
-  if (row.materialization === 'exported' && row.preview_status === 'unsupported_codec') return 'unsupported_codec'
-  if (row.materialization === 'exported' && row.preview_status === 'unavailable') return 'source_unavailable'
-  if (row.materialization === 'thumbnail_only' && row.preview_status === 'thumbnail_only') return 'thumbnail_only'
-  if (
-    row.materialization === row.preview_status
-    && matchingFailureStates.has(row.preview_status as ChatArtifactAvailability)
-  ) {
-    return row.preview_status as ChatArtifactAvailability
-  }
-  return 'source_unavailable'
 }
 
 function canonicalDirectory(candidate: string) {
   const real = fs.realpathSync(candidate)
   return fs.statSync(real).isDirectory() ? real : null
 }
-
+function accountRootFingerprint(accountRoot: string) {
+  const canonical = process.platform === 'win32' ? accountRoot.toLowerCase() : accountRoot
+  return `sha256:${crypto.createHash('sha256').update(`chatfiles-path-v1\0${canonical}`, 'utf8').digest('hex')}`
+}
+function expectedAccountRootFingerprint(assetDb: DatabaseSync) {
+  try {
+    const row = assetDb.prepare(`
+      SELECT account_root_fingerprint FROM asset_runs LIMIT 2
+    `).all() as Array<{ account_root_fingerprint: string }>
+    return row.length === 1 && /^sha256:[a-f0-9]{64}$/u.test(row[0]?.account_root_fingerprint ?? '')
+      ? row[0]!.account_root_fingerprint
+      : null
+  } catch {
+    return null
+  }
+}
+function boundAccountRoot(candidate: string, assetDb?: DatabaseSync) {
+  const canonical = canonicalDirectory(candidate)
+  if (!canonical) return null
+  const expected = assetDb ? expectedAccountRootFingerprint(assetDb) : null
+  return expected && accountRootFingerprint(canonical) !== expected ? null : canonical
+}
 function accountRootFromOptions(
   options: ArtifactAccountRootProviderOptions,
   assetDb?: DatabaseSync,
 ) {
   try {
-    if (options.accountRoot !== undefined) return canonicalDirectory(options.accountRoot)
+    if (options.accountRoot !== undefined) return boundAccountRoot(options.accountRoot, assetDb)
     const projectRoot = options.projectRoot ?? root
     const environment = options.environment ?? { ...process.env }
     loadLocalEnv({ filePath: path.join(projectRoot, '.env.local'), environment })
     const configured = environment.WECHAT_STORE?.trim()
     if (!configured) return null
     const store = path.resolve(configured)
-    if (path.basename(store).toLowerCase().startsWith('wxid_')) return canonicalDirectory(store)
+    if (path.basename(store).toLowerCase().startsWith('wxid_')) return boundAccountRoot(store, assetDb)
     if (!fs.statSync(store).isDirectory()) return null
     const accounts = fs.readdirSync(store, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith('wxid_'))
       .map((entry) => path.join(store, entry.name))
-    if (accounts.length === 1) return canonicalDirectory(accounts[0])
-    return assetDb ? accountRootFromBundleEvidence(accounts, assetDb) : null
+    if (accounts.length === 1) return boundAccountRoot(accounts[0]!, assetDb)
+    const expected = assetDb ? expectedAccountRootFingerprint(assetDb) : null
+    if (!expected) return null
+    const matches = accounts.flatMap((account) => {
+      const canonical = canonicalDirectory(account)
+      return canonical && accountRootFingerprint(canonical) === expected ? [canonical] : []
+    })
+    return matches.length === 1 ? matches[0]! : null
   } catch {
     return null
   }
@@ -173,7 +193,11 @@ function isContained(parent: string, child: string) {
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)
 }
 
-function resolveTarget(accountRoot: string | null, row: InternalArtifactRow) {
+function resolveTarget(
+  accountRoot: string | null,
+  row: InternalArtifactRow,
+  requireContentDigest: boolean,
+) {
   if (!accountRoot || row.source_size === null || !Number.isSafeInteger(row.source_size) || row.source_size < 0) {
     return null
   }
@@ -186,40 +210,14 @@ function resolveTarget(accountRoot: string | null, row: InternalArtifactRow) {
     if (!isContained(accountRoot, target)) return null
     const stat = fs.statSync(target)
     if (!stat.isFile() || stat.size !== row.source_size) return null
+    if (requireContentDigest && !/^sha256:[a-f0-9]{64}$/u.test(
+      row.source_content_sha256 ?? '',
+    )) return null
+    if (row.source_content_sha256 && digestFileContent(target) !== row.source_content_sha256) return null
     return target
   } catch {
     return null
   }
-}
-
-function accountRootFromBundleEvidence(accounts: readonly string[], assetDb: DatabaseSync) {
-  const rows = assetDb.prepare(`
-    SELECT source_relative_path, source_size
-    FROM artifacts
-    WHERE source_relative_path IS NOT NULL AND source_size IS NOT NULL
-    ORDER BY asset_id
-    LIMIT 128
-  `).all() as InternalArtifactRow[]
-  if (rows.length === 0) return null
-
-  const scored = accounts.flatMap((candidate) => {
-    try {
-      const accountRoot = canonicalDirectory(candidate)
-      if (!accountRoot) return []
-      const matches = rows.reduce(
-        (count, row) => count + (resolveTarget(accountRoot, row) ? 1 : 0),
-        0,
-      )
-      return [{ accountRoot, matches }]
-    } catch {
-      return []
-    }
-  }).sort((left, right) => right.matches - left.matches)
-  const best = scored[0]
-  const runnerUp = scored[1]
-  const minimumEvidence = Math.min(8, rows.length)
-  if (!best || best.matches < minimumEvidence || best.matches === runnerUp?.matches) return null
-  return best.accountRoot
 }
 
 export function createArtifactSourceResolver(
@@ -229,18 +227,23 @@ export function createArtifactSourceResolver(
   try {
     if (options.accountRootProvider) {
       const providedRoot = options.accountRootProvider(options.assetDb)
-      accountRoot = providedRoot ? canonicalDirectory(providedRoot) : null
+      accountRoot = providedRoot ? boundAccountRoot(providedRoot, options.assetDb) : null
     } else {
       accountRoot = accountRootFromOptions(options, options.assetDb)
     }
   } catch {
     accountRoot = null
   }
+  const shape = inspectArtifactStorage(options.assetDb)
   const find = options.assetDb.prepare(`
     SELECT asset_id, conv_id, category, kind, name, preview, url,
            source_relative_path, source_size, created_at, sender_name,
-           materialization, preview_status
-    FROM artifacts WHERE asset_id=?
+           materialization, preview_status,
+           ${shape.associationStatus} AS association_status,
+           ${shape.associationEvidence} AS association_evidence,
+           ${shape.sourcePresence} AS source_presence,
+           ${shape.sourceContentSha256} AS source_content_sha256
+    FROM artifacts WHERE asset_id=? AND ${shape.verifiedPredicate}
   `)
 
   return {
@@ -249,14 +252,17 @@ export function createArtifactSourceResolver(
       const row = find.get(id) as InternalArtifactRow | undefined
       if (!row) return { status: 'unknown' }
       const asset = publicAsset(row)
-      const state = stateFor(row)
+      const state = artifactAvailabilityFor(row.materialization, row.preview_status, shape.version)
       if (row.kind !== 'resource') return { status: 'unsupported', state, asset }
+      const materializedReady = shape.version === 2
+        ? row.materialization === 'ready'
+        : row.materialization === 'exported'
 
       const canRead = purpose === 'content'
-        ? row.materialization === 'exported' && row.preview_status === 'ready'
+        ? materializedReady && row.preview_status === 'ready'
         : (row.preview === 'image' || row.preview === 'video')
           && (
-            (row.materialization === 'exported' && row.preview_status === 'ready')
+            (materializedReady && row.preview_status === 'ready')
             || (row.materialization === 'thumbnail_only' && row.preview_status === 'thumbnail_only')
           )
       if (!canRead) {
@@ -267,7 +273,7 @@ export function createArtifactSourceResolver(
       }
 
       if (!accountRoot) return { status: 'configuration_unavailable', state: 'source_unavailable', asset }
-      const target = resolveTarget(accountRoot, row)
+      const target = resolveTarget(accountRoot, row, shape.version === 2)
       if (!target) return { status: 'unavailable', state: 'source_unavailable', asset }
       return { status: 'available', state: state === 'thumbnail_only' ? 'thumbnail_only' : 'ready', asset, target }
     },

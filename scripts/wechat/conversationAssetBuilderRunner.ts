@@ -3,11 +3,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { alignResourceMessage, type CanonicalMessage, type ResourceMessageProbe } from './assetEvidence.js'
+import { createAssetBundleBinding } from './assetBundleBinding.js'
+import { digestFileContent } from './assetContentDigest.js'
+import { createAssetRunReceipt } from './assetRunReceipt.js'
 import { createLinkArtifacts, createResourceArtifact, createVoiceArtifact, type AssetCanonicalMessage } from './conversationAssetModel.js'
+import { persistConversationAsset } from './conversationAssetMetrics.js'
 import { normalizeMessageType } from './messageModel.js'
 import { createResourceFileIndex, matchResourceFile } from './resourceFileMatcher.js'
 import { parsePackedInfoEvidence } from './resourcePackedInfo.js'
-import { artifactCounts, artifactInserter, createOutputSchema } from './conversationAssetBuilderSchema.js'
+import { artifactCounts, artifactInserter, completeAssetRun, createOutputSchema, startAssetRun } from './conversationAssetBuilderSchema.js'
 import { resolveConversationAssetSourceScope } from './conversationAssetSourceScope.js'
 import {
   CANONICAL_LOCAL_LOOKUP_PREDICATE,
@@ -21,7 +25,7 @@ import {
   emptyConversationAssetMetrics,
   normalizeServerId,
   openSourceDatabases,
-  packedDigest,
+  packedInfoPayloadDigest,
   safeInteger,
   sourceOriginReader,
   toAssetMessage,
@@ -62,13 +66,26 @@ export function runConversationAssetBuilder(options: {
 
   try {
     const sourceScope = resolveConversationAssetSourceScope(wechat, options.sourceSnapshotRoot)
+    const binding = createAssetBundleBinding({
+      wechat,
+      wechatDbPath: options.wechatDbPath,
+      resourceDbPath: options.resourceDbPath,
+      sourceSnapshotRoot: options.sourceSnapshotRoot,
+      accountRoot: options.accountRoot,
+      sourceScope,
+    })
     for (const [filename, database] of openSourceDatabases(
       options.sourceSnapshotRoot,
       sourceScope.sourceDatabases,
     )) sourceDatabases.set(filename, database)
     createOutputSchema(output)
-    const insertArtifact = artifactInserter(output)
+    startAssetRun(output, options.runId, binding)
+    const insertArtifact = artifactInserter(output, options.runId)
+    const persistArtifact = (artifact: ReturnType<typeof createResourceArtifact>) => (
+      persistConversationAsset(insertArtifact, metrics, artifact)
+    )
     const fileIndex = createResourceFileIndex(discoverResourceFiles(options.accountRoot))
+    const contentDigests = new Map<string, string>()
     const chats = new Map<number, string>()
     for (const row of resources.prepare('SELECT rowid AS id, user_name FROM ChatName2Id').all() as Array<{
       id: number
@@ -96,8 +113,10 @@ export function runConversationAssetBuilder(options: {
       message: AssetCanonicalMessage | null
       candidates: CanonicalMessage[]
       alignment: ReturnType<typeof alignResourceMessage>
-      hashes: string[]
+      lookupEvidence: string[]
+      filenames: string[]
       messagePackedInfo: Uint8Array | null
+      messagePackedInfoValid: boolean
       chatScope: string
     }>()
 
@@ -118,15 +137,14 @@ export function runConversationAssetBuilder(options: {
           if (convId && table) {
             for (const sourceDb of sourceDatabases.keys()) {
               const localRows = canonicalLocalStatement.all(
-                convId,
-                sourceDb,
-                table,
-                localId,
+                sourceScope.snapshotId, convId, sourceDb, table, localId,
               ) as OutputMessageRow[]
               for (const messageRow of localRows) outputRowsByUid.set(messageRow.message_uid, messageRow)
             }
             if (serverId !== null) {
-              const serverRows = canonicalServerStatement.all(convId, serverId) as OutputMessageRow[]
+              const serverRows = canonicalServerStatement.all(
+                sourceScope.snapshotId, convId, serverId,
+              ) as OutputMessageRow[]
               for (const messageRow of serverRows) outputRowsByUid.set(messageRow.message_uid, messageRow)
             }
           }
@@ -168,8 +186,10 @@ export function runConversationAssetBuilder(options: {
             message,
             candidates,
             alignment,
-            hashes: packed.hashes,
+            lookupEvidence: packed.lookupEvidence,
+            filenames: packed.filenames,
             messagePackedInfo: row.message_packed_info,
+            messagePackedInfoValid: packed.valid,
             chatScope,
           }
           contextCache.set(messageId, context)
@@ -180,11 +200,18 @@ export function runConversationAssetBuilder(options: {
         }
 
         const detail = parsePackedInfoEvidence(row.detail_packed_info)
-        const hashes = [...context.hashes]
-        appendUnique(hashes, detail.hashes)
-        const filenames = [...detail.filenames]
+        const lookupEvidence = [...context.lookupEvidence]
+        appendUnique(lookupEvidence, detail.lookupEvidence)
+        const filenames = [...context.filenames]
+        appendUnique(filenames, detail.filenames)
         const expectedSize = safeInteger(row.resource_size, 'resource_size')
-        const fileMatch = matchResourceFile(fileIndex, { hashes, filenames, expectedSize })
+        const fileMatch = matchResourceFile(fileIndex, { lookupEvidence, filenames, expectedSize })
+        const sourcePath = fileMatch.candidate?.absolutePath
+        let sourceContentSha256 = sourcePath ? contentDigests.get(sourcePath) ?? null : null
+        if (sourcePath && !sourceContentSha256) {
+          sourceContentSha256 = digestFileContent(sourcePath)
+          contentDigests.set(sourcePath, sourceContentSha256)
+        }
         const artifact = createResourceArtifact({
           message: context.message,
           alignment: context.alignment,
@@ -195,20 +222,19 @@ export function runConversationAssetBuilder(options: {
           dataIndex: row.data_index ?? '',
           expectedSize,
           detailStatus: safeInteger(row.detail_status, 'detail_status'),
-          messageHashes: hashes,
+          lookupEvidence,
           filenames,
-          packedInfoDigest: packedDigest(context.messagePackedInfo, row.detail_packed_info),
+          packedInfoPayloadSha256: packedInfoPayloadDigest(
+            context.messagePackedInfo,
+            row.detail_packed_info,
+          ),
+          packedInfoValid: context.messagePackedInfoValid,
+          detailPackedInfoValid: detail.valid,
+          sourceContentSha256,
           fileMatch,
         })
-        insertArtifact(artifact)
+        persistArtifact(artifact)
         metrics.resources++
-        if (artifact.link_status === 'confirmed') metrics.confirmedLinks++
-        else metrics.unconfirmedLinks++
-        if (artifact.materialization === 'exported' || artifact.materialization === 'thumbnail_only') {
-          metrics.exported++
-        } else {
-          metrics.failed++
-        }
       }
 
       const textStatement = wechat.prepare(`
@@ -219,11 +245,10 @@ export function runConversationAssetBuilder(options: {
       `)
       for (const row of textStatement.iterate(sourceScope.snapshotId) as Iterable<OutputMessageRow>) {
         const message = toAssetMessage(row, 0)
-        for (const link of createLinkArtifacts(message)) insertArtifact(link)
+        for (const link of createLinkArtifacts(message)) persistArtifact(link)
         if (message.normalized_type === 34) {
-          insertArtifact(createVoiceArtifact(message))
+          persistArtifact(createVoiceArtifact(message))
           metrics.voiceAttempts++
-          metrics.failed++
         }
       }
       output.exec('COMMIT')
@@ -233,28 +258,20 @@ export function runConversationAssetBuilder(options: {
     }
 
     const counts = artifactCounts(output, wechat, sourceScope.snapshotId)
-    output.prepare('INSERT INTO asset_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      options.runId,
-      'complete',
-      new Date().toISOString(),
-      metrics.resources,
-      metrics.exactAlignments,
-      metrics.partialAlignments,
-      metrics.missingAlignments,
-      metrics.conflictingAlignments,
-      metrics.confirmedLinks,
-      metrics.unconfirmedLinks,
-      metrics.exported,
-      metrics.failed,
-      metrics.voiceAttempts,
-    )
+    const completedAt = new Date().toISOString()
+    const receipt = createAssetRunReceipt({
+      runId: options.runId, completedAt, binding, counts, metrics,
+    })
+    completeAssetRun(output, options.runId, completedAt, metrics, receipt)
     output.exec('PRAGMA journal_mode=DELETE')
     const index = {
-      version: 1,
+      version: 2,
       runId: options.runId,
-      completedAt: new Date().toISOString(),
+      completedAt,
+      binding,
       counts,
       metrics,
+      receipt,
     }
     fs.writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`, 'utf8')
     output.close()

@@ -1,7 +1,7 @@
 import type { ResourceMessageAlignment } from './resourceMessageAlignment.js'
 
 export type ResourceLinkEvidenceKind =
-  | 'resource_hash'
+  | 'lookup_evidence'
   | 'xml_file_identifier'
   | 'filename_only'
   | 'none'
@@ -17,8 +17,8 @@ export interface ResourceLinkEvidenceInput {
   alignment: ResourceMessageAlignment
   canonical_chat_scope: string
   resource_chat_scope: string
-  message_resource_hash?: string | null
-  candidate_resource_hash?: string | null
+  message_lookup_evidence?: string | null
+  candidate_lookup_evidence?: string | null
   message_xml_file_identifier?: string | null
   candidate_xml_file_identifier?: string | null
   filename?: string | null
@@ -28,7 +28,7 @@ export type ResourceLinkEvidenceResult =
   | {
       status: 'confirmed'
       message_uid: string
-      evidence: 'resource_hash' | 'xml_file_identifier'
+      evidence: 'lookup_evidence' | 'xml_file_identifier'
       reason: null
     }
   | {
@@ -43,8 +43,8 @@ function hasNonemptyValue(value: string | null | undefined): value is string {
 }
 
 function suppliedResourceEvidence(input: ResourceLinkEvidenceInput): ResourceLinkEvidenceKind {
-  if (hasNonemptyValue(input.message_resource_hash) || hasNonemptyValue(input.candidate_resource_hash)) {
-    return 'resource_hash'
+  if (hasNonemptyValue(input.message_lookup_evidence) || hasNonemptyValue(input.candidate_lookup_evidence)) {
+    return 'lookup_evidence'
   }
   if (
     hasNonemptyValue(input.message_xml_file_identifier)
@@ -85,11 +85,11 @@ export function evaluateResourceLinkEvidence(
     }
   }
 
-  if (exactEvidencePair(input.message_resource_hash, input.candidate_resource_hash)) {
+  if (exactEvidencePair(input.message_lookup_evidence, input.candidate_lookup_evidence)) {
     return {
       status: 'confirmed',
       message_uid: messageUid,
-      evidence: 'resource_hash',
+      evidence: 'lookup_evidence',
       reason: null,
     }
   }

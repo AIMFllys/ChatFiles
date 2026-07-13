@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,7 +10,6 @@ import {
   createArtifactAccountRootProvider,
   createArtifactSourceResolver,
 } from './artifactSourceResolver.js'
-
 type AssetOptions = {
   id?: string
   kind?: string
@@ -19,6 +19,7 @@ type AssetOptions = {
   sourceSize?: number | null
   materialization?: string
   previewStatus?: string
+  sourceContentSha256?: string | null
 }
 
 function fixture(t: TestContext) {
@@ -30,10 +31,11 @@ function fixture(t: TestContext) {
     CREATE TABLE artifacts(
       asset_id TEXT PRIMARY KEY, conv_id TEXT, category TEXT, kind TEXT, name TEXT,
       preview TEXT, url TEXT, source_relative_path TEXT, source_size INTEGER,
-      created_at INTEGER, sender_name TEXT, materialization TEXT, preview_status TEXT
+      created_at INTEGER, sender_name TEXT, materialization TEXT, preview_status TEXT,
+      source_content_sha256 TEXT
     );
   `)
-  const insert = assetDb.prepare('INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  const insert = assetDb.prepare('INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
   let sequence = 0
   const addAsset = (options: AssetOptions = {}) => {
     sequence += 1
@@ -42,6 +44,7 @@ function fixture(t: TestContext) {
       id, 'conv-a', 'document', options.kind ?? 'resource', options.name ?? 'fixture.txt',
       options.preview ?? 'text', null, options.relativePath ?? null, options.sourceSize ?? null,
       100, 'Fixture', options.materialization ?? 'exported', options.previewStatus ?? 'ready',
+      options.sourceContentSha256 ?? null,
     )
     return id
   }
@@ -57,6 +60,12 @@ function writeSource(accountRoot: string, relativePath: string, content: string 
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, content)
   return target
+}
+
+function accountRootFingerprint(accountRoot: string) {
+  const resolved = fs.realpathSync(accountRoot)
+  const canonical = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  return `sha256:${crypto.createHash('sha256').update(`chatfiles-path-v1\0${canonical}`, 'utf8').digest('hex')}`
 }
 
 test('rejects malformed IDs before querying and returns unknown for absent valid IDs', (t) => {
@@ -155,6 +164,20 @@ test('rejects common-prefix siblings, symlink escapes, directories, missing file
   }
 })
 
+test('rejects a same-size source replacement when a content digest is bound', (t) => {
+  const { accountRoot, assetDb, addAsset } = fixture(t)
+  const relativePath = 'msg/file/同大小资料.pdf'
+  const target = writeSource(accountRoot, relativePath, 'AAAA')
+  const digest = `sha256:${crypto.createHash('sha256').update('AAAA').digest('hex')}`
+  const id = addAsset({ relativePath, sourceSize: 4, sourceContentSha256: digest })
+  fs.writeFileSync(target, 'BBBB', 'utf8')
+
+  assert.equal(
+    createArtifactSourceResolver({ assetDb, accountRoot }).resolve(id, 'content').status,
+    'unavailable',
+  )
+})
+
 test('allows thumbnails only for ready image/video sources, including thumbnail-only state', (t) => {
   const { accountRoot, assetDb, addAsset } = fixture(t)
   writeSource(accountRoot, 'ready.jpg', 'image')
@@ -195,7 +218,7 @@ test('loads a unique account root from strict UTF-8 local env once and fails clo
   assert.equal(invalidUtf8.resolve(id, 'content').status, 'configuration_unavailable')
 })
 
-test('binds a multi-account store to the one root matching activated bundle evidence', (t) => {
+test('binds a multi-account store only from the activated run account fingerprint', (t) => {
   const { root, assetDb, addAsset } = fixture(t)
   const store = path.join(root, 'multi-account-store')
   const matching = path.join(store, 'wxid_matching')
@@ -203,8 +226,10 @@ test('binds a multi-account store to the one root matching activated bundle evid
   const empty = path.join(store, 'wxid_empty')
   fs.mkdirSync(empty, { recursive: true })
   writeSource(matching, 'msg/file/中文证据.txt', 'evidence')
-  writeSource(wrong, 'msg/file/中文证据.txt', 'wrong-size')
+  writeSource(wrong, 'msg/file/中文证据.txt', 'evidence')
   const id = addAsset({ relativePath: 'msg/file/中文证据.txt', sourceSize: 8 })
+  assetDb.exec('CREATE TABLE asset_runs(account_root_fingerprint TEXT NOT NULL)')
+  assetDb.prepare('INSERT INTO asset_runs VALUES(?)').run(accountRootFingerprint(matching))
   fs.writeFileSync(path.join(root, '.env.local'), `WECHAT_STORE=${store}\n`, 'utf8')
   const accountRootProvider = createArtifactAccountRootProvider({ projectRoot: root, environment: {} })
 

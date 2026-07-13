@@ -22,6 +22,11 @@ test('presents artifact availability as readable Chinese status text', () => {
   assert.equal(artifactAvailabilityLabel('ready'), '可预览')
   assert.equal(artifactAvailabilityLabel('source_ambiguous'), '来源待确认')
   assert.equal(artifactAvailabilityLabel('decrypt_failed'), '待解密')
+  assert.equal(artifactAvailabilityLabel('not_attempted'), '尚未物化')
+  assert.equal(artifactAvailabilityLabel('key_unavailable'), '缺少临时解密密钥')
+  assert.equal(artifactAvailabilityLabel('source_missing'), '未找到源文件')
+  assert.equal(artifactAvailabilityLabel('source_changed'), '源文件内容已变化')
+  assert.equal(artifactAvailabilityLabel('cdn_only'), '仅有 CDN 引用')
   assert.equal(artifactAvailabilityLabel('unexpected'), '状态未知')
 })
 

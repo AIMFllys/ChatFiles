@@ -28,3 +28,21 @@ test('discovers every regular, biz, media and resource shard dynamically', (t) =
     ],
   )
 })
+
+test('rejects a message directory that escapes the snapshot through a directory link', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-source-junction-'))
+  t.after(() => fs.rmSync(root, { force: true, recursive: true }))
+  const snapshot = path.join(root, 'snapshot')
+  const externalMessage = path.join(root, 'external-message')
+  fs.mkdirSync(path.join(snapshot, 'db_storage'), { recursive: true })
+  fs.mkdirSync(externalMessage)
+  fs.writeFileSync(path.join(externalMessage, 'message_0.db'), '')
+  fs.writeFileSync(path.join(externalMessage, 'message_resource.db'), '')
+  fs.symlinkSync(
+    externalMessage,
+    path.join(snapshot, 'db_storage', 'message'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+
+  assert.throws(() => discoverSourceDatabases(snapshot), /SOURCE_SNAPSHOT_PATH_UNSAFE/u)
+})

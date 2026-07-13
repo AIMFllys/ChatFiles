@@ -1,50 +1,48 @@
 export type AssetMaterializationStatus =
-  | 'exported'
-  | 'thumbnail_only'
-  | 'missing_source'
-  | 'decrypt_failed'
-  | 'source_ambiguous'
-  | 'hash_mismatch'
-
-export type AssetPreviewStatus =
-  | 'ready'
-  | 'thumbnail_only'
-  | 'unavailable'
-  | 'missing_source'
+  | 'not_attempted'
+  | 'key_unavailable'
+  | 'source_missing'
+  | 'cdn_only'
   | 'decrypt_failed'
   | 'unsupported_codec'
+  | 'thumbnail_only'
+  | 'ready'
   | 'source_ambiguous'
-  | 'hash_mismatch'
+  | 'source_changed'
 
-export type AssetEvidenceState =
-  | { materialization: 'exported'; preview: 'ready' | 'unavailable'; reason?: never }
-  | { materialization: 'thumbnail_only'; preview: 'thumbnail_only'; reason?: never }
-  | { materialization: 'exported'; preview: 'unsupported_codec'; reason: string }
-  | { materialization: 'missing_source'; preview: 'missing_source'; reason: string }
-  | { materialization: 'decrypt_failed'; preview: 'decrypt_failed'; reason: string }
-  | { materialization: 'source_ambiguous'; preview: 'source_ambiguous'; reason: string }
-  | { materialization: 'hash_mismatch'; preview: 'hash_mismatch'; reason: string }
+export type AssetPreviewStatus = 'ready' | 'thumbnail_only' | 'unavailable'
 
-
-function hasNonemptyValue(value: string | null | undefined): value is string {
-  return typeof value === 'string' && value.trim() !== ''
+export type AssetEvidenceState = {
+  materialization: AssetMaterializationStatus
+  preview: AssetPreviewStatus
+  reason?: string
 }
 
-const ALLOWED_PREVIEW_STATUSES: Readonly<Record<AssetMaterializationStatus, readonly AssetPreviewStatus[]>> = {
-  exported: ['ready', 'unavailable', 'unsupported_codec'],
+const ALLOWED_PREVIEW_STATUSES: Readonly<Record<
+  AssetMaterializationStatus,
+  readonly AssetPreviewStatus[]
+>> = {
+  not_attempted: ['unavailable'],
+  key_unavailable: ['unavailable'],
+  source_missing: ['unavailable'],
+  cdn_only: ['unavailable'],
+  decrypt_failed: ['unavailable'],
+  unsupported_codec: ['unavailable'],
   thumbnail_only: ['thumbnail_only'],
-  missing_source: ['missing_source'],
-  decrypt_failed: ['decrypt_failed'],
-  source_ambiguous: ['source_ambiguous'],
-  hash_mismatch: ['hash_mismatch'],
+  ready: ['ready'],
+  source_ambiguous: ['unavailable'],
+  source_changed: ['unavailable'],
 }
 
-const FAILURE_PREVIEW_STATUSES = new Set<AssetPreviewStatus>([
-  'missing_source',
+const REASON_REQUIRED = new Set<AssetMaterializationStatus>([
+  'not_attempted',
+  'key_unavailable',
+  'source_missing',
+  'cdn_only',
   'decrypt_failed',
   'unsupported_codec',
   'source_ambiguous',
-  'hash_mismatch',
+  'source_changed',
 ])
 
 export function createAssetEvidenceState(
@@ -55,14 +53,14 @@ export function createAssetEvidenceState(
   if (!ALLOWED_PREVIEW_STATUSES[materialization].includes(preview)) {
     throw new TypeError(`Invalid asset evidence state: ${materialization} cannot use ${preview}`)
   }
-  if (FAILURE_PREVIEW_STATUSES.has(preview)) {
-    if (!hasNonemptyValue(reason)) {
-      throw new TypeError(`A nonempty reason is required for ${preview}`)
+  if (REASON_REQUIRED.has(materialization)) {
+    if (typeof reason !== 'string' || reason.trim() === '') {
+      throw new TypeError(`A nonempty reason is required for ${materialization}/${preview}`)
     }
-    return { materialization, preview, reason: reason.trim() } as AssetEvidenceState
+    return { materialization, preview, reason: reason.trim() }
   }
   if (reason !== undefined) {
     throw new TypeError(`A reason is not allowed for ${materialization}/${preview}`)
   }
-  return { materialization, preview } as AssetEvidenceState
+  return { materialization, preview }
 }

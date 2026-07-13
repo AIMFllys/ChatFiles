@@ -8,12 +8,12 @@ import {
 } from './assetEvidence.js'
 test('keeps materialization evidence separate from browser preview capability', () => {
   assert.deepEqual(createAssetEvidenceState(
-    'exported',
     'unsupported_codec',
+    'unavailable',
     '浏览器不支持 SILK 编码',
   ), {
-    materialization: 'exported',
-    preview: 'unsupported_codec',
+    materialization: 'unsupported_codec',
+    preview: 'unavailable',
     reason: '浏览器不支持 SILK 编码',
   })
   assert.deepEqual(createAssetEvidenceState('thumbnail_only', 'thumbnail_only'), {
@@ -23,11 +23,12 @@ test('keeps materialization evidence separate from browser preview capability', 
 })
 test('models every required failure status on the appropriate evidence axis', () => {
   const failurePairs = [
-    ['missing_source', 'missing_source'],
-    ['decrypt_failed', 'decrypt_failed'],
-    ['source_ambiguous', 'source_ambiguous'],
-    ['hash_mismatch', 'hash_mismatch'],
-    ['exported', 'unsupported_codec'],
+    ['not_attempted', 'unavailable'],
+    ['source_missing', 'unavailable'],
+    ['decrypt_failed', 'unavailable'],
+    ['source_ambiguous', 'unavailable'],
+    ['source_changed', 'unavailable'],
+    ['unsupported_codec', 'unavailable'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
   for (const [materialization, preview] of failurePairs) {
@@ -41,29 +42,29 @@ test('models every required failure status on the appropriate evidence axis', ()
 
 test('requires a nonempty reason for every export or preview failure state', () => {
   const failurePairs = [
-    ['missing_source', 'missing_source'],
-    ['decrypt_failed', 'decrypt_failed'],
-    ['source_ambiguous', 'source_ambiguous'],
-    ['hash_mismatch', 'hash_mismatch'],
-    ['exported', 'unsupported_codec'],
+    ['not_attempted', 'unavailable'],
+    ['source_missing', 'unavailable'],
+    ['decrypt_failed', 'unavailable'],
+    ['source_ambiguous', 'unavailable'],
+    ['source_changed', 'unavailable'],
+    ['unsupported_codec', 'unavailable'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
   for (const [materialization, preview] of failurePairs) {
     assert.throws(
       () => createAssetEvidenceState(materialization, preview),
-      new RegExp(`A nonempty reason is required for ${preview}`),
+      new RegExp(`A nonempty reason is required for ${materialization}/${preview}`),
     )
     assert.throws(
       () => createAssetEvidenceState(materialization, preview, '   '),
-      new RegExp(`A nonempty reason is required for ${preview}`),
+      new RegExp(`A nonempty reason is required for ${materialization}/${preview}`),
     )
   }
 })
 
 test('keeps successful and capability-only states free of failure reasons', () => {
   const successPairs = [
-    ['exported', 'ready'],
-    ['exported', 'unavailable'],
+    ['ready', 'ready'],
     ['thumbnail_only', 'thumbnail_only'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
@@ -78,10 +79,10 @@ test('keeps successful and capability-only states free of failure reasons', () =
 
 test('rejects impossible materialization and preview status combinations', () => {
   const invalidPairs = [
-    ['missing_source', 'ready'],
-    ['exported', 'decrypt_failed'],
+    ['source_missing', 'ready'],
+    ['ready', 'unavailable'],
     ['thumbnail_only', 'unavailable'],
-    ['hash_mismatch', 'unsupported_codec'],
+    ['source_changed', 'ready'],
   ] as const satisfies readonly (readonly [AssetMaterializationStatus, AssetPreviewStatus])[]
 
   for (const [materialization, preview] of invalidPairs) {
@@ -94,14 +95,14 @@ test('rejects impossible materialization and preview status combinations', () =>
 
 test('accepts every supported successful or degraded preview combination', () => {
   const validPairs = [
-    ['exported', 'ready', undefined],
-    ['exported', 'unavailable', undefined],
-    ['exported', 'unsupported_codec', '不支持的编码'],
+    ['ready', 'ready', undefined],
     ['thumbnail_only', 'thumbnail_only', undefined],
-    ['missing_source', 'missing_source', '源文件不存在'],
-    ['decrypt_failed', 'decrypt_failed', '解密失败'],
-    ['source_ambiguous', 'source_ambiguous', '存在多个候选源'],
-    ['hash_mismatch', 'hash_mismatch', '资源哈希不匹配'],
+    ['not_attempted', 'unavailable', '尚未物化'],
+    ['source_missing', 'unavailable', '源文件不存在'],
+    ['decrypt_failed', 'unavailable', '解密失败'],
+    ['source_ambiguous', 'unavailable', '存在多个候选源'],
+    ['source_changed', 'unavailable', '资源内容不一致'],
+    ['unsupported_codec', 'unavailable', '不支持的编码'],
   ] as const satisfies readonly (readonly [
     AssetMaterializationStatus,
     AssetPreviewStatus,

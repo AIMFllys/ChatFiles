@@ -18,14 +18,21 @@ export type ConversationAssetCounts = {
 
 export type ConversationAssetMetrics = {
   resources: number
+  sources: number
+  assets: number
+  associations: number
+  candidates: number
+  materializations: number
+  quarantined: number
   exactAlignments: number
   partialAlignments: number
   missingAlignments: number
   conflictingAlignments: number
-  confirmedLinks: number
-  unconfirmedLinks: number
-  exported: number
-  failed: number
+  confirmedAssociations: number
+  unconfirmedAssociations: number
+  ready: number
+  notAttempted: number
+  unavailable: number
   voiceAttempts: number
 }
 
@@ -101,11 +108,11 @@ export const MESSAGE_COLUMNS = `
 `
 
 export const CANONICAL_LOCAL_LOOKUP_PREDICATE = `
-  m.conv_id=? AND m.source_db=? AND m.source_table=? AND m.local_id=?
+  m.source_snapshot=? AND m.conv_id=? AND m.source_db=? AND m.source_table=? AND m.local_id=?
 `
 
 export const CANONICAL_SERVER_LOOKUP_PREDICATE = `
-  m.conv_id=? AND m.server_id=?
+  m.source_snapshot=? AND m.conv_id=? AND m.server_id=?
   AND m.server_id IS NOT NULL AND trim(m.server_id)<>'' AND m.server_id<>'0'
 `
 
@@ -124,7 +131,7 @@ export function appendUnique(target: string[], values: readonly string[]) {
   for (const value of values) if (!target.includes(value)) target.push(value)
 }
 
-export function packedDigest(...values: Array<Uint8Array | null>) {
+export function packedInfoPayloadDigest(...values: Array<Uint8Array | null>) {
   const digest = crypto.createHash('sha256')
   for (const value of values) {
     digest.update(Buffer.from([0]))
@@ -169,6 +176,7 @@ export function discoverResourceFiles(accountRoot: string) {
       relativePath: contained.relative_path,
       name: path.basename(targetRealPath),
       size: stat.size,
+      absolutePath: targetRealPath,
     })
   })
   return candidates
@@ -254,14 +262,21 @@ export function toAssetMessage(
 export function emptyConversationAssetMetrics(): ConversationAssetMetrics {
   return {
     resources: 0,
+    sources: 0,
+    assets: 0,
+    associations: 0,
+    candidates: 0,
+    materializations: 0,
+    quarantined: 0,
     exactAlignments: 0,
     partialAlignments: 0,
     missingAlignments: 0,
     conflictingAlignments: 0,
-    confirmedLinks: 0,
-    unconfirmedLinks: 0,
-    exported: 0,
-    failed: 0,
+    confirmedAssociations: 0,
+    unconfirmedAssociations: 0,
+    ready: 0,
+    notAttempted: 0,
+    unavailable: 0,
     voiceAttempts: 0,
   }
 }
@@ -270,8 +285,9 @@ export type ResourceAlignmentContext = {
   message: AssetCanonicalMessage | null
   candidates: import('./assetEvidence.js').CanonicalMessage[]
   alignment: ReturnType<typeof import('./assetEvidence.js').alignResourceMessage>
-  hashes: string[]
+  lookupEvidence: string[]
   messagePackedInfo: Uint8Array | null
+  messagePackedInfoValid: boolean
   chatScope: string
 }
 

@@ -9,6 +9,8 @@ import {
   openValidatedArtifactDatabase,
   resolveArtifactDatabasePath,
 } from './artifactDatabase.js'
+import { createCurrentDatabase } from './databaseOpenerTestFixtures.js'
+import { digestFileContent } from './contentDigest.js'
 
 function fixtureRoot(t: TestContext) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-artifact-db-'))
@@ -75,6 +77,123 @@ function createArtifactDatabase(
   return databasePath
 }
 
+function createNormalizedArtifactDatabase(projectRoot: string, omitCandidates = false) {
+  const canonicalPath = createCurrentDatabase(projectRoot)
+  const canonicalDigest = digestFileContent(canonicalPath)
+  const databasePath = resolveArtifactDatabasePath(projectRoot)
+  fs.mkdirSync(path.dirname(databasePath), { recursive: true })
+  const db = new DatabaseSync(databasePath)
+  db.exec(`
+    CREATE TABLE asset_runs(
+      run_id TEXT PRIMARY KEY,status TEXT,completed_at TEXT,schema_version INTEGER,owner TEXT,
+      source_snapshot_id TEXT,source_snapshot_root_fingerprint TEXT,account_root_fingerprint TEXT,
+      canonical_run_id TEXT,canonical_schema_version INTEGER,canonical_database_sha256 TEXT,
+      source_manifest_sha256 TEXT,resource_database_sha256 TEXT,source_count INTEGER,
+      resource_count INTEGER,asset_count INTEGER,association_count INTEGER,candidate_count INTEGER,
+      materialization_count INTEGER,quarantined_count INTEGER,exact_alignments INTEGER,
+      partial_alignments INTEGER,missing_alignments INTEGER,conflicting_alignments INTEGER,
+      confirmed_associations INTEGER,unconfirmed_associations INTEGER,ready_count INTEGER,
+      not_attempted_count INTEGER,unavailable_count INTEGER,voice_attempts INTEGER,
+      audit_receipt_sha256 TEXT
+    );
+    CREATE TABLE asset_sources(
+      source_id TEXT PRIMARY KEY,run_id TEXT,source_kind TEXT,resource_message_id TEXT,
+      resource_row_id TEXT,resource_type TEXT,data_index TEXT,expected_size INTEGER,
+      detail_status INTEGER,packed_info_valid INTEGER,detail_packed_info_valid INTEGER,
+      lookup_evidence_json TEXT,filenames_json TEXT,packed_info_payload_sha256 TEXT,
+      match_method TEXT,presence TEXT,source_relative_path TEXT,source_size INTEGER,
+      source_content_sha256 TEXT
+    );
+    CREATE TABLE asset_associations(
+      association_id TEXT PRIMARY KEY,run_id TEXT,source_id TEXT,association_status TEXT,
+      confirmation_status TEXT,reason TEXT,message_uid TEXT,conv_id TEXT,matched_fields_json TEXT,
+      missing_fields_json TEXT,conflicting_fields_json TEXT,candidate_count INTEGER,
+      evidence_kind TEXT,quarantined INTEGER
+    );
+    ${omitCandidates ? '' : 'CREATE TABLE asset_candidates(association_id TEXT,message_uid TEXT,candidate_rank INTEGER);'}
+    CREATE TABLE assets(
+      asset_id TEXT PRIMARY KEY,run_id TEXT,association_id TEXT,category TEXT,kind TEXT,name TEXT,
+      preview TEXT,url TEXT,created_at INTEGER,canonical_seq INTEGER,sender_name TEXT,text TEXT,
+      evidence_signature TEXT
+    );
+    CREATE TABLE asset_materializations(
+      source_id TEXT PRIMARY KEY,run_id TEXT,asset_id TEXT,status TEXT,preview_status TEXT,
+      failure_reason TEXT
+    );
+    CREATE VIEW artifacts AS SELECT
+      NULL AS asset_id,NULL AS conv_id,NULL AS message_uid,NULL AS resource_message_id,
+      NULL AS resource_id,NULL AS category,NULL AS kind,NULL AS name,NULL AS preview,NULL AS url,
+      NULL AS source_relative_path,NULL AS source_size,NULL AS created_at,NULL AS sender_name,
+      NULL AS text,NULL AS alignment_status,NULL AS link_status,NULL AS link_reason,
+      NULL AS candidate_message_uids,NULL AS evidence_kind,NULL AS evidence_signature,
+      NULL AS materialization,NULL AS preview_status,NULL AS failure_reason,
+      NULL AS source_presence,NULL AS source_content_sha256,NULL AS association_status,
+      NULL AS confirmation_status,NULL AS association_evidence WHERE 0;
+  `)
+  const digest = `sha256:${'a'.repeat(64)}`
+  db.prepare(`INSERT INTO asset_runs(
+    run_id,status,completed_at,schema_version,owner,source_snapshot_id,
+    source_snapshot_root_fingerprint,account_root_fingerprint,canonical_run_id,
+    canonical_schema_version,canonical_database_sha256,source_manifest_sha256,
+    resource_database_sha256,source_count,resource_count,asset_count,association_count,
+    candidate_count,materialization_count,quarantined_count,exact_alignments,partial_alignments,
+    missing_alignments,conflicting_alignments,confirmed_associations,unconfirmed_associations,
+    ready_count,not_attempted_count,unavailable_count,voice_attempts,audit_receipt_sha256
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,?)`).run(
+    'run-v2','complete','2026-07-12T12:00:00.000Z',2,'owner','snapshot',digest,digest,
+    'run-0',2,canonicalDigest,digest,digest,digest,
+  )
+  db.close()
+}
+
+function addUnsafeNormalizedAsset(projectRoot: string) {
+  const db = new DatabaseSync(resolveArtifactDatabasePath(projectRoot))
+  db.exec(`
+    UPDATE asset_runs SET source_count=1,resource_count=1,asset_count=1,
+      association_count=1,materialization_count=1;
+    INSERT INTO asset_sources VALUES(
+      'source','run-v2','resource','message','row','type','0',1,1,1,1,'[]','[]',
+      'sha256:${'a'.repeat(64)}','missing','missing',NULL,NULL,NULL
+    );
+    INSERT INTO asset_associations VALUES(
+      'association','run-v2','source','partial','confirmed',NULL,'uid','conv','[]','[]','[]',
+      0,'lookup_evidence',0
+    );
+    INSERT INTO assets VALUES(
+      '${'b'.repeat(64)}','run-v2','association','document','resource','unsafe','pdf',NULL,1,0,
+      '成员','', 'sha256:${'a'.repeat(64)}'
+    );
+    INSERT INTO asset_materializations VALUES(
+      'source','run-v2','${'b'.repeat(64)}','ready','ready',NULL
+    );
+  `)
+  db.close()
+}
+
+function addDigestlessReadyAsset(projectRoot: string) {
+  const db = new DatabaseSync(resolveArtifactDatabasePath(projectRoot))
+  db.exec(`
+    UPDATE asset_runs SET source_count=1,resource_count=1,asset_count=1,
+      association_count=1,materialization_count=1;
+    INSERT INTO asset_sources VALUES(
+      'source','run-v2','resource','message','row','type','0',4,1,1,1,'[]','[]',
+      'sha256:${'a'.repeat(64)}','lookup_exact','present','ready.pdf',4,NULL
+    );
+    INSERT INTO asset_associations VALUES(
+      'association','run-v2','source','exact','confirmed',NULL,'uid','conv','[]','[]','[]',
+      0,'lookup_evidence',0
+    );
+    INSERT INTO assets VALUES(
+      '${'c'.repeat(64)}','run-v2','association','document','resource','ready','pdf',NULL,1,0,
+      '成员','', 'sha256:${'a'.repeat(64)}'
+    );
+    INSERT INTO asset_materializations VALUES(
+      'source','run-v2','${'c'.repeat(64)}','ready','ready',NULL
+    );
+  `)
+  db.close()
+}
+
 test('uses the current artifact bundle path by default', () => {
   assert.equal(
     resolveArtifactDatabasePath('C:\\project'),
@@ -123,4 +242,30 @@ test('rejects missing schema columns and any non-unique or incomplete asset run'
   for (const projectRoot of roots) {
     assert.deepEqual(openValidatedArtifactDatabase(projectRoot), { db: null, code: 'unavailable' })
   }
+})
+
+test('accepts a closed normalized v2 asset store and rejects an incomplete normalized shape', (t) => {
+  const readyRoot = fixtureRoot(t)
+  const incompleteRoot = fixtureRoot(t)
+  const unsafeRoot = fixtureRoot(t)
+  const staleRoot = fixtureRoot(t)
+  const digestlessRoot = fixtureRoot(t)
+  createNormalizedArtifactDatabase(readyRoot)
+  createNormalizedArtifactDatabase(incompleteRoot, true)
+  createNormalizedArtifactDatabase(unsafeRoot)
+  addUnsafeNormalizedAsset(unsafeRoot)
+  createNormalizedArtifactDatabase(staleRoot)
+  createNormalizedArtifactDatabase(digestlessRoot)
+  addDigestlessReadyAsset(digestlessRoot)
+  const staleCanonical = new DatabaseSync(path.join(staleRoot, 'data', 'wechat.current', 'wechat.db'))
+  staleCanonical.prepare("UPDATE people SET display_name='另一机主'").run()
+  staleCanonical.close()
+
+  const ready = openValidatedArtifactDatabase(readyRoot)
+  assert.equal(ready.code, 'ready')
+  ready.db?.close()
+  assert.deepEqual(openValidatedArtifactDatabase(incompleteRoot), { db: null, code: 'unavailable' })
+  assert.deepEqual(openValidatedArtifactDatabase(unsafeRoot), { db: null, code: 'unavailable' })
+  assert.deepEqual(openValidatedArtifactDatabase(staleRoot), { db: null, code: 'unavailable' })
+  assert.deepEqual(openValidatedArtifactDatabase(digestlessRoot), { db: null, code: 'unavailable' })
 })

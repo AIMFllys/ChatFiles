@@ -17,15 +17,41 @@ export function sourceDomain(filename: string): SourceDomain {
   return 'unknown'
 }
 
+function isStrictChild(root: string, target: string) {
+  const relative = path.relative(root, target)
+  return relative !== ''
+    && relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative)
+}
+
 export function discoverSourceDatabases(snapshotDir: string): SourceDatabase[] {
-  const messageDir = path.join(snapshotDir, 'db_storage', 'message')
-  if (!fs.existsSync(messageDir)) return []
-  return fs.readdirSync(messageDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.db'))
-    .map((entry) => ({
-      absolutePath: path.join(messageDir, entry.name),
-      domain: sourceDomain(entry.name),
-      filename: entry.name,
-    }))
-    .sort((left, right) => left.filename.localeCompare(right.filename))
+  const snapshotPath = path.resolve(snapshotDir)
+  if (!fs.existsSync(snapshotPath)) return []
+  const snapshotRoot = fs.realpathSync(snapshotPath)
+  if (!fs.statSync(snapshotRoot).isDirectory()) return []
+  const messagePath = path.join(snapshotRoot, 'db_storage', 'message')
+  if (!fs.existsSync(messagePath)) return []
+  const messageDir = fs.realpathSync(messagePath)
+  if (!isStrictChild(snapshotRoot, messageDir) || !fs.statSync(messageDir).isDirectory()) {
+    throw new Error('SOURCE_SNAPSHOT_PATH_UNSAFE')
+  }
+  const databases = fs.readdirSync(messageDir, { withFileTypes: true })
+    .filter((entry) => entry.name.endsWith('.db'))
+    .map((entry) => {
+      const candidate = path.join(messageDir, entry.name)
+      const leaf = fs.lstatSync(candidate)
+      if (!entry.isFile() || !leaf.isFile() || leaf.isSymbolicLink()) return null
+      const absolutePath = fs.realpathSync(candidate)
+      if (!isStrictChild(messageDir, absolutePath)) {
+        throw new Error('SOURCE_SNAPSHOT_PATH_UNSAFE')
+      }
+      return {
+        absolutePath,
+        domain: sourceDomain(entry.name),
+        filename: entry.name,
+      }
+    })
+    .filter((entry): entry is SourceDatabase => entry !== null)
+  return databases.sort((left, right) => left.filename.localeCompare(right.filename))
 }

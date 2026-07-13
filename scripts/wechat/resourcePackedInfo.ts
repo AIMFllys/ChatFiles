@@ -7,7 +7,7 @@ const { Reader } = protobuf
 export type PackedInfoEvidence = {
   valid: boolean
   strings: string[]
-  hashes: string[]
+  lookupEvidence: string[]
   filenames: string[]
 }
 
@@ -89,25 +89,25 @@ export function parsePackedInfoEvidence(
   value: Uint8Array | null | undefined,
 ): PackedInfoEvidence {
   if (value === null || value === undefined || value.byteLength === 0) {
-    return { valid: true, strings: [], hashes: [], filenames: [] }
+    return { valid: true, strings: [], lookupEvidence: [], filenames: [] }
   }
 
   let strings: string[]
   try {
     strings = readPackedStrings(value, 0)
   } catch {
-    return { valid: false, strings: [], hashes: [], filenames: [] }
+    return { valid: false, strings: [], lookupEvidence: [], filenames: [] }
   }
 
-  const hashes: string[] = []
+  const lookupEvidence: string[] = []
   const filenames: string[] = []
   for (const evidence of strings) {
     for (const match of evidence.matchAll(HASH_PATTERN)) {
       const hash = match[1]
-      if (hash) appendUnique(hashes, hash.toLowerCase())
+      if (hash) appendUnique(lookupEvidence, hash.toLowerCase())
     }
     const filename = filenameFromEvidence(evidence)
     if (filename !== null) appendUnique(filenames, filename)
   }
-  return { valid: true, strings, hashes, filenames }
+  return { valid: true, strings, lookupEvidence, filenames }
 }

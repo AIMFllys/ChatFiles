@@ -57,11 +57,14 @@ test('creates a confirmed document artifact from stable hash and local file evid
     dataIndex: '0',
     expectedSize: 4096,
     detailStatus: 1,
-    messageHashes: ['0123456789abcdef0123456789abcdef'],
+    lookupEvidence: ['0123456789abcdef0123456789abcdef'],
     filenames: ['课程讲义.pdf'],
-    packedInfoDigest: 'sha256:packed-info',
+    packedInfoPayloadSha256: 'sha256:packed-info',
+    packedInfoValid: true,
+    detailPackedInfoValid: true,
+    sourceContentSha256: 'sha256:source-content',
     fileMatch: {
-      status: 'hash_exact',
+      status: 'lookup_exact',
       candidate: {
         relativePath: 'msg\\file\\2026-07\\0123456789abcdef0123456789abcdef.pdf',
         name: '0123456789abcdef0123456789abcdef.pdf',
@@ -73,10 +76,10 @@ test('creates a confirmed document artifact from stable hash and local file evid
 
   assert.equal(artifact.category, 'document')
   assert.equal(artifact.name, '课程讲义.pdf')
-  assert.equal(artifact.link_status, 'confirmed')
-  assert.equal(artifact.link_reason, null)
-  assert.equal(artifact.evidence_kind, 'resource_hash')
-  assert.equal(artifact.materialization, 'exported')
+  assert.equal(artifact.confirmation_status, 'confirmed')
+  assert.equal(artifact.association_reason, null)
+  assert.equal(artifact.evidence_kind, 'lookup_evidence')
+  assert.equal(artifact.materialization, 'ready')
   assert.equal(artifact.preview_status, 'ready')
   assert.equal(artifact.failure_reason, null)
   assert.equal(artifact.source_relative_path?.endsWith('.pdf'), true)
@@ -92,9 +95,12 @@ test('keeps filename-only local matches explicitly unconfirmed', () => {
     dataIndex: '0',
     expectedSize: 4096,
     detailStatus: 1,
-    messageHashes: [],
+    lookupEvidence: [],
     filenames: ['课程讲义.pdf'],
-    packedInfoDigest: 'sha256:packed-info',
+    packedInfoPayloadSha256: 'sha256:packed-info',
+    packedInfoValid: true,
+    detailPackedInfoValid: true,
+    sourceContentSha256: 'sha256:source-content',
     fileMatch: {
       status: 'filename_only',
       candidate: {
@@ -106,10 +112,77 @@ test('keeps filename-only local matches explicitly unconfirmed', () => {
     },
   })
 
-  assert.equal(artifact.link_status, 'unconfirmed')
+  assert.equal(artifact.confirmation_status, 'unconfirmed')
   assert.equal(artifact.evidence_kind, 'filename_only')
-  assert.equal(artifact.link_reason, 'filename_only')
+  assert.equal(artifact.association_reason, 'filename_only')
   assert.equal(artifact.failure_reason, null)
+})
+
+test('confirms a candidate matched by any packed-info lookup evidence value', () => {
+  const matched = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const artifact = createResourceArtifact({
+    message,
+    alignment: exactAlignment(),
+    resourceMessageId: '100',
+    resourceId: '505',
+    resourceType: '3342339',
+    dataIndex: '0',
+    expectedSize: 4,
+    detailStatus: 1,
+    lookupEvidence: ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', matched],
+    filenames: ['资料.pdf'],
+    packedInfoPayloadSha256: 'sha256:packed-info',
+    packedInfoValid: true,
+    detailPackedInfoValid: true,
+    sourceContentSha256: 'sha256:source-content',
+    fileMatch: {
+      status: 'lookup_exact',
+      candidate: { relativePath: `msg\\file\\${matched}.pdf`, name: `${matched}.pdf`, size: 4 },
+      candidates: [],
+    },
+  })
+
+  assert.equal(artifact.confirmation_status, 'confirmed')
+  assert.notEqual(artifact.asset_id, null)
+})
+
+test('keeps stable asset identity independent of resource row ids and packed layout', () => {
+  const base = {
+    message,
+    alignment: exactAlignment(),
+    resourceMessageId: '100',
+    resourceType: '3342339',
+    dataIndex: '0',
+    expectedSize: 4096,
+    detailStatus: 1,
+    lookupEvidence: ['0123456789abcdef0123456789abcdef'],
+    filenames: ['课程讲义.pdf'],
+    packedInfoValid: true,
+    detailPackedInfoValid: true,
+    fileMatch: {
+      status: 'lookup_exact' as const,
+      candidate: {
+        relativePath: 'msg\\file\\0123456789abcdef0123456789abcdef.pdf',
+        name: '0123456789abcdef0123456789abcdef.pdf',
+        size: 4096,
+      },
+      candidates: [],
+    },
+  }
+  const first = createResourceArtifact({
+    ...base,
+    resourceId: '501',
+    packedInfoPayloadSha256: 'sha256:protobuf-layout-a',
+    sourceContentSha256: 'sha256:source-version-a',
+  })
+  const moved = createResourceArtifact({
+    ...base,
+    resourceId: '9999',
+    packedInfoPayloadSha256: 'sha256:protobuf-layout-b',
+    sourceContentSha256: 'sha256:source-version-b',
+  })
+
+  assert.equal(first.asset_id, moved.asset_id)
 })
 
 test('records encrypted image payloads as explicit decrypt attempts', () => {
@@ -127,11 +200,14 @@ test('records encrypted image payloads as explicit decrypt attempts', () => {
     dataIndex: '0',
     expectedSize: 2048,
     detailStatus: 1,
-    messageHashes: ['41dc6069a2c1d5a8757704fc3dea0701'],
+    lookupEvidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
     filenames: [],
-    packedInfoDigest: 'sha256:image-packed-info',
+    packedInfoPayloadSha256: 'sha256:image-packed-info',
+    packedInfoValid: true,
+    detailPackedInfoValid: true,
+    sourceContentSha256: 'sha256:encrypted-source',
     fileMatch: {
-      status: 'hash_exact',
+      status: 'lookup_exact',
       candidate: {
         relativePath: 'msg\\attach\\room\\2026-07\\Img\\41dc6069a2c1d5a8757704fc3dea0701.dat',
         name: '41dc6069a2c1d5a8757704fc3dea0701.dat',
@@ -143,9 +219,41 @@ test('records encrypted image payloads as explicit decrypt attempts', () => {
 
   assert.equal(artifact.category, 'work')
   assert.equal(artifact.preview, 'image')
-  assert.equal(artifact.materialization, 'decrypt_failed')
-  assert.equal(artifact.preview_status, 'decrypt_failed')
+  assert.equal(artifact.materialization, 'not_attempted')
+  assert.equal(artifact.preview_status, 'unavailable')
   assert.equal(artifact.failure_reason, 'encrypted_wechat_dat_requires_materialization')
+})
+
+test('never marks any matched dat source ready before verified materialization', () => {
+  const artifact = createResourceArtifact({
+    message,
+    alignment: exactAlignment(),
+    resourceMessageId: '102',
+    resourceId: '504',
+    resourceType: '3342339',
+    dataIndex: '0',
+    expectedSize: 4,
+    detailStatus: 1,
+    lookupEvidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
+    filenames: ['附件.dat'],
+    packedInfoPayloadSha256: 'sha256:packed-dat',
+    packedInfoValid: true,
+    detailPackedInfoValid: true,
+    sourceContentSha256: 'sha256:encrypted-source',
+    fileMatch: {
+      status: 'lookup_exact',
+      candidate: {
+        relativePath: 'msg\\file\\附件.dat',
+        name: '附件.dat',
+        size: 4,
+      },
+      candidates: [],
+    },
+  })
+
+  assert.equal(artifact.preview, 'download')
+  assert.equal(artifact.materialization, 'not_attempted')
+  assert.equal(artifact.preview_status, 'unavailable')
 })
 
 test('extracts canonical links as separate ready artifacts', () => {
@@ -154,7 +262,7 @@ test('extracts canonical links as separate ready artifacts', () => {
   assert.equal(links.length, 1)
   assert.equal(links[0]?.category, 'link')
   assert.equal(links[0]?.url, 'https://example.com/path?a=1')
-  assert.equal(links[0]?.materialization, 'exported')
+  assert.equal(links[0]?.materialization, 'ready')
   assert.equal(links[0]?.preview_status, 'ready')
 })
 
@@ -167,8 +275,8 @@ test('creates a visible voice export attempt with a required failure reason', ()
   })
 
   assert.equal(voice.preview, 'voice')
-  assert.equal(voice.materialization, 'missing_source')
-  assert.equal(voice.preview_status, 'missing_source')
+  assert.equal(voice.materialization, 'not_attempted')
+  assert.equal(voice.preview_status, 'unavailable')
   assert.equal(voice.failure_reason, 'voice_source_not_exposed_by_message_resource')
-  assert.equal(voice.link_reason, 'voice_resource_not_available')
+  assert.equal(voice.association_reason, null)
 })

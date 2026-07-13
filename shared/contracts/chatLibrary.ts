@@ -33,11 +33,16 @@ export type ChatArtifactTab = 'all' | 'work' | 'document' | 'skill' | 'link' | '
 
 export type ChatArtifactAvailability =
   | 'ready'
+  | 'not_attempted'
+  | 'key_unavailable'
+  | 'source_missing'
+  | 'cdn_only'
   | 'thumbnail_only'
   | 'missing_source'
   | 'decrypt_failed'
   | 'source_ambiguous'
   | 'hash_mismatch'
+  | 'source_changed'
   | 'unsupported_codec'
   | 'source_unavailable'
 
@@ -56,6 +61,19 @@ export type ChatArtifactItem = {
   senderName: string
   size: number | null
   availability: ChatArtifactAvailability
+  association: {
+    status: 'exact' | 'partial' | 'conflict' | 'missing' | 'legacy'
+    evidence: string
+  }
+  source: {
+    presence: 'present' | 'missing' | 'ambiguous' | 'size_mismatch' | 'not_applicable' | 'unknown'
+  }
+  materialization: {
+    status: string
+  }
+  capability: {
+    previewStatus: string
+  }
   metadataUrl: string
 }
 

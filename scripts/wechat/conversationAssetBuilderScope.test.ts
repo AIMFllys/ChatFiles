@@ -37,6 +37,20 @@ function createCanonicalDatabase(filename: string, username: string, messages: M
       discovered_rows INTEGER,parsed_rows INTEGER,deduplicated_rows INTEGER,
       excluded_rows INTEGER,exclusion_reason TEXT
     );
+    CREATE TABLE parse_runs(
+      run_id TEXT PRIMARY KEY,status TEXT,completed_at TEXT,schema_version INTEGER,time_zone TEXT,
+      selected_snapshot_count INTEGER,selected_source_count INTEGER,source_unit_count INTEGER,
+      source_conversation_count INTEGER,source_message_count INTEGER,excluded_source_row_count INTEGER,
+      output_conversation_count INTEGER,output_message_count INTEGER,output_text_count INTEGER,
+      deduplicated_message_count INTEGER
+    );
+    CREATE TABLE bundle_metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+    INSERT INTO parse_runs VALUES(
+      'canonical-scope-fixture','complete','2026-07-12T12:00:00.000Z',2,'Asia/Shanghai',
+      1,1,1,1,1,0,1,1,0,0
+    );
+    INSERT INTO bundle_metadata VALUES('run_id','canonical-scope-fixture');
+    INSERT INTO bundle_metadata VALUES('schema_version','2');
   `)
   const conversations = new Set<string>()
   const insertConversation = db.prepare('INSERT INTO conversations VALUES(?,?,?)')
@@ -137,7 +151,11 @@ test('opens arbitrary regular and biz shards used by canonical local/server evid
 
   const output = new DatabaseSync(path.join(bundleDir, 'artifacts.db'), { readOnly: true })
   assert.deepEqual(
-    output.prepare("SELECT message_uid FROM artifacts WHERE kind='resource' ORDER BY message_uid")
+    output.prepare(`
+      SELECT a.message_uid
+      FROM asset_associations a JOIN asset_sources s ON s.source_id=a.source_id
+      WHERE s.source_kind='resource' ORDER BY a.message_uid
+    `)
       .all().map((row) => String(row.message_uid)),
     ['uid-biz', 'uid-regular'],
   )
@@ -162,7 +180,52 @@ test('binds a resource username only inside the selected source snapshot owner s
   runConversationAssetBuilder({ ...fixture, bundleDir, runId: 'owner-scope' })
 
   const output = new DatabaseSync(path.join(bundleDir, 'artifacts.db'), { readOnly: true })
-  const row = output.prepare("SELECT conv_id,message_uid FROM artifacts WHERE kind='resource'").get()
+  const row = output.prepare(`
+    SELECT a.conv_id,a.message_uid
+    FROM asset_associations a JOIN asset_sources s ON s.source_id=a.source_id
+    WHERE s.source_kind='resource'
+  `).get()
   assert.deepEqual({ ...row }, { conv_id: selected.convId, message_uid: selected.uid })
+  assert.deepEqual({ ...output.prepare(`
+    SELECT owner,source_snapshot_id,canonical_run_id FROM asset_runs
+  `).get() }, {
+    owner: selected.owner,
+    source_snapshot_id: selected.snapshot,
+    canonical_run_id: 'canonical-scope-fixture',
+  })
   output.close()
+})
+
+test('never mixes canonical message evidence from another snapshot with reused coordinates', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-asset-snapshot-scope-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const selected: MessageFixture = {
+    convId: 'conv-shared', owner: 'owner-a', snapshot: 'snapshot-selected',
+    sourceDb: 'message_0.db', uid: 'uid-selected', sequence: 0, localId: 42, serverId: 9001,
+  }
+  const stale: MessageFixture = {
+    ...selected,
+    snapshot: 'snapshot-stale',
+    uid: 'uid-stale',
+    sequence: 1,
+  }
+  const fixture = buildFixture(root, selected.snapshot, [selected, stale])
+  createSourceShard(path.join(fixture.shardRoot, 'message_0.db'), fixture.username, [selected])
+  const bundleDir = path.join(root, 'assets.next')
+
+  runConversationAssetBuilder({ ...fixture, bundleDir, runId: 'snapshot-scope' })
+
+  const output = new DatabaseSync(path.join(bundleDir, 'artifacts.db'), { readOnly: true })
+  try {
+    assert.deepEqual({ ...output.prepare(`
+      SELECT association_status,message_uid,candidate_count
+      FROM asset_associations
+    `).get() }, {
+      association_status: 'exact',
+      message_uid: selected.uid,
+      candidate_count: 1,
+    })
+  } finally {
+    output.close()
+  }
 })

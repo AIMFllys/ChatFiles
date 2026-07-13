@@ -2,16 +2,17 @@ export type ResourceFileCandidate = {
   relativePath: string
   name: string
   size: number
+  absolutePath?: string
 }
 
 export type ResourceFileIndex = {
-  byHash: ReadonlyMap<string, readonly ResourceFileCandidate[]>
+  byLookupEvidence: ReadonlyMap<string, readonly ResourceFileCandidate[]>
   byName: ReadonlyMap<string, readonly ResourceFileCandidate[]>
 }
 
 export type ResourceFileMatch =
   | {
-      status: 'hash_exact' | 'filename_only'
+      status: 'lookup_exact' | 'filename_only'
       candidate: ResourceFileCandidate
       candidates: ResourceFileCandidate[]
     }
@@ -43,16 +44,16 @@ function appendIndex(
 export function createResourceFileIndex(
   candidates: readonly ResourceFileCandidate[],
 ): ResourceFileIndex {
-  const byHash = new Map<string, ResourceFileCandidate[]>()
+  const byLookupEvidence = new Map<string, ResourceFileCandidate[]>()
   const byName = new Map<string, ResourceFileCandidate[]>()
   for (const candidate of candidates) {
     appendIndex(byName, candidate.name.toLowerCase(), candidate)
     for (const match of candidate.name.matchAll(HASH_PATTERN)) {
       const hash = match[1]
-      if (hash) appendIndex(byHash, hash.toLowerCase(), candidate)
+      if (hash) appendIndex(byLookupEvidence, hash.toLowerCase(), candidate)
     }
   }
-  return { byHash, byName }
+  return { byLookupEvidence, byName }
 }
 
 function collectCandidates(
@@ -76,14 +77,14 @@ function matchBySize(candidates: ResourceFileCandidate[], expectedSize: number) 
 export function matchResourceFile(
   index: ResourceFileIndex,
   evidence: {
-    hashes: readonly string[]
+    lookupEvidence: readonly string[]
     filenames: readonly string[]
     expectedSize: number
   },
 ): ResourceFileMatch {
-  const source = evidence.hashes.length > 0 ? 'hash' : 'filename'
-  const candidates = source === 'hash'
-    ? collectCandidates(index.byHash, evidence.hashes)
+  const source = evidence.lookupEvidence.length > 0 ? 'lookup' : 'filename'
+  const candidates = source === 'lookup'
+    ? collectCandidates(index.byLookupEvidence, evidence.lookupEvidence)
     : collectCandidates(index.byName, evidence.filenames)
   if (candidates.length === 0) {
     return { status: 'missing', candidate: null, candidates: [] }
@@ -99,7 +100,7 @@ export function matchResourceFile(
   const candidate = sized[0]
   if (!candidate) return { status: 'missing', candidate: null, candidates: [] }
   return {
-    status: source === 'hash' ? 'hash_exact' : 'filename_only',
+    status: source === 'lookup' ? 'lookup_exact' : 'filename_only',
     candidate,
     candidates: [candidate],
   }

@@ -3,7 +3,6 @@ import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
 import { queryArtifacts } from './artifactQuery.js'
-import { stableMessageUid } from './legacyMessageIdentity.js'
 
 function fixtureDatabases() {
   const assetDb = new DatabaseSync(':memory:')
@@ -175,12 +174,60 @@ test('returns only path-free public DTO fields and no ordinary artifact text', (
   assert.doesNotMatch(serialized, /source_relative_path|candidate_message_uids|evidence_signature|failure_reason|private\//)
   assert.doesNotMatch(serialized, /内部说明|未关联会话|secret detail|private failure/)
   assert.deepEqual(Object.keys(page.items[0] ?? {}).sort(), [
-    'availability', 'category', 'conversationId', 'createdAt', 'id', 'itemType',
-    'kind', 'metadataUrl', 'name', 'preview', 'senderName', 'size', 'url',
+    'association', 'availability', 'capability', 'category', 'conversationId', 'createdAt', 'id',
+    'itemType', 'kind', 'materialization', 'metadataUrl', 'name', 'preview',
+    'senderName', 'size', 'source', 'url',
   ])
   assert.equal(page.items[0]?.itemType === 'artifact' ? page.items[0].size : null, 30)
+  assert.deepEqual(page.items[0]?.itemType === 'artifact' ? page.items[0].association : null, {
+    status: 'legacy', evidence: 'legacy',
+  })
+  assert.deepEqual(page.items[0]?.itemType === 'artifact' ? page.items[0].source : null, {
+    presence: 'present',
+  })
+  assert.deepEqual(page.items[0]?.itemType === 'artifact' ? page.items[0].materialization : null, {
+    status: 'decrypt_failed',
+  })
+  assert.deepEqual(page.items[0]?.itemType === 'artifact' ? page.items[0].capability : null, {
+    previewStatus: 'decrypt_failed',
+  })
   assetDb.close()
   wechatDb.close()
+})
+
+test('filters every explicitly unconfirmed legacy artifact from ordinary queries', () => {
+  const assetDb = new DatabaseSync(':memory:')
+  const wechatDb = new DatabaseSync(':memory:')
+  try {
+    assetDb.exec(`
+      CREATE TABLE artifacts(
+        asset_id TEXT PRIMARY KEY,conv_id TEXT,category TEXT,kind TEXT,name TEXT,preview TEXT,
+        url TEXT,source_size INTEGER,created_at INTEGER,sender_name TEXT,text TEXT,
+        materialization TEXT,preview_status TEXT,link_status TEXT,evidence_kind TEXT,
+        alignment_status TEXT
+      );
+      INSERT INTO artifacts VALUES
+        ('${'1'.repeat(64)}','conv','document','resource','确认.pdf','pdf',NULL,1,1,'成员','',
+         'exported','ready','confirmed','resource_hash','exact'),
+        ('${'2'.repeat(64)}','conv','document','resource','未确认.pdf','pdf',NULL,1,1,'成员','',
+         'exported','ready','unconfirmed','filename_only','exact'),
+        ('${'3'.repeat(64)}','conv','work','voice','未确认语音','voice',NULL,1,1,'成员','',
+         'missing_source','missing_source','unconfirmed','message_type','exact'),
+        ('${'4'.repeat(64)}','conv','link','link','未确认链接','link','https://example.test',NULL,1,'成员','',
+         'exported','ready','unconfirmed','message_text','exact');
+    `)
+    wechatDb.exec('CREATE TABLE messages(conv_id TEXT,type INTEGER,text TEXT,sender_name TEXT)')
+
+    const page = queryArtifacts(assetDb, wechatDb, {
+      tab: 'all', query: '', limit: 10, offset: 0,
+    })
+
+    assert.deepEqual(page.items.map((item) => item.id), ['1'.repeat(64)])
+    assert.equal(page.counts.all, 1)
+  } finally {
+    assetDb.close()
+    wechatDb.close()
+  }
 })
 
 test('returns zeroed counts and an empty page for empty databases', () => {
@@ -233,35 +280,4 @@ test('lists chat text from the exact legacy schema without pretending its anchor
   assert.equal(repeated.items[0]?.id, first.items[0]?.id)
   assetDb.close()
   wechatDb.close()
-})
-
-test('lists nullable legacy message identities in descending sequence order', () => {
-  const assetDb = new DatabaseSync(':memory:')
-  const wechatDb = new DatabaseSync(':memory:')
-  try {
-    assetDb.exec(`CREATE TABLE artifacts(
-      asset_id TEXT PRIMARY KEY,conv_id TEXT,category TEXT,kind TEXT,name TEXT,preview TEXT,
-      url TEXT,source_size INTEGER,created_at INTEGER,sender_name TEXT,text TEXT,
-      materialization TEXT,preview_status TEXT
-    )`)
-    wechatDb.exec(`CREATE TABLE messages(
-      conv_id TEXT,message_uid TEXT,seq INTEGER,time INTEGER,sender TEXT,sender_name TEXT,
-      type INTEGER,type_label TEXT,text TEXT
-    ); INSERT INTO messages VALUES
-      ('legacy-conv',NULL,2,100,'member','成员',1,'text','旧版聊天素材'),
-      ('legacy-conv',NULL,0,100,'member','成员',1,'text','旧版聊天素材'),
-      ('legacy-conv',NULL,1,100,'member','成员',1,'text','旧版聊天素材');`)
-    const page = queryArtifacts(assetDb, wechatDb, {
-      tab: 'chatText', query: '旧版', limit: 10, offset: 0,
-    })
-    const expected = [
-      stableMessageUid({ conv_id: 'legacy-conv', sequence: 2, time: 100, legacy_rowid: 1 }, true),
-      stableMessageUid({ conv_id: 'legacy-conv', sequence: 1, time: 100, legacy_rowid: 3 }, true),
-      stableMessageUid({ conv_id: 'legacy-conv', sequence: 0, time: 100, legacy_rowid: 2 }, true),
-    ]
-    assert.deepEqual(page.items.map((item) => item.itemType === 'chatText' ? item.messageUid : ''), expected)
-  } finally {
-    assetDb.close()
-    wechatDb.close()
-  }
 })

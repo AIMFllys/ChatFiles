@@ -12,6 +12,11 @@ const previewTypes = new Set<LibraryFile['preview']>([
 ])
 
 const stateLabels: Record<string, string> = {
+  not_attempted: '源文件尚未经过验证物化，暂时无法预览',
+  key_unavailable: '当前没有可用的短生命周期解密密钥',
+  source_missing: '没有找到可验证的本地源文件',
+  source_changed: '本地源文件内容已与构建时证据不同',
+  cdn_only: '这条消息只保留了 CDN 引用，本地没有缓存',
   decrypt_failed: '文件仍是加密载荷，暂时无法预览',
   hash_mismatch: '本地文件与消息证据不一致',
   missing_source: '没有找到可验证的本地源文件',

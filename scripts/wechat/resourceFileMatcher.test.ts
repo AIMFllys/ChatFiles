@@ -29,24 +29,24 @@ const candidates: ResourceFileCandidate[] = [
   },
 ]
 
-test('uses stable resource hashes and exact size to select one local file', () => {
+test('uses packed-info lookup evidence and exact size to select one local file', () => {
   const index = createResourceFileIndex(candidates)
 
   assert.deepEqual(matchResourceFile(index, {
-    hashes: ['41DC6069A2C1D5A8757704FC3DEA0701'],
+    lookupEvidence: ['41DC6069A2C1D5A8757704FC3DEA0701'],
     filenames: [],
     expectedSize: 2048,
   }), {
-    status: 'hash_exact',
+    status: 'lookup_exact',
     candidate: candidates[0],
     candidates: [candidates[0]],
   })
 })
 
-test('keeps hash variants ambiguous when no stable discriminator selects one', () => {
+test('keeps lookup variants ambiguous when no stable discriminator selects one', () => {
   const index = createResourceFileIndex(candidates)
   const result = matchResourceFile(index, {
-    hashes: ['41dc6069a2c1d5a8757704fc3dea0701'],
+    lookupEvidence: ['41dc6069a2c1d5a8757704fc3dea0701'],
     filenames: [],
     expectedSize: 0,
   })
@@ -62,7 +62,7 @@ test('labels a unique exact filename as unconfirmed filename-only evidence', () 
   const index = createResourceFileIndex(candidates)
 
   assert.deepEqual(matchResourceFile(index, {
-    hashes: [],
+    lookupEvidence: [],
     filenames: ['课程讲义.pdf'],
     expectedSize: 4096,
   }), {
@@ -76,7 +76,7 @@ test('returns missing without falling back to partial or stem matches', () => {
   const index = createResourceFileIndex(candidates)
 
   assert.deepEqual(matchResourceFile(index, {
-    hashes: [],
+    lookupEvidence: [],
     filenames: ['讲义.pdf'],
     expectedSize: 0,
   }), {

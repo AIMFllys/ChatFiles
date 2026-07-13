@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { auditConversationAssetBundle } from './wechat/conversationAssetAudit.js'
-import { primaryAccountRoot } from './buildConversationAssets.js'
+import { accountRootForAssetBundle } from './buildConversationAssets.js'
 import { loadLocalEnv } from './localEnv.js'
 
 function option(name: string) {
@@ -19,7 +19,7 @@ try {
   const bundleDir = path.resolve(root, option('--bundle') ?? 'data/chat-assets.next')
   const result = auditConversationAssetBundle({
     bundleDir,
-    accountRoot: primaryAccountRoot(store),
+    accountRoot: accountRootForAssetBundle(store, bundleDir),
   })
   process.stdout.write(`${JSON.stringify(result)}\n`)
   if (!result.ok) process.exitCode = 1
