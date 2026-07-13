@@ -83,6 +83,7 @@ Thumbs.db
 # ===== Agent / AI 状态 =====
 .claude/
 .cursor/
+.playwright-cli/
 
 # ===== 遗留文件 =====
 README_CHATFILES.md

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "tsx --test \"scripts/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\"",
+    "test:e2e": "npm run build && tsx scripts/e2e/chatLibrary.e2e.ts",
     "audit:chat": "tsx scripts/auditChatIdentity.ts --source work/decrypted/wechat --db data/wechat.next/wechat.db --strict",
     "audit:assets": "tsx scripts/auditConversationAssets.ts --bundle data/chat-assets.current",
     "insights:prepare": "tsx scripts/refreshInsights.ts prepare",
