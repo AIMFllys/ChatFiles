@@ -1,8 +1,22 @@
+export type AIContextStrategy = 'recent' | 'summary'
+
+export interface EmbeddingConfig {
+  enabled: boolean
+  baseURL: string
+  apiKey: string
+  model: string
+  dimensions: number
+  batchSize: number
+}
+
 export interface AIConfig {
   baseURL: string
   apiKey: string
   model: string
-  /** max context tokens we will inject (10_000 .. 800_000) */
+  contextWindow: number
+  contextStrategy: AIContextStrategy
+  embedding: EmbeddingConfig
+  /** Transitional raw-context cap for the legacy dock. */
   threshold: number
   temperature: number
 }
@@ -14,29 +28,86 @@ export interface ChatTurn {
 
 const KEY = 'chatfiles.ai.config'
 
-export const MIN_THRESHOLD = 10_000
-export const MAX_THRESHOLD = 800_000
+export const MIN_CONTEXT_WINDOW = 8_000
+export const MAX_CONTEXT_WINDOW = 2_000_000
+export const MIN_THRESHOLD = Math.floor(MIN_CONTEXT_WINDOW * 0.7)
+export const MAX_THRESHOLD = Math.floor(MAX_CONTEXT_WINDOW * 0.7)
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
   baseURL: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o-mini',
-  threshold: 128_000,
+  contextWindow: 128_000,
+  contextStrategy: 'recent',
+  embedding: {
+    enabled: false,
+    baseURL: 'https://api.openai.com/v1',
+    apiKey: '',
+    model: 'text-embedding-3-small',
+    dimensions: 1_536,
+    batchSize: 64,
+  },
+  threshold: 89_600,
   temperature: 0.6,
+}
+
+function clampNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
+  const number = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return Math.min(maximum, Math.max(minimum, number))
+}
+
+function text(value: unknown, fallback: string) {
+  return typeof value === 'string' ? value.trim() : fallback
+}
+
+function baseUrl(value: unknown, fallback: string) {
+  return text(value, fallback).replace(/\/+$/u, '')
+}
+
+export function normalizeAIConfig(value: unknown): AIConfig {
+  const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const legacyWindow = typeof candidate.threshold === 'number' ? candidate.threshold : DEFAULT_AI_CONFIG.contextWindow
+  const contextWindow = Math.round(clampNumber(
+    candidate.contextWindow,
+    legacyWindow,
+    MIN_CONTEXT_WINDOW,
+    MAX_CONTEXT_WINDOW,
+  ))
+  const rawEmbedding = candidate.embedding && typeof candidate.embedding === 'object'
+    ? candidate.embedding as Record<string, unknown>
+    : {}
+  const embedding: EmbeddingConfig = {
+    enabled: rawEmbedding.enabled === true,
+    baseURL: baseUrl(rawEmbedding.baseURL, DEFAULT_AI_CONFIG.embedding.baseURL),
+    apiKey: text(rawEmbedding.apiKey, DEFAULT_AI_CONFIG.embedding.apiKey),
+    model: text(rawEmbedding.model, DEFAULT_AI_CONFIG.embedding.model),
+    dimensions: Math.round(clampNumber(rawEmbedding.dimensions, DEFAULT_AI_CONFIG.embedding.dimensions, 1, 8_192)),
+    batchSize: Math.round(clampNumber(rawEmbedding.batchSize, DEFAULT_AI_CONFIG.embedding.batchSize, 1, 256)),
+  }
+  return {
+    baseURL: baseUrl(candidate.baseURL, DEFAULT_AI_CONFIG.baseURL),
+    apiKey: text(candidate.apiKey, DEFAULT_AI_CONFIG.apiKey),
+    model: text(candidate.model, DEFAULT_AI_CONFIG.model),
+    contextWindow,
+    contextStrategy: candidate.contextStrategy === 'summary' ? 'summary' : 'recent',
+    embedding,
+    threshold: Math.floor(contextWindow * 0.7),
+    temperature: clampNumber(candidate.temperature, DEFAULT_AI_CONFIG.temperature, 0, 2),
+  }
 }
 
 export function loadAIConfig(): AIConfig {
   try {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return { ...DEFAULT_AI_CONFIG }
-    return { ...DEFAULT_AI_CONFIG, ...(JSON.parse(raw) as Partial<AIConfig>) }
+    if (!raw) return normalizeAIConfig(DEFAULT_AI_CONFIG)
+    return normalizeAIConfig(JSON.parse(raw))
   } catch {
-    return { ...DEFAULT_AI_CONFIG }
+    return normalizeAIConfig(DEFAULT_AI_CONFIG)
   }
 }
 
 export function saveAIConfig(cfg: AIConfig): void {
-  localStorage.setItem(KEY, JSON.stringify(cfg))
+  localStorage.setItem(KEY, JSON.stringify(normalizeAIConfig(cfg)))
 }
 
 export function isConfigured(cfg: AIConfig): boolean {

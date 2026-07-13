@@ -7,9 +7,9 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 import { chromium, type Browser } from 'playwright'
-
 import { createApp } from '../../server/app.js'
 import { createWechatRouter } from '../../server/routes/wechat.js'
+import { verifyAISettings } from './aiSettingsAssertions.js'
 
 function fixtureDatabases() {
   const accountRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-e2e-'))
@@ -262,7 +262,7 @@ try {
   await page.getByRole('button', { name: '当前浅色模式，切换到深色模式', exact: true }).click()
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark')
-
+  await verifyAISettings(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: '聊天', exact: true }).click()
