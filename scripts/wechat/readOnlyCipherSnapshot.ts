@@ -2,52 +2,26 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import Database from 'better-sqlite3-multiple-ciphers'
+import {
+  CipherSnapshotError,
+  type CipherDatabase,
+  type CipherSnapshotAdapter,
+  type SnapshotFileIo,
+} from './cipherSnapshotTypes.js'
 import { WalStateError, readStableWalState, type SafeWalState } from './walState.js'
 import {
   SqlcipherSnapshotHelperError,
   runSqlcipherSnapshotHelper,
 } from './sqlcipherSnapshotHelper.js'
 
-export type CipherSnapshotErrorCode =
-  | 'KEY_LENGTH_INVALID'
-  | 'DATABASE_READ_FAILED'
-  | 'DESTINATION_RESERVE_FAILED'
-  | 'BACKUP_FAILED'
-  | 'VALIDATION_OPEN_FAILED'
-  | 'INTEGRITY_CHECK_FAILED'
-  | 'SCHEMA_MISMATCH'
-  | 'WAL_GENERATION_CHANGED'
-
-export class CipherSnapshotError extends Error {
-  readonly code: CipherSnapshotErrorCode
-
-  constructor(code: CipherSnapshotErrorCode) {
-    super(code)
-    this.name = 'CipherSnapshotError'
-    this.code = code
-  }
-}
-
-export interface CipherStatement {
-  all(...parameters: unknown[]): unknown[]
-}
-
-export interface CipherDatabase {
-  pragma(source: string, options?: unknown): unknown
-  key?(key: Buffer): number
-  exec(source: string): unknown
-  prepare(source: string): CipherStatement
-  backup?(destination: string): Promise<unknown>
-  close(): void
-}
-
-export interface CipherSnapshotAdapter {
-  open(filename: string, options: { readonly: boolean; fileMustExist: boolean }): CipherDatabase
-}
-
-export interface SnapshotFileIo {
-  reserveNewFile(filePath: string): Promise<void>
-}
+export { CipherSnapshotError } from './cipherSnapshotTypes.js'
+export type {
+  CipherDatabase,
+  CipherSnapshotAdapter,
+  CipherSnapshotErrorCode,
+  CipherStatement,
+  SnapshotFileIo,
+} from './cipherSnapshotTypes.js'
 
 const schemaQuery = `
   SELECT type, name, tbl_name, rootpage, sql
