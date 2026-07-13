@@ -5,6 +5,7 @@ import {
   MAX_CONTEXT_WINDOW,
   MIN_CONTEXT_WINDOW,
   loadAIConfig,
+  isConfigured,
   normalizeAIConfig,
   saveAIConfig,
 } from './aiConfig.js'
@@ -64,4 +65,8 @@ test('normalizes before saving and keeps embedding keys only in browser storage'
   assert.equal(JSON.parse(serialized).embedding.batchSize, 256)
   assert.match(serialized, /local-key/u)
   assert.equal(loadAIConfig().embedding.apiKey, 'local-key')
+})
+
+test('allows a keyless local OpenAI-compatible endpoint', () => {
+  assert.equal(isConfigured({ ...DEFAULT_AI_CONFIG, baseURL: 'http://127.0.0.1:11434/v1', apiKey: '', model: 'local' }), true)
 })

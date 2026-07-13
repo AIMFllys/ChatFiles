@@ -55,6 +55,17 @@ export type {
 } from './chat'
 
 export type {
+  AgentCitation,
+  AgentClientTurn,
+  AgentContextSummary,
+  AgentRequestConfig,
+  AgentSummaryItem,
+  AgentSummarySections,
+  AgentStreamEvent,
+  AgentStreamRequest,
+} from './aiAgent'
+
+export type {
   ValueCandidate,
   ValueCandidateIndex,
   DatabaseTextSample,

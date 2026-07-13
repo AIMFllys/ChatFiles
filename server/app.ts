@@ -4,6 +4,7 @@ import path from 'node:path'
 import express, { type Router } from 'express'
 
 import aiRouter from './routes/ai.js'
+import aiAgentRouter from './routes/aiAgent.js'
 import dataRouter from './routes/data.js'
 import filesRouter from './routes/files.js'
 import insightsRouter from './routes/insights.js'
@@ -14,6 +15,7 @@ import { root } from './utils/helpers.js'
 export type AppOptions = {
   projectRoot?: string
   wechatRouter?: Router
+  aiAgentRouter?: Router
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -26,6 +28,7 @@ export function createApp(options: AppOptions = {}) {
   app.use(sourceFilesRouter)
   app.use(options.wechatRouter ?? defaultWechatRouter)
   app.use(insightsRouter)
+  app.use(options.aiAgentRouter ?? aiAgentRouter)
   app.use(aiRouter)
 
   app.use('/docs', express.static(path.join(projectRoot, 'docs')))

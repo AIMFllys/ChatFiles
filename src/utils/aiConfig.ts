@@ -111,7 +111,7 @@ export function saveAIConfig(cfg: AIConfig): void {
 }
 
 export function isConfigured(cfg: AIConfig): boolean {
-  return Boolean(cfg.baseURL.trim() && cfg.apiKey.trim() && cfg.model.trim())
+  return Boolean(cfg.baseURL.trim() && cfg.model.trim())
 }
 
 /* ---- per-conversation chat history (localStorage) ----------------------- */

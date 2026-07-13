@@ -25,8 +25,12 @@ test('serves a bounded cursor timeline and validates its query', async (t) => {
     assert.equal(older.status, 200)
     const olderBody = await older.json() as { messages: Array<{ message_uid: string }> }
     assert.deepEqual(olderBody.messages.map((message) => message.message_uid), ['m-1'])
+    const anchored = await fetch(`${baseUrl}/api/wechat/conversation/conv-a/timeline?limit=3&aroundUid=m-2`)
+    assert.deepEqual((await anchored.json() as { messages: Array<{ message_uid: string }> }).messages
+      .map((message) => message.message_uid), ['m-1', 'm-2', 'm-3'])
+    assert.equal((await fetch(`${baseUrl}/api/wechat/conversation/conv-a/timeline?aroundUid=missing`)).status, 404)
 
-    for (const query of ['limit=0', 'limit=241', 'before=bad', 'before=a&after=b', `q=${'x'.repeat(201)}`]) {
+    for (const query of ['limit=0', 'limit=241', 'before=bad', 'before=a&after=b', 'around=a&aroundUid=m-2', `q=${'x'.repeat(201)}`]) {
       const invalid = await fetch(`${baseUrl}/api/wechat/conversation/conv-a/timeline?${query}`)
       assert.equal(invalid.status, 400, query)
     }

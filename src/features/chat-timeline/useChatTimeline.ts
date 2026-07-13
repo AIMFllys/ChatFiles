@@ -6,13 +6,13 @@ const PAGE_SIZE = 120
 const MAX_PAGES = 5
 
 type LoadedWindow = TimelinePageWindow & { pageInfo: TimelinePage['pageInfo'] }
-type AnchorRequest = { cursor: string; messageUid?: string } | null
+type AnchorRequest = { kind: 'cursor' | 'uid'; value: string; messageUid?: string } | null
 
 function timelineUrl(
   conversationId: string,
   query: string,
   sender: string,
-  cursor?: { kind: 'before' | 'after' | 'around'; value: string },
+  cursor?: { kind: 'before' | 'after' | 'around' | 'aroundUid'; value: string },
 ) {
   const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
   if (query.trim()) params.set('q', query.trim())
@@ -40,9 +40,11 @@ function browserCursor(message: TimelineMessage) {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
 }
 
-export function useChatTimeline(conversationId: string, query: string) {
+export function useChatTimeline(conversationId: string, query: string, focusMessageUid?: string) {
   const [sender, setSender] = useState('')
-  const [anchorRequest, setAnchorRequest] = useState<AnchorRequest>(null)
+  const [anchorRequest, setAnchorRequest] = useState<AnchorRequest>(() => (
+    focusMessageUid ? { kind: 'uid', value: focusMessageUid, messageUid: focusMessageUid } : null
+  ))
   const [pages, setPages] = useState<LoadedWindow[]>([])
   const [participants, setParticipants] = useState<TimelineParticipant[]>([])
   const [buckets, setBuckets] = useState<TimelineBucket[]>([])
@@ -53,7 +55,7 @@ export function useChatTimeline(conversationId: string, query: string) {
   const [focusUid, setFocusUid] = useState<string>()
   const [revision, setRevision] = useState(0)
   const pagingControllers = useRef(new Set<AbortController>())
-  const scope = `${conversationId}\n${query.trim()}\n${sender}\n${anchorRequest?.cursor ?? ''}`
+  const scope = `${conversationId}\n${query.trim()}\n${sender}\n${anchorRequest?.kind ?? ''}:${anchorRequest?.value ?? ''}`
   const scopeRef = useRef(scope)
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export function useChatTimeline(conversationId: string, query: string) {
       conversationId,
       query,
       sender,
-      anchorRequest ? { kind: 'around', value: anchorRequest.cursor } : undefined,
+      anchorRequest ? { kind: anchorRequest.kind === 'uid' ? 'aroundUid' : 'around', value: anchorRequest.value } : undefined,
     )
     readPage(url, controller.signal)
       .then((page) => {
@@ -132,7 +134,7 @@ export function useChatTimeline(conversationId: string, query: string) {
 
   const filterBySender = useCallback((nextSender: string, anchor?: TimelineMessage) => {
     setSender(nextSender)
-    setAnchorRequest(anchor ? { cursor: browserCursor(anchor), messageUid: anchor.message_uid } : null)
+    setAnchorRequest(anchor ? { kind: 'cursor', value: browserCursor(anchor), messageUid: anchor.message_uid } : null)
   }, [])
 
   return {
@@ -152,6 +154,6 @@ export function useChatTimeline(conversationId: string, query: string) {
     loadNewer: () => loadDirection('after'),
     filterBySender,
     clearSender: (anchor?: TimelineMessage) => filterBySender('', anchor),
-    jumpToBucket: (bucket: TimelineBucket) => setAnchorRequest({ cursor: bucket.cursor }),
+    jumpToBucket: (bucket: TimelineBucket) => setAnchorRequest({ kind: 'cursor', value: bucket.cursor }),
   }
 }

@@ -2,99 +2,97 @@ import { useEffect, useRef, useState } from 'react'
 import { Bot, Loader2, Send, Sparkles, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { AgentCitation as Citation, AgentContextSummary, AgentStreamEvent } from '../../types'
 import {
   type AIConfig,
   type ChatTurn,
   type DockSize,
   clearHistory,
-  estimateTokens,
   isConfigured,
   loadDockSize,
   loadHistory,
   saveDockSize,
   saveHistory,
-  streamChat,
 } from '../../utils/aiConfig'
+import { AgentStreamError, streamAgent } from '../../utils/aiAgentStream'
+import { agentRequestConfig } from '../../utils/aiIndex'
+import { clearAgentSummary, loadAgentSummary, saveAgentSummary } from '../../utils/aiSummaryStore'
+import { AgentCitation } from './AgentCitation'
+import { AgentProgress, type AgentProgressEntry } from './AgentProgress'
 
-type Ctx = { text: string; tokens: number; lines: number; truncated: boolean }
-type CtxState = { key: string; value?: Ctx; loading: boolean }
+type RunMeta = { mode?: 'agent' | 'fallback'; strategy: 'recent' | 'summary'; evidenceCount: number }
+
+const errorLabels: Record<string, string> = {
+  agent_timeout: '检索超过 90 秒，已安全停止',
+  cancelled: '本次检索已取消',
+  database_unavailable: '本地资料库暂时不可用',
+  upstream_failed: '模型接口暂时无法完成请求',
+  agent_unavailable: '智能体服务暂时不可用',
+  step_limit: '已达到 8 步检索上限，请缩小问题范围',
+}
+
+function historyForConversation(convId: string) {
+  return loadHistory(convId).filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+}
+
+function toolLabel(name: string) {
+  const labels: Record<string, string> = {
+    list_conversations: '查找会话', search_messages: '检索消息', get_message_context: '核对消息上下文',
+    search_artifacts: '查找文件', read_document: '读取文档', get_timeline_slice: '读取时间轴',
+    get_link_preview: '读取链接介绍',
+  }
+  return labels[name] ?? name
+}
 
 export function AIChatDock({
   convId,
   convName,
   config,
+  anchorMessageUid,
+  onCitation,
   onClose,
   onGotoSettings,
 }: {
   convId: string
   convName: string
   config: AIConfig
+  anchorMessageUid?: string
+  onCitation: (citation: Citation) => void
   onClose: () => void
   onGotoSettings: () => void
 }) {
-  const contextKey = `${convId}:${config.threshold}`
-  const [ctxState, setCtxState] = useState<CtxState>(() => ({ key: contextKey, loading: true }))
-  const [turns, setTurns] = useState<ChatTurn[]>(() => loadHistory(convId))
+  const [turns, setTurns] = useState<ChatTurn[]>(() => historyForConversation(convId))
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [size, setSize] = useState<DockSize>(loadDockSize)
+  const [progress, setProgress] = useState<AgentProgressEntry[]>([])
+  const [evidence, setEvidence] = useState<Citation[]>([])
+  const [summary, setSummary] = useState<AgentContextSummary | undefined>(() => loadAgentSummary(convId))
+  const [meta, setMeta] = useState<RunMeta>({ strategy: config.contextStrategy, evidenceCount: 0 })
   const abortRef = useRef<AbortController | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // pull the conversation transcript whenever the conversation / threshold changes
-  useEffect(() => {
-    let cancelled = false
-    const maxChars = Math.min(config.threshold * 4, 4_000_000)
-    fetch(`/api/wechat/conversation/${encodeURIComponent(convId)}/transcript?maxChars=${maxChars}`)
-      .then((r) => r.json())
-      .then((d: { text: string; lines: number; truncated: boolean }) => {
-        if (cancelled) return
-        setCtxState({
-          key: contextKey,
-          loading: false,
-          value: { text: d.text, tokens: estimateTokens(d.text), lines: d.lines, truncated: d.truncated },
-        })
-      })
-      .catch(() => {
-        if (!cancelled) setCtxState({ key: contextKey, loading: false })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [contextKey, convId, config.threshold])
-
   useEffect(() => saveHistory(convId, turns), [convId, turns])
-  useEffect(() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }), [turns])
+  useEffect(() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }), [turns, progress])
   useEffect(() => saveDockSize(size), [size])
   useEffect(() => () => abortRef.current?.abort(), [])
-
-  // auto-grow the input textarea to fit content
   useEffect(() => {
-    const ta = textareaRef.current
-    if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = `${ta.scrollHeight}px`
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
   }, [input])
 
-  const ctx = ctxState.key === contextKey ? ctxState.value : undefined
-  const ctxLoading = ctxState.key !== contextKey || ctxState.loading
-  const over = ctx ? ctx.tokens > config.threshold : false
-  const ready = isConfigured(config) && !ctxLoading && !over
-
-  // drag the top-left handle to resize (dock is anchored bottom-right)
-  const startResize = (e: React.PointerEvent) => {
-    e.preventDefault()
-    const sx = e.clientX
-    const sy = e.clientY
-    const sw = size.w
-    const sh = size.h
-    const move = (ev: PointerEvent) =>
-      setSize({
-        w: Math.max(320, Math.min(window.innerWidth - 48, sw + (sx - ev.clientX))),
-        h: Math.max(360, Math.min(window.innerHeight - 90, sh + (sy - ev.clientY))),
-      })
+  const startResize = (event: React.PointerEvent) => {
+    event.preventDefault()
+    const { clientX, clientY } = event
+    const initial = size
+    const move = (next: PointerEvent) => setSize({
+      w: Math.max(320, Math.min(window.innerWidth - 48, initial.w + clientX - next.clientX)),
+      h: Math.max(360, Math.min(window.innerHeight - 90, initial.h + clientY - next.clientY)),
+    })
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
@@ -103,122 +101,142 @@ export function AIChatDock({
     window.addEventListener('pointerup', up)
   }
 
-  const clearCtx = () => {
+  const clearContext = () => {
     abortRef.current?.abort()
     setBusy(false)
     setTurns([])
+    setProgress([])
+    setEvidence([])
+    setMeta({ strategy: config.contextStrategy, evidenceCount: 0 })
     clearHistory(convId)
+    clearAgentSummary(convId)
+    setSummary(undefined)
     setError('')
   }
 
+  const updateProgress = (event: Extract<AgentStreamEvent, { type: 'step' | 'tool' }>) => {
+    setProgress((current) => {
+      if (event.type === 'step') {
+        const entry: AgentProgressEntry = { key: `step-${event.step}`, label: event.label, status: 'running' }
+        return [...current, entry].slice(-20)
+      }
+      const next = current.slice()
+      const running = next.findLastIndex((item) => item.key.startsWith(`tool-${event.step}-${event.name}`) && item.status === 'running')
+      if (running >= 0 && event.status !== 'running') next[running] = { ...next[running], status: event.status }
+      else next.push({ key: `tool-${event.step}-${event.name}-${next.length}`, label: toolLabel(event.name), status: event.status })
+      return next.slice(-20)
+    })
+  }
+
+  const handleEvent = (event: AgentStreamEvent) => {
+    if (event.type === 'step' || event.type === 'tool') updateProgress(event)
+    else if (event.type === 'citation') {
+      setEvidence((current) => current.some((item) => item.citation === event.citation) ? current : [...current, event])
+    } else if (event.type === 'delta') {
+      setTurns((current) => {
+        const next = current.slice()
+        const last = next.at(-1)
+        if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + event.content }
+        return next
+      })
+    } else if (event.type === 'done') {
+      setMeta({ mode: event.mode, strategy: event.strategy, evidenceCount: event.evidenceCount })
+      if (event.summary) {
+        saveAgentSummary(convId, event.summary)
+        setSummary(event.summary)
+      } else if (config.contextStrategy === 'summary' && event.strategy === 'recent') {
+        clearAgentSummary(convId)
+        setSummary(undefined)
+      }
+    }
+  }
+
   const send = async () => {
-    const text = input.trim()
-    if (!text || busy || !ctx) return
+    const question = input.trim()
+    if (!question || busy) return
     if (!isConfigured(config)) {
-      setError('尚未配置 AI 接口，请先到「AI」板块填写 Base URL / Key / 模型。')
+      setError('尚未配置模型接口，请先到「AI」板块填写 Base URL 与模型。')
       return
     }
-    if (over) {
-      setError(`上下文 ${ctx.tokens.toLocaleString()} tokens 超过阈值 ${config.threshold.toLocaleString()} tokens，请在 AI 设置调高阈值或改用更大窗口模型。`)
-      return
-    }
-    setError('')
-    const system: ChatTurn = {
-      role: 'system',
-      content: `你是严谨的聊天记录分析助手。下面是微信会话「${convName}」的完整记录（按时间顺序，"发言人: 内容"）。请只依据这些记录与此前对话回答，引用具体发言佐证，不要编造。可用 Markdown 排版。\n\n===== 会话记录开始 =====\n${ctx.text}\n===== 会话记录结束 =====`,
-    }
-    const next: ChatTurn[] = [...turns, { role: 'user', content: text }, { role: 'assistant', content: '' }]
-    setTurns(next)
+    const prior = turns.filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+    setTurns([...prior, { role: 'user', content: question }, { role: 'assistant', content: '' }])
     setInput('')
     setBusy(true)
+    setError('')
+    setProgress([])
+    setEvidence([])
+    setMeta({ strategy: config.contextStrategy, evidenceCount: 0 })
     abortRef.current?.abort()
-    const ac = new AbortController()
-    abortRef.current = ac
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
-      await streamChat(config, [system, ...next.slice(0, -1)], (chunk) => {
-        setTurns((prev) => {
-          const copy = prev.slice()
-          copy[copy.length - 1] = { role: 'assistant', content: copy[copy.length - 1].content + chunk }
-          return copy
-        })
-      }, ac.signal)
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') setError(String((e as Error).message))
+      await streamAgent({
+        question,
+        conversationId: convId,
+        conversationName: convName,
+        ...(anchorMessageUid ? { anchorMessageUid } : {}),
+        history: prior.map((turn) => ({ role: turn.role as 'user' | 'assistant', content: turn.content })),
+        ...(summary ? { summary } : {}),
+        config: agentRequestConfig(config),
+      }, handleEvent, controller.signal)
+    } catch (reason) {
+      if ((reason as Error).name !== 'AbortError') {
+        const code = reason instanceof AgentStreamError ? reason.code : 'agent_unavailable'
+        setError(errorLabels[code] ?? '智能体未能完成本次检索')
+      }
     } finally {
       setBusy(false)
     }
   }
 
+  const ready = isConfigured(config)
   return (
     <div className="ai-dock" role="dialog" aria-label="AI 解析" style={{ width: size.w, height: size.h }}>
       <div className="ai-dock-resize" onPointerDown={startResize} title="拖动调整大小" />
       <header className="ai-dock-head">
-        <span className="ai-dock-title"><Sparkles size={15} /> AI 解析 · {convName}</span>
+        <span className="ai-dock-title"><Sparkles size={15} /> 研究智能体 · {convName}</span>
         <div className="ai-dock-acts">
-          <button className="ai-dock-x" type="button" onClick={clearCtx} aria-label="清除上下文" title="清除本会话对话与上下文">
-            <Trash2 size={15} />
-          </button>
-          <button className="ai-dock-x" type="button" onClick={onClose} aria-label="关闭"><X size={16} /></button>
+          <button className="ai-dock-x" type="button" onClick={clearContext} aria-label="清除 AI 上下文" title="只清除 AI 对话与摘要"><Trash2 size={15} /></button>
+          <button className="ai-dock-x" type="button" onClick={() => { abortRef.current?.abort(); onClose() }} aria-label="关闭"><X size={16} /></button>
         </div>
       </header>
 
       <div className="ai-dock-ctx">
-        {ctxLoading ? (
-          <span><Loader2 className="spin" size={12} /> 读取会话上下文…</span>
-        ) : ctx ? (
-          <span className={over ? 'over' : ''}>
-            注入 {ctx.lines.toLocaleString()} 行 · 约 {ctx.tokens.toLocaleString()} tokens / 阈值 {config.threshold.toLocaleString()}
-            {ctx.truncated ? ' · 已按阈值截断' : ''}{turns.some((t) => t.role === 'assistant') ? ' · 含历史对话' : ''}
-          </span>
-        ) : (
-          <span>无法读取上下文</span>
-        )}
+        <span>{meta.strategy === 'summary' ? '结构化摘要' : '最近窗口'} · 原文硬上限 70%</span>
+        <span>{meta.mode === 'fallback' ? '关键词降级' : meta.mode === 'agent' ? '多步工具' : '等待提问'} · {meta.evidenceCount} 项证据</span>
       </div>
+      <AgentProgress entries={progress} />
 
       <div className="ai-dock-body" ref={bodyRef}>
         {!turns.length && (
           <div className="ai-dock-hint">
             <Bot size={28} />
-            <p>{isConfigured(config) ? '基于本会话全文提问，例如"这段对话的核心结论是什么？"' : '先到「AI」板块配置接口，再回来解析。'}</p>
-            {!isConfigured(config) && <button type="button" className="ai-dock-cfg" onClick={onGotoSettings}>前往配置 →</button>}
+            <p>{ready ? '它会按需检索消息、核对上下文，并在需要时读取文档。' : '先到「AI」板块配置接口，再回来研究。'}</p>
+            {!ready && <button type="button" className="ai-dock-cfg" onClick={onGotoSettings}>前往配置 →</button>}
           </div>
         )}
-        {turns.map((t, i) => (
-          <div key={i} className={`ai-turn ${t.role}`}>
-            <span className="ai-turn-who">{t.role === 'user' ? '我' : 'AI'}</span>
-            {t.role === 'assistant' ? (
+        {turns.map((turn, index) => (
+          <div key={index} className={`ai-turn ${turn.role}`}>
+            <span className="ai-turn-who">{turn.role === 'user' ? '我' : 'AI'}</span>
+            {turn.role === 'assistant' ? (
               <div className="ai-turn-text markdown-body">
-                {t.content ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.content}</ReactMarkdown>
-                ) : busy && i === turns.length - 1 ? (
-                  <Loader2 className="spin" size={13} />
-                ) : null}
+                {turn.content ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.content}</ReactMarkdown>
+                  : busy && index === turns.length - 1 ? <Loader2 className="spin" size={13} /> : null}
               </div>
-            ) : (
-              <div className="ai-turn-text">{t.content}</div>
-            )}
+            ) : <div className="ai-turn-text">{turn.content}</div>}
           </div>
         ))}
+        {evidence.length > 0 && <div className="agent-citations">{evidence.map((item) => <AgentCitation citation={item} key={item.citation} onOpen={onCitation} />)}</div>}
       </div>
 
       {error && <div className="ai-dock-err">{error}</div>}
-
       <div className="ai-dock-foot">
         <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              send()
-            }
-          }}
-          placeholder={ready ? '问点什么…（Enter 发送 / Shift+Enter 换行）' : over ? '上下文超阈值，请调高阈值' : '配置后可用'}
-          rows={1}
-          disabled={!ready || busy}
+          ref={textareaRef} value={input} onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }}
+          placeholder={ready ? '描述你要找的内容…' : '配置后可用'} rows={1} disabled={!ready || busy}
         />
-        <button className="ai-send" type="button" onClick={send} disabled={!ready || busy || !input.trim()}>
+        <button className="ai-send" type="button" onClick={() => void send()} disabled={!ready || busy || !input.trim()}>
           {busy ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
         </button>
       </div>

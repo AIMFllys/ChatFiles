@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { InsightSummary, WechatConversation, WechatConversationList } from '../../types'
+import type { AgentCitation, InsightSummary, WechatConversation, WechatConversationList } from '../../types'
 import type { AIConfig } from '../../utils/aiConfig'
 import { AIChatDock } from '../../components/ai/AIChatDock'
 import { ArtifactWorkspace } from './ArtifactWorkspace'
@@ -37,6 +37,7 @@ export function ChatLibrary({
   const [pinsReady, setPinsReady] = useState(false)
   const [mobilePane, setMobilePane] = useState<'sidebar' | 'workspace'>('sidebar')
   const [dockConversation, setDockConversation] = useState<WechatConversation>()
+  const [citationTarget, setCitationTarget] = useState<{ citation: AgentCitation; nonce: number }>()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
     parseSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY))
   ))
@@ -97,6 +98,17 @@ export function ChatLibrary({
     setPinnedIds((current) => togglePinnedConversation(current, conversationId))
   }
 
+  const openCitation = (citation: AgentCitation) => {
+    if (citation.kind === 'message') {
+      const conversationId = citation.conversationId ?? dockConversation?.id
+      if (conversationId) {
+        setSelection({ kind: 'conversation', id: conversationId })
+        setMobilePane('workspace')
+      }
+    }
+    setCitationTarget({ citation, nonce: Date.now() })
+  }
+
   return (
     <section
       className="chat-library"
@@ -116,9 +128,10 @@ export function ChatLibrary({
         onTogglePin={togglePin}
       />
       <ArtifactWorkspace
-        key={`${selection.kind}:${selection.id}`}
+        key={`${selection.kind}:${selection.id}:${citationTarget?.nonce ?? 0}`}
         selection={selection}
         conversation={selectedConversation}
+        citationTarget={citationTarget}
         pinned={selectedConversation ? pinnedIds.includes(selectedConversation.id) : false}
         titleRef={workspaceTitleRef}
         onBack={showSidebar}
@@ -131,6 +144,7 @@ export function ChatLibrary({
           convId={dockConversation.id}
           convName={dockConversation.display}
           config={aiConfig}
+          onCitation={openCitation}
           onClose={() => setDockConversation(undefined)}
           onGotoSettings={onGotoSettings}
         />

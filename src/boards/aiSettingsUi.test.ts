@@ -18,3 +18,9 @@ test('configures optional embeddings while keeping keyword fallback explicit', (
   assert.match(source, /向量维度/u)
   assert.match(source, /关键词检索始终可用/u)
 })
+
+test('offers an explicit derived-index rebuild action with status feedback', () => {
+  assert.match(source, /重建检索索引/u)
+  assert.match(source, /ai-index-status/u)
+  assert.match(source, /rebuildSearchIndex\(clean\)/u)
+})

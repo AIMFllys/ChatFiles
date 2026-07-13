@@ -18,7 +18,7 @@ export type ToolRegistryDependencies = {
     limit: number
   }) => Promise<HybridSearchResult>
   readDocument: (assetId: string, maxCharacters: number) => Promise<DocumentReadResult>
-  resolveLinkPreview: (assetId: string, url: string) => Promise<LinkPreview & Record<string, unknown>>
+  resolveLinkPreview: (assetId: string, url: string) => Promise<LinkPreview>
 }
 
 export class ToolExecutionError extends Error {

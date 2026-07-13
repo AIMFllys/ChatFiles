@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, KeyRound, Loader2, ShieldCheck, Sparkles } from 'lucide-react'
+import { CheckCircle2, DatabaseZap, KeyRound, Loader2, ShieldCheck, Sparkles } from 'lucide-react'
 import {
   type AIConfig,
   type EmbeddingConfig,
@@ -9,8 +9,10 @@ import {
   saveAIConfig,
   streamChat,
 } from '../utils/aiConfig'
+import { rebuildSearchIndex } from '../utils/aiIndex'
 
 type Probe = { kind: 'idle' | 'ok' | 'err' | 'busy'; note?: string }
+type IndexState = Probe & { count?: number }
 
 export default function AISettings({
   config,
@@ -22,6 +24,7 @@ export default function AISettings({
   const [draft, setDraft] = useState<AIConfig>(config)
   const [saved, setSaved] = useState(false)
   const [probe, setProbe] = useState<Probe>({ kind: 'idle' })
+  const [indexState, setIndexState] = useState<IndexState>({ kind: 'idle' })
 
   const set = <K extends keyof AIConfig>(key: K, value: AIConfig[K]) => {
     setDraft((d) => ({ ...d, [key]: value }))
@@ -51,6 +54,18 @@ export default function AISettings({
       setProbe({ kind: 'ok', note: reply.trim().slice(0, 40) || '连接成功' })
     } catch (e) {
       setProbe({ kind: 'err', note: String((e as Error).message).slice(0, 160) })
+    }
+  }
+
+  const rebuildIndex = async () => {
+    const clean = save()
+    setIndexState({ kind: 'busy', note: '正在读取源记录并生成派生索引…' })
+    try {
+      const result = await rebuildSearchIndex(clean)
+      const mode = result.mode === 'hybrid' ? '混合检索' : '关键词检索'
+      setIndexState({ kind: 'ok', note: `${mode}索引已更新`, count: result.chunkCount })
+    } catch {
+      setIndexState({ kind: 'err', note: '重建失败；现有索引保持不变，请核对数据库与向量配置。' })
     }
   }
 
@@ -161,6 +176,16 @@ export default function AISettings({
             </div>
           </div>
         )}
+        <div className="ai-index-maintenance">
+          <button className="ai-index-rebuild" disabled={indexState.kind === 'busy'} onClick={() => void rebuildIndex()} type="button">
+            {indexState.kind === 'busy' ? <Loader2 className="spin" size={15} /> : <DatabaseZap size={15} />}
+            重建检索索引
+          </button>
+          <span aria-live="polite" className="ai-index-status" data-state={indexState.kind}>
+            {indexState.note ?? '索引是可重建派生数据，不会修改原始聊天记录。'}
+            {indexState.count === undefined ? '' : ` · ${indexState.count.toLocaleString()} 个片段`}
+          </span>
+        </div>
       </section>
 
       <div className="ai-actions">

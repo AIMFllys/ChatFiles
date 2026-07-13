@@ -5,6 +5,7 @@ import type {
   ChatArtifactListItem,
   ChatArtifactPage,
   ChatArtifactTab,
+  AgentCitation,
   WechatConversation,
 } from '../../types'
 import { useGridVirtualizer } from '../../hooks/useGridVirtualizer'
@@ -34,6 +35,7 @@ export function ArtifactWorkspace({
   onTogglePin,
   onAnalyze,
   titleRef,
+  citationTarget,
 }: {
   selection: ChatLibrarySelection
   conversation?: WechatConversation
@@ -42,8 +44,13 @@ export function ArtifactWorkspace({
   onTogglePin: () => void
   onAnalyze: () => void
   titleRef: Ref<HTMLHeadingElement>
+  citationTarget?: { citation: AgentCitation; nonce: number }
 }) {
-  const [tab, setTab] = useState<ChatArtifactTab>(selection.kind === 'collection' && selection.id === 'library' ? 'work' : 'all')
+  const [tab, setTab] = useState<ChatArtifactTab>(() => (
+    citationTarget?.citation.kind === 'message'
+      ? 'chatText'
+      : selection.kind === 'collection' && selection.id === 'library' ? 'work' : 'all'
+  ))
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim())
   const [items, setItems] = useState<ChatArtifactListItem[]>([])
@@ -54,6 +61,7 @@ export function ArtifactWorkspace({
   const [error, setError] = useState('')
   const [loadMoreError, setLoadMoreError] = useState('')
   const [previewItem, setPreviewItem] = useState<ChatArtifactListItem>()
+  const focusMessageUid = citationTarget?.citation.kind === 'message' ? citationTarget.citation.id : undefined
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadMoreControllerRef = useRef<AbortController | null>(null)
   const activeRequestScope = artifactRequestUrl({
@@ -107,6 +115,21 @@ export function ArtifactWorkspace({
       })
     return () => controller.abort()
   }, [deferredQuery, selection, tab])
+
+  useEffect(() => {
+    const target = citationTarget?.citation
+    if (!target) return
+    if (target.kind === 'message') return
+    const controller = new AbortController()
+    fetch(`/api/wechat/artifact/${target.id}/metadata`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('citation-unavailable')
+        return response.json() as Promise<ChatArtifactListItem>
+      })
+      .then(setPreviewItem)
+      .catch(() => {})
+    return () => controller.abort()
+  }, [citationTarget])
 
   const loadMore = useCallback(() => {
     if (error || !canLoadMoreArtifacts({
@@ -226,7 +249,7 @@ export function ArtifactWorkspace({
       >
         {tab === 'chatText' ? (
           selection.kind === 'conversation' ? (
-            <ChatTimeline conversationId={selection.id} query={deferredQuery} />
+            <ChatTimeline conversationId={selection.id} focusMessageUid={focusMessageUid} query={deferredQuery} />
           ) : (
             <div className="artifact-empty"><MessageSquareText size={30} /><p>选择一个会话后查看聊天时间轴</p></div>
           )

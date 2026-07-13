@@ -5,12 +5,11 @@ import type { Server } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-
 import { chromium, type Browser } from 'playwright'
 import { createApp } from '../../server/app.js'
 import { createWechatRouter } from '../../server/routes/wechat.js'
 import { verifyAISettings } from './aiSettingsAssertions.js'
-
+import { createFixtureAgentRouter, verifyAgentDock } from './agentDockAssertions.js'
 function fixtureDatabases() {
   const accountRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-e2e-'))
   const previewRelativePath = 'preview.html'
@@ -122,7 +121,7 @@ const wechatRouter = createWechatRouter({
     description: '这是只使用脱敏测试数据生成的两行链接摘要。', siteName: '测试站点', iconUrl: '', updatedAt: '2026-07-13T00:00:00.000Z',
   }),
 })
-const server = createApp({ wechatRouter }).listen(0, '127.0.0.1')
+const server = createApp({ aiAgentRouter: createFixtureAgentRouter(), wechatRouter }).listen(0, '127.0.0.1')
 let browser: Browser | undefined
 
 try {
@@ -263,6 +262,7 @@ try {
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark')
   await verifyAISettings(page)
+  await verifyAgentDock(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: '聊天', exact: true }).click()

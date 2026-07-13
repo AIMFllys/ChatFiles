@@ -17,8 +17,16 @@ function messageDateTime(timestamp: number) {
     .format(new Date(timestamp * 1000))
 }
 
-export function ChatTimeline({ conversationId, query }: { conversationId: string; query: string }) {
-  const timeline = useChatTimeline(conversationId, query)
+export function ChatTimeline({
+  conversationId,
+  focusMessageUid,
+  query,
+}: {
+  conversationId: string
+  focusMessageUid?: string
+  query: string
+}) {
+  const timeline = useChatTimeline(conversationId, query, focusMessageUid)
   const [peopleOpen, setPeopleOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const renderItems = useMemo(() => groupTimelineMessages(timeline.messages), [timeline.messages])
