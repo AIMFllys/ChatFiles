@@ -11,7 +11,7 @@
     "insights:prepare": "tsx scripts/refreshInsights.ts prepare",
     "insights:distill": "tsx scripts/refreshInsights.ts distill",
     "insights:boards": "tsx scripts/refreshInsights.ts boards",
-    "audit:insights": "tsx scripts/refreshInsights.ts audit",
+    "audit:insights": "tsx scripts/refreshInsights.ts audit --bundle data/insights",
     "insights:activate": "tsx scripts/refreshInsights.ts activate",
     "dev": "npm run build && tsx server/index.ts",
     "dev:vite": "vite --host 127.0.0.1 --port 3456",

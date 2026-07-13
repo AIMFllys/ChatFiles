@@ -18,7 +18,8 @@ export function useVisibleCount(total: number, step = 48, resetKey?: unknown) {
 
   // snap back to the first batch whenever the list identity or size changes
   useEffect(() => {
-    setCount(Math.min(step, total))
+    const frame = requestAnimationFrame(() => setCount(Math.min(step, total)))
+    return () => cancelAnimationFrame(frame)
   }, [total, step, resetKey])
 
   useEffect(() => {

@@ -8,7 +8,10 @@ import { useEffect, useRef } from 'react'
 export function useInView(onEnter: () => void, enabled: boolean) {
   const ref = useRef<HTMLDivElement>(null)
   const cb = useRef(onEnter)
-  cb.current = onEnter
+
+  useEffect(() => {
+    cb.current = onEnter
+  }, [onEnter])
 
   useEffect(() => {
     const node = ref.current

@@ -17,6 +17,7 @@ import {
 } from '../../utils/aiConfig'
 
 type Ctx = { text: string; tokens: number; lines: number; truncated: boolean }
+type CtxState = { key: string; value?: Ctx; loading: boolean }
 
 export function AIChatDock({
   convId,
@@ -31,8 +32,8 @@ export function AIChatDock({
   onClose: () => void
   onGotoSettings: () => void
 }) {
-  const [ctx, setCtx] = useState<Ctx>()
-  const [ctxLoading, setCtxLoading] = useState(true)
+  const contextKey = `${convId}:${config.threshold}`
+  const [ctxState, setCtxState] = useState<CtxState>(() => ({ key: contextKey, loading: true }))
   const [turns, setTurns] = useState<ChatTurn[]>(() => loadHistory(convId))
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -42,30 +43,27 @@ export function AIChatDock({
   const bodyRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // restore saved chat when the conversation changes (history is injected as context)
-  useEffect(() => {
-    setTurns(loadHistory(convId))
-    setError('')
-  }, [convId])
-
   // pull the conversation transcript whenever the conversation / threshold changes
   useEffect(() => {
     let cancelled = false
-    setCtxLoading(true)
-    setCtx(undefined)
     const maxChars = Math.min(config.threshold * 4, 4_000_000)
     fetch(`/api/wechat/conversation/${encodeURIComponent(convId)}/transcript?maxChars=${maxChars}`)
       .then((r) => r.json())
       .then((d: { text: string; lines: number; truncated: boolean }) => {
         if (cancelled) return
-        setCtx({ text: d.text, tokens: estimateTokens(d.text), lines: d.lines, truncated: d.truncated })
-        setCtxLoading(false)
+        setCtxState({
+          key: contextKey,
+          loading: false,
+          value: { text: d.text, tokens: estimateTokens(d.text), lines: d.lines, truncated: d.truncated },
+        })
       })
-      .catch(() => !cancelled && setCtxLoading(false))
+      .catch(() => {
+        if (!cancelled) setCtxState({ key: contextKey, loading: false })
+      })
     return () => {
       cancelled = true
     }
-  }, [convId, config.threshold])
+  }, [contextKey, convId, config.threshold])
 
   useEffect(() => saveHistory(convId, turns), [convId, turns])
   useEffect(() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }), [turns])
@@ -80,6 +78,8 @@ export function AIChatDock({
     ta.style.height = `${ta.scrollHeight}px`
   }, [input])
 
+  const ctx = ctxState.key === contextKey ? ctxState.value : undefined
+  const ctxLoading = ctxState.key !== contextKey || ctxState.loading
   const over = ctx ? ctx.tokens > config.threshold : false
   const ready = isConfigured(config) && !ctxLoading && !over
 

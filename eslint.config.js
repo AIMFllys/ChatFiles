@@ -6,7 +6,14 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores([
+    'dist/**',
+    'work/**',
+    'scripts/aggregateInsightsByCategory.ts',
+    'scripts/computeUpdateDelta.ts',
+    'scripts/mergeInsightDelta.ts',
+    'scripts/updateInsightState.ts',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

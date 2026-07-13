@@ -109,6 +109,7 @@ export function ChatLibrary({
       />
       {dockConversation && (
         <AIChatDock
+          key={dockConversation.id}
           convId={dockConversation.id}
           convName={dockConversation.display}
           config={aiConfig}
