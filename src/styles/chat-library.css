@@ -183,12 +183,16 @@
 }
 
 .conversation-list {
-  display: grid;
-  gap: 2px;
+  position: relative;
+  display: block;
 }
 
 .conversation-row {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 68px;
   min-height: 68px;
   display: flex;
   align-items: stretch;
