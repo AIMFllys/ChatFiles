@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ExternalLink, Loader2, X } from 'lucide-react'
+import { chatArtifactMetadataSchema } from '../../../shared/contracts/chatLibrary'
+import { formatArchiveTimestamp } from '../../../shared/time/archiveTime'
 import type { ChatArtifactListItem, ChatArtifactMetadata, LibraryFile } from '../../types'
 import { FilePreview } from '../../components/file-preview/FilePreview'
 import type { BrowsableFile } from '../../utils/tree'
 import { previewForArtifactName } from './artifactModel'
 import { nextDialogFocusIndex } from './dialogFocus'
+import { readJson } from '../../shared/api/client'
 
 const previewTypes = new Set<LibraryFile['preview']>([
   'image', 'video', 'audio', 'voice', 'pdf', 'docx', 'sheet', 'text', 'markdown',
@@ -102,9 +105,11 @@ function artifactFile(metadata: ChatArtifactMetadata): BrowsableFile | undefined
 export function ArtifactPreviewDialog({
   item,
   onClose,
+  timeZone,
 }: {
   item: ChatArtifactListItem
   onClose: () => void
+  timeZone: string
 }) {
   const [metadata, setMetadata] = useState<ChatArtifactMetadata>()
   const [error, setError] = useState('')
@@ -157,11 +162,7 @@ export function ArtifactPreviewDialog({
   useEffect(() => {
     if (item.itemType !== 'artifact') return
     const controller = new AbortController()
-    fetch(item.metadataUrl, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('metadata-unavailable')
-        return response.json() as Promise<ChatArtifactMetadata>
-      })
+    readJson(item.metadataUrl, chatArtifactMetadataSchema, { signal: controller.signal })
       .then(setMetadata)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
@@ -191,7 +192,7 @@ export function ArtifactPreviewDialog({
         <div className="artifact-dialog-body">
           {item.itemType === 'chatText' ? (
             <article className="chat-text-preview">
-              <time>{new Date(item.createdAt * 1000).toLocaleString('zh-CN')}</time>
+              <time>{formatArchiveTimestamp(item.createdAt, timeZone)}</time>
               <p>{item.content}</p>
             </article>
           ) : error ? (

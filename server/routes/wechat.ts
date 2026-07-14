@@ -39,6 +39,10 @@ function messageQuery(query: Record<string, unknown>) {
   return { limit, offset, query: text.trim() }
 }
 
+function parameter(value: string | string[] | undefined) {
+  return typeof value === 'string' ? value : undefined
+}
+
 function queryError(response: Response, error: unknown) {
   if (!(error instanceof WechatQueryError) || error.code === 'unavailable') {
     return sendError(response, 503, 'database_unavailable')
@@ -75,7 +79,7 @@ export function createWechatRouter(
     next()
   })
 
-  router.get('/api/wechat/conversations', (_request, response) => {
+  router.get(['/api/wechat/conversations', '/api/v1/chat/conversations'], (_request, response) => {
     try { return response.json(queries.conversations()) } catch (error) { return queryError(response, error) }
   })
 
@@ -103,11 +107,14 @@ export function createWechatRouter(
     } catch (error) { return queryError(response, error) }
   }
 
-  router.get('/api/wechat/artifacts', (request, response) => (
+  router.get(['/api/wechat/artifacts', '/api/v1/chat/artifacts'], (request, response) => (
     collection(undefined, request.query as Record<string, unknown>, response)
   ))
-  router.get('/api/wechat/conversation/:id/artifacts', (request, response) => (
-    collection(request.params.id, request.query as Record<string, unknown>, response)
+  router.get([
+    '/api/wechat/conversation/:id/artifacts',
+    '/api/v1/chat/conversations/:id/artifacts',
+  ], (request, response) => (
+    collection(parameter(request.params.id), request.query as Record<string, unknown>, response)
   ))
 
   registerWechatTimelineRoutes(router, queries)

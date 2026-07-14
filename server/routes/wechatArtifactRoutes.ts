@@ -52,6 +52,10 @@ function artifactRef(id: string) {
   return /^[0-9a-f]{64}$/u.test(id) ? { scope: 'artifact' as const, id } : null
 }
 
+function routeId(value: string | string[] | undefined) {
+  return typeof value === 'string' ? value : ''
+}
+
 function regularFile(target: string) {
   try { return fs.statSync(target).isFile() } catch { return false }
 }
@@ -73,22 +77,27 @@ function fileError(response: Parameters<typeof sendError>[0], error: unknown) {
 }
 
 export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterDependencies) {
-  router.get('/api/wechat/artifact/:id/metadata', (request, response) => {
+  router.get([
+    '/api/wechat/artifact/:id/metadata',
+    '/api/v1/chat/artifacts/:id/metadata',
+  ], (request, response) => {
+    const artifactId = routeId(request.params.id)
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
     try {
       const resolver = createArtifactSourceResolver({
         assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
       })
-      const content = resolver.resolve(request.params.id, 'content')
+      const content = resolver.resolve(artifactId, 'content')
       if (content.status === 'malformed' || content.status === 'unknown') return assetResultError(response, content)
       let availability = content.state
-      const capabilities: ChatArtifactCapability = { metadata: `/api/wechat/artifact/${content.asset.id}/metadata` }
-      if (content.status === 'available') capabilities.content = `/api/wechat/artifact/${content.asset.id}/content`
+      const base = `/api/v1/chat/artifacts/${content.asset.id}`
+      const capabilities: ChatArtifactCapability = { metadata: `${base}/metadata` }
+      if (content.status === 'available') capabilities.content = `${base}/content`
       if (content.asset.preview === 'image' || content.asset.preview === 'video') {
-        const thumbnail = resolver.resolve(request.params.id, 'thumbnail')
+        const thumbnail = resolver.resolve(artifactId, 'thumbnail')
         if (thumbnail.status === 'available') {
-          capabilities.thumbnail = `/api/wechat/artifact/${content.asset.id}/thumbnail`
+          capabilities.thumbnail = `${base}/thumbnail`
           if (content.status !== 'available') availability = thumbnail.state
         } else if (content.status === 'available' && thumbnail.status === 'unavailable') {
           availability = thumbnail.state
@@ -103,8 +112,11 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     }
   })
 
-  router.get('/api/wechat/artifact/:id/inspect', async (request, response) => {
-    const ref = artifactRef(request.params.id)
+  router.get([
+    '/api/wechat/artifact/:id/inspect',
+    '/api/v1/chat/artifacts/:id/inspect',
+  ], async (request, response) => {
+    const ref = artifactRef(routeId(request.params.id))
     if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
@@ -121,8 +133,11 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     }
   })
 
-  router.get('/api/wechat/artifact/:id/archive', async (request, response) => {
-    const ref = artifactRef(request.params.id)
+  router.get([
+    '/api/wechat/artifact/:id/archive',
+    '/api/v1/chat/artifacts/:id/archive',
+  ], async (request, response) => {
+    const ref = artifactRef(routeId(request.params.id))
     if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
@@ -139,8 +154,11 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     }
   })
 
-  router.get('/api/wechat/artifact/:id/content', async (request, response) => {
-    const ref = artifactRef(request.params.id)
+  router.get([
+    '/api/wechat/artifact/:id/content',
+    '/api/v1/chat/artifacts/:id/content',
+  ], async (request, response) => {
+    const ref = artifactRef(routeId(request.params.id))
     if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
@@ -163,10 +181,13 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     }
   })
 
-  router.get('/api/wechat/artifact/:id/thumbnail', async (request, response) => {
+  router.get([
+    '/api/wechat/artifact/:id/thumbnail',
+    '/api/v1/chat/artifacts/:id/thumbnail',
+  ], async (request, response) => {
     const width = parseThumbnailWidth(request.query.w)
     if (width === null) return sendError(response, 400, 'invalid_thumbnail_width')
-    const ref = artifactRef(request.params.id)
+    const ref = artifactRef(routeId(request.params.id))
     if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')

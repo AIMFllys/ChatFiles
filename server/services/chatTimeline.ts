@@ -1,22 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  TimelineBucket,
   TimelineMessage,
   TimelinePage,
-  TimelineParticipant,
 } from '../../shared/contracts/chat.js'
-import {
-  archiveDay,
-  DEFAULT_ARCHIVE_TIME_ZONE,
-  resolveArchiveTimeZone,
-} from '../../shared/time/archiveTime.js'
+import { DEFAULT_ARCHIVE_TIME_ZONE, resolveArchiveTimeZone } from '../../shared/time/archiveTime.js'
 import {
   decodeTimelineCursor,
   encodeTimelineCursor,
   type DecodedTimelineCursor,
 } from './chatTimelineCursor.js'
 import {
-  legacyBucketRows,
   legacyDirectional,
   legacyEncodeAnchor,
   legacyMiddle,
@@ -27,6 +20,7 @@ import {
 } from '../wechat/legacyMessageIdentity.js'
 
 export { decodeTimelineCursor, encodeTimelineCursor } from './chatTimelineCursor.js'
+export { queryTimelineDays, queryTimelineParticipants } from './chatTimelineFacets.js'
 
 export type TimelineQueryInput = {
   conversationId: string
@@ -39,7 +33,6 @@ export type TimelineQueryInput = {
 }
 
 type TimelineRow = TimelineMessage & { canonical_seq?: number; occurred_at_epoch_s?: number }
-type ParticipantRow = { id: string; name: string; message_count: number; last_time: number }
 type TimelineMetadata = {
   canonical: boolean
   runId: string
@@ -75,7 +68,7 @@ function scopedWhere(input: TimelineQueryInput, includeFilters = true) {
   const clauses = ['conv_id=?']
   const params: Array<string | number> = [input.conversationId]
   if (includeFilters && input.sender) {
-    clauses.push('sender=?')
+    clauses.push("COALESCE(NULLIF(sender,''),NULLIF(sender_name,''),'?')=?")
     params.push(input.sender)
   }
   const query = input.query?.trim()
@@ -175,56 +168,6 @@ function readMessages(db: DatabaseSync, input: TimelineQueryInput, metadata: Tim
   return [...earlier, ...middle, ...anchorRows]
 }
 
-function readParticipants(db: DatabaseSync, input: TimelineQueryInput): TimelineParticipant[] {
-  const rows = db.prepare(`SELECT COALESCE(NULLIF(sender,''),sender_name,'?') AS id,
-    COALESCE(NULLIF(max(sender_name),''),NULLIF(sender,''),'?') AS name,
-    count(*) AS message_count,max(time) AS last_time
-    FROM messages WHERE conv_id=? GROUP BY id ORDER BY message_count DESC,name ASC`)
-    .all(input.conversationId) as ParticipantRow[]
-  return rows.map((row) => ({
-    id: row.id, name: row.name, messageCount: Number(row.message_count), lastTime: Number(row.last_time),
-  }))
-}
-
-function bucketLabel(key: string) {
-  const [year, month] = key.split('-')
-  return `${year}年${Number(month)}月`
-}
-
-function readBuckets(db: DatabaseSync, input: TimelineQueryInput, metadata: TimelineMetadata): TimelineBucket[] {
-  const scoped = scopedWhere(input)
-  const rows = metadata.canonical
-    ? db.prepare(`SELECT message_uid,seq,time,canonical_seq,archive_day
-        FROM messages WHERE ${scoped.sql} ORDER BY canonical_seq`)
-        .all(...scoped.params) as Array<Record<string, unknown>>
-    : legacyBucketRows(db, scoped, metadata.storage)
-  const buckets = new Map<string, TimelineBucket>()
-  for (const row of rows) {
-    const time = Number(row.time)
-    const key = metadata.canonical
-      ? String(row.archive_day).slice(0, 7)
-      : archiveDay(time, metadata.timeZone).slice(0, 7)
-    const sequence = Number(row.canonical_seq ?? row.seq)
-    const existing = buckets.get(key)
-    if (existing) {
-      existing.endTime = time
-      existing.messageCount++
-      continue
-    }
-    buckets.set(key, {
-      key,
-      label: bucketLabel(key),
-      startTime: time,
-      endTime: time,
-      messageCount: 1,
-      cursor: encodeTimelineCursor({
-        version: 2, runId: metadata.runId, sequence, messageUid: String(row.message_uid),
-      }),
-    })
-  }
-  return [...buckets.values()]
-}
-
 function pageCursor(row: TimelineRow | undefined, metadata: TimelineMetadata) {
   if (!row) return null
   return encodeTimelineCursor({
@@ -273,8 +216,6 @@ export function queryTimeline(db: DatabaseSync, input: TimelineQueryInput): Time
     timeZone: metadata.timeZone,
     limit,
     messages,
-    participants: readParticipants(db, input),
-    buckets: readBuckets(db, input, metadata),
     pageInfo: {
       olderCursor: pageCursor(first, metadata),
       newerCursor: pageCursor(last, metadata),

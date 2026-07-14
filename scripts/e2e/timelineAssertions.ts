@@ -41,8 +41,13 @@ export async function verifyLongTimeline(page: Page) {
   await page.getByRole('button', { name: '筛选发言人，共 3 人', exact: true }).waitFor()
 
   const dateButton = page.locator('.timeline-date-buttons button').first()
-  const request = page.waitForRequest((value) => value.url().includes('/timeline?') && value.url().includes('around='))
+  const request = page.waitForRequest((value) => (
+    value.url().includes('/timeline?') && value.url().includes('aroundUid=')
+  ))
   await dateButton.click()
   await request
+  const location = new URL(page.url())
+  assert.match(location.searchParams.get('day') ?? '', /^\d{4}-\d{2}-\d{2}$/u)
+  assert.ok(location.searchParams.get('messageUid'))
   await page.locator('.timeline-day').first().waitFor()
 }

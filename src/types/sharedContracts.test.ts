@@ -74,7 +74,7 @@ test('validates and de-duplicates an agent context summary without damaging Chin
   assert.equal(shared.parseAgentContextSummary({ version: 1, sourceHash: 'bad' }), undefined)
 })
 
-test('validates the bounded timeline DTO with explicit monthly buckets', async () => {
+test('separates bounded timeline messages from participant and daily facets', async () => {
   const shared = await contracts()
   if (!shared) return
 
@@ -89,15 +89,40 @@ test('validates the bounded timeline DTO with explicit monthly buckets', async (
       time: 1_700_000_000, sender: 'wxid-张三', person_id: '人物-一',
       sender_name: '张三', type: 1, type_label: '文本', text: '你好🙂',
     }],
-    participants: [{ id: 'wxid-张三', name: '张三', messageCount: 1, lastTime: 1_700_000_000 }],
-    buckets: [{
-      key: '2026-07', label: '2026年7月', startTime: 1_700_000_000,
-      endTime: 1_700_000_000, messageCount: 1, cursor: 'cursor-一',
-    }],
     pageInfo: { olderCursor: null, newerCursor: 'cursor-一', hasOlder: false, hasNewer: true },
   })
   assert.equal(page.messages[0].text, '你好🙂')
-  assert.throws(() => shared.timelinePageSchema.parse({ ...page, buckets: [{ ...page.buckets[0], key: '2026-7' }] }))
+  assert.equal('participants' in page, false)
+  assert.equal('buckets' in page, false)
+
+  const participants = shared.timelineParticipantPageSchema.parse({
+    conversationId: '会话-一', runId: 'run-一', timeZone: 'Asia/Shanghai',
+    participants: [{
+      senderKey: 'wxid-张三', personId: '人物-一', name: '张三', identitySource: 'person_id',
+      messageCount: 1, lastTime: 1_700_000_000,
+    }],
+  })
+  assert.equal(participants.participants[0].senderKey, 'wxid-张三')
+
+  const days = shared.timelineDayPageSchema.parse({
+    conversationId: '会话-一', runId: 'run-一', timeZone: 'Asia/Shanghai', limit: 90,
+    days: [{ date: '2026-07-13', firstMessageUid: '消息-一', firstSequence: 1, messageCount: 3 }],
+    pageInfo: { nextCursor: '2026-07-13', hasMore: true },
+  })
+  assert.equal(days.days[0].date, '2026-07-13')
+  assert.throws(() => shared.timelineDayPageSchema.parse({
+    ...days,
+    days: [{ ...days.days[0], date: '2026-7-13' }],
+  }))
+})
+
+test('publishes versioned UI and chat-library response schemas from one contract entrypoint', async () => {
+  const shared = await contracts()
+  if (!shared) return
+  assert.equal(typeof shared.overviewSchema?.safeParse, 'function')
+  assert.equal(typeof shared.wechatConversationListSchema?.safeParse, 'function')
+  assert.equal(typeof shared.chatArtifactPageSchema?.safeParse, 'function')
+  assert.equal(typeof shared.chatArtifactMetadataSchema?.safeParse, 'function')
 })
 
 test('requires canonical sequence, second precision, and nullable audited identity on MessageDto', async () => {

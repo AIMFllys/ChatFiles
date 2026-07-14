@@ -1,3 +1,5 @@
+import { apiEndpoints } from '../../shared/api/endpoints'
+
 export type ArtifactKind = 'work' | 'document' | 'skill' | 'link' | 'chatText'
 
 export type ChatLibrarySelection =
@@ -135,15 +137,12 @@ export function artifactRequestUrl(input: {
   offset: number
   limit: number
 }) {
-  const base = input.selection.kind === 'conversation'
-    ? `/api/wechat/conversation/${encodeURIComponent(input.selection.id)}/artifacts`
-    : '/api/wechat/artifacts'
-  const params = new URLSearchParams({ tab: input.tab })
-  if (input.selection.kind === 'collection' && input.selection.id === 'library') {
-    params.set('collection', 'library')
-  }
-  if (input.query) params.set('q', input.query)
-  params.set('offset', String(input.offset))
-  params.set('limit', String(input.limit))
-  return `${base}?${params.toString()}`
+  return apiEndpoints.artifacts({
+    ...(input.selection.kind === 'conversation' ? { conversationId: input.selection.id } : {}),
+    ...(input.selection.kind === 'collection' ? { collection: input.selection.id } : {}),
+    tab: input.tab,
+    query: input.query,
+    offset: input.offset,
+    limit: input.limit,
+  })
 }

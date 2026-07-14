@@ -15,10 +15,10 @@ export function createInsightsRouter(
   service: InsightsQueryService = createRuntimeInsightsQueryService(projectRoot),
 ) {
   const router = Router()
-  router.get('/api/insights', (_request, response) => {
+  router.get(['/api/insights', '/api/v1/insights'], (_request, response) => {
     try { return response.json(service.insights()) } catch { return unavailable(response) }
   })
-  router.get('/api/overview', (_request, response) => {
+  router.get(['/api/overview', '/api/v1/overview'], (_request, response) => {
     try { return response.json(service.overview()) } catch { return unavailable(response) }
   })
   return router

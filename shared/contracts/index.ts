@@ -48,10 +48,13 @@ export type {
   ChatArtifactMetadata,
   TimelineBucket,
   TimelineCursor,
+  TimelineDay,
+  TimelineDayPage,
   TimelineMessage,
   TimelinePage,
   TimelinePageInfo,
   TimelineParticipant,
+  TimelineParticipantPage,
   LinkPreview,
   LinkPreviewStatus,
 } from './chat.js'
@@ -81,6 +84,17 @@ export type {
   InsightSummary,
   InsightsResponse,
 } from './insights.js'
+export {
+  chatClueDossierSchema,
+  chatSummarySchema,
+  chatSynthesisSchema,
+  databaseAnalysisSchema,
+  insightsResponseSchema,
+  knowledgeBaseSchema,
+  overviewSchema,
+  sourceFileManifestSchema,
+  valueCandidateIndexSchema,
+} from './uiData.js'
 
 export {
   archiveDateSchema,
@@ -162,14 +176,26 @@ export {
 } from './aiAgent.js'
 
 export {
+  chatArtifactAvailabilitySchema,
+  chatArtifactCapabilitySchema,
+  chatArtifactItemSchema,
+  chatArtifactMetadataSchema,
+  chatArtifactPageSchema,
+  chatArtifactTabSchema,
+  chatTextItemSchema,
   linkPreviewSchema,
   linkPreviewStatusSchema,
   timelineBucketSchema,
   timelineCursorSchema,
+  timelineDayPageSchema,
+  timelineDaySchema,
   timelineMessageSchema,
   timelinePageInfoSchema,
   timelinePageSchema,
   timelineParticipantSchema,
+  timelineParticipantPageSchema,
+  wechatConversationListSchema,
+  wechatConversationSchema,
   wechatMessageSchema,
   messageDtoSchema,
 } from './chat.js'

@@ -88,7 +88,7 @@ test('serves a distinct ready-only library collection with coherent pagination',
     const text = await fetch(`${baseUrl}/api/wechat/artifacts?collection=library&tab=chatText`)
     assert.equal(text.status, 200)
     assert.deepEqual(await text.json(), {
-      tab: 'chatText',
+      runId: 'legacy', timeZone: 'Asia/Shanghai',tab: 'chatText',
       counts: { all: 2, work: 0, document: 2, skill: 0, link: 0, chatText: 0 },
       total: 0, matchingTotal: 0, offset: 0, limit: 60, items: [],
     })

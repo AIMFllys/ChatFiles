@@ -1,21 +1,18 @@
 import { Search, UserRound, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { TimelineParticipant } from '../../types'
-import { participantMatches } from './timelineModel'
-
-function participantDate(timestamp: number) {
-  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', year: 'numeric' })
-    .format(new Date(timestamp * 1000))
-}
+import { formatTimelineDateTime, participantMatches } from './timelineModel'
 
 export function PeoplePopover({
   participants,
   selected,
+  timeZone,
   onSelect,
   onClose,
 }: {
   participants: TimelineParticipant[]
   selected: string
+  timeZone: string
   onSelect: (participant: TimelineParticipant | null) => void
   onClose: () => void
 }) {
@@ -58,16 +55,18 @@ export function PeoplePopover({
           )}
           {filtered.map((participant) => (
             <button
-              aria-pressed={selected === participant.id}
+              aria-pressed={selected === participant.senderKey}
               className="timeline-person"
-              key={participant.id}
+              key={participant.senderKey}
               onClick={() => onSelect(participant)}
               type="button"
             >
               <span><UserRound size={16} /></span>
               <span className="timeline-person-copy">
                 <strong>{participant.name}</strong>
-                <small>{participant.messageCount.toLocaleString()} 条 · {participantDate(participant.lastTime)}</small>
+                <small>
+                  {participant.messageCount.toLocaleString()} 条 · {formatTimelineDateTime(participant.lastTime, timeZone)}
+                </small>
               </span>
             </button>
           ))}

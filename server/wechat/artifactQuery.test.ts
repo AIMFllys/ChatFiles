@@ -236,6 +236,7 @@ test('returns zeroed counts and an empty page for empty databases', () => {
   wechatDb.exec('DELETE FROM messages')
 
   assert.deepEqual(queryArtifacts(assetDb, wechatDb, { tab: 'all', query: '', limit: 60, offset: 0 }), {
+    runId: 'legacy', timeZone: 'Asia/Shanghai',
     tab: 'all', counts: { all: 0, work: 0, document: 0, skill: 0, link: 0, chatText: 0 },
     total: 0, matchingTotal: 0, offset: 0, limit: 60, items: [],
   })

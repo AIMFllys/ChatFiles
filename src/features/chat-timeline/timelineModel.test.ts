@@ -65,14 +65,9 @@ test('groups archive days in the bundle time zone instead of the browser time zo
   )
 })
 
-test('encodes run-bound cursor v2 anchors and formats bundle-zone seconds', async () => {
+test('formats bundle-zone timestamps to the source second', async () => {
   const timeline = await model()
   if (!timeline) return
-  const anchor = message('uid-anchor', 1_700_000_000, 'u-1', 7)
-  const cursor = timeline.encodeBrowserTimelineCursor(anchor, 'run-v2')
-  const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
-
-  assert.deepEqual(decoded, [2, 'run-v2', 7, 'uid-anchor'])
   assert.equal(timeline.formatTimelineClock(1_700_000_000, 'Asia/Shanghai'), '06:13:20')
 })
 
@@ -92,11 +87,15 @@ test('retains at most five page windows around the active anchor', async () => {
 test('matches participant names and IDs and resolves stable anchors', async () => {
   const timeline = await model()
   if (!timeline) return
-  const participant: TimelineParticipant = { id: 'WXID_Alice', name: '张三', messageCount: 2, lastTime: 10 }
+  const participant: TimelineParticipant = {
+    senderKey: 'WXID_Alice', personId: null, name: '张三', identitySource: 'sender',
+    messageCount: 2, lastTime: 10,
+  }
   assert.equal(timeline.participantMatches(participant, '张'), true)
   assert.equal(timeline.participantMatches(participant, 'alice'), true)
   assert.equal(timeline.participantMatches(participant, '李四'), false)
   const messages = [message('m1', 1), message('m2', 2)]
   assert.equal(timeline.timelineAnchorTarget(messages, 'm2')?.message_uid, 'm2')
   assert.equal(timeline.timelineAnchorTarget(messages, 'absent'), undefined)
+  assert.equal(timeline.senderKeyForMessage({ ...message('m3', 3, ''), sender_name: '张三' }), '张三')
 })

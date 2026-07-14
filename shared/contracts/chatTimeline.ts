@@ -7,10 +7,19 @@ export type TimelineCursor = { version: 2; runId: string; sequence: number; mess
 export type TimelineMessage = WechatMessage & { message_uid: string }
 
 export type TimelineParticipant = {
-  id: string
+  senderKey: string
+  personId: string | null
   name: string
+  identitySource: 'person_id' | 'sender' | 'name_snapshot' | 'unknown'
   messageCount: number
   lastTime: number
+}
+
+export type TimelineParticipantPage = {
+  conversationId: string
+  runId: string
+  timeZone: string
+  participants: TimelineParticipant[]
 }
 
 export type TimelineBucket = {
@@ -35,8 +44,6 @@ export type TimelinePage = {
   timeZone: string
   limit: number
   messages: TimelineMessage[]
-  participants: TimelineParticipant[]
-  buckets: TimelineBucket[]
   pageInfo: TimelinePageInfo
 }
 
@@ -50,11 +57,20 @@ export const timelineCursorSchema = z.object({
 export const timelineMessageSchema = wechatMessageSchema.extend({ message_uid: stableIdSchema }) satisfies z.ZodType<TimelineMessage>
 
 export const timelineParticipantSchema = z.object({
-  id: stableIdSchema,
+  senderKey: stableIdSchema,
+  personId: stableIdSchema.nullable(),
   name: z.string(),
+  identitySource: z.enum(['person_id', 'sender', 'name_snapshot', 'unknown']),
   messageCount: z.number().int().nonnegative(),
   lastTime: unixSecondsSchema,
 }) satisfies z.ZodType<TimelineParticipant>
+
+export const timelineParticipantPageSchema = z.object({
+  conversationId: stableIdSchema,
+  runId: stableIdSchema,
+  timeZone: timeZoneSchema,
+  participants: z.array(timelineParticipantSchema),
+}) satisfies z.ZodType<TimelineParticipantPage>
 
 export const timelineBucketSchema = z.object({
   key: timelineBucketKeySchema,
@@ -78,8 +94,6 @@ export const timelinePageSchema = z.object({
   timeZone: timeZoneSchema,
   limit: z.number().int().min(1).max(240),
   messages: z.array(timelineMessageSchema),
-  participants: z.array(timelineParticipantSchema),
-  buckets: z.array(timelineBucketSchema),
   pageInfo: timelinePageInfoSchema,
 }) satisfies z.ZodType<TimelinePage>
 
@@ -96,3 +110,24 @@ export const timelineDaySchema = z.object({
   firstSequence: z.number().int().nonnegative(),
   messageCount: z.number().int().positive(),
 }) satisfies z.ZodType<TimelineDay>
+
+export type TimelineDayPage = {
+  conversationId: string
+  runId: string
+  timeZone: string
+  limit: number
+  days: TimelineDay[]
+  pageInfo: { nextCursor: string | null; hasMore: boolean }
+}
+
+export const timelineDayPageSchema = z.object({
+  conversationId: stableIdSchema,
+  runId: stableIdSchema,
+  timeZone: timeZoneSchema,
+  limit: z.number().int().min(1).max(366),
+  days: z.array(timelineDaySchema),
+  pageInfo: z.object({
+    nextCursor: archiveDateSchema.nullable(),
+    hasMore: z.boolean(),
+  }),
+}) satisfies z.ZodType<TimelineDayPage>

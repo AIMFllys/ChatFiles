@@ -1,15 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { linkPreviewSchema } from '../../../shared/contracts/linkPreview'
 import type { LinkPreview } from '../../types'
+import { readJson } from '../../shared/api/client'
+import { apiEndpoints } from '../../shared/api/endpoints'
 
 export type LinkPreviewLoadStatus = 'idle' | 'loading' | 'ready' | 'fallback'
-
-function isLinkPreview(value: unknown): value is LinkPreview {
-  if (!value || typeof value !== 'object') return false
-  const preview = value as Partial<LinkPreview>
-  return (preview.status === 'ready' || preview.status === 'fallback')
-    && ['url', 'domain', 'title', 'description', 'siteName', 'updatedAt']
-      .every((key) => typeof preview[key as keyof LinkPreview] === 'string')
-}
 
 export function useLinkPreview(artifactId: string, enabled: boolean) {
   const ref = useRef<HTMLSpanElement>(null)
@@ -34,11 +29,10 @@ export function useLinkPreview(artifactId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled || !entered) return
     const controller = new AbortController()
-    fetch(`/api/wechat/artifact/${artifactId}/link-preview`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('preview_unavailable')
-        const body: unknown = await response.json()
-        if (!isLinkPreview(body)) throw new Error('invalid_preview')
+    readJson(apiEndpoints.artifactLinkPreview(artifactId), linkPreviewSchema, {
+      signal: controller.signal,
+    })
+      .then((body) => {
         setData(body)
         setResultStatus(body.status)
       })

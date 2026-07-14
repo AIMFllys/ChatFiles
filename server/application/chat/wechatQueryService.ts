@@ -1,11 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 import { isCanonicalWechatDatabase } from '../../domain/chat/canonicalWechatDatabase.js'
+import { readWechatBundleIdentity } from '../../domain/chat/wechatBundleIdentity.js'
 import {
   encodeTimelineAnchor,
   queryTimeline,
   type TimelineQueryInput,
 } from '../../services/chatTimeline.js'
+import {
+  queryTimelineDays,
+  queryTimelineParticipants,
+  type TimelineDayQueryInput,
+} from '../../services/chatTimelineFacets.js'
 import { queryArtifacts, type ArtifactQueryInput } from '../../wechat/artifactQuery.js'
 import { readConversationMessages } from '../../wechat/messageQuery.js'
 
@@ -23,6 +29,25 @@ export class WechatQueryError extends Error {
 }
 
 export function createWechatQueryService(adapters: WechatQueryAdapters) {
+  function withTimelineDatabase<Result>(
+    conversationId: string,
+    execute: (database: DatabaseSync) => Result,
+  ) {
+    const lease = adapters.openWechatDatabase()
+    if (!lease.db) throw new WechatQueryError('unavailable')
+    try {
+      if (!isCanonicalWechatDatabase(lease.db)) throw new WechatQueryError('unavailable')
+      const exists = lease.db.prepare('SELECT 1 FROM conversations WHERE id=?').get(conversationId)
+      if (!exists) throw new WechatQueryError('not_found')
+      return execute(lease.db)
+    } catch (error) {
+      if (error instanceof WechatQueryError) throw error
+      throw new WechatQueryError('unavailable')
+    } finally {
+      lease.release()
+    }
+  }
+
   return {
     conversations() {
       const lease = adapters.openWechatDatabase()
@@ -37,7 +62,7 @@ export function createWechatQueryService(adapters: WechatQueryAdapters) {
           SELECT count(*) AS conversations, sum(msg_count) AS messages,
                  sum(text_count) AS textMessages FROM conversations
         `).get()
-        return { conversations, totals }
+        return { ...readWechatBundleIdentity(lease.db),conversations,totals }
       } catch {
         throw new WechatQueryError('unavailable')
       } finally {
@@ -62,23 +87,23 @@ export function createWechatQueryService(adapters: WechatQueryAdapters) {
     },
 
     timeline(input: TimelineQueryInput & { aroundUid?: string }) {
-      const lease = adapters.openWechatDatabase()
-      if (!lease.db) throw new WechatQueryError('unavailable')
-      try {
-        if (!isCanonicalWechatDatabase(lease.db)) throw new WechatQueryError('unavailable')
-        const exists = lease.db.prepare('SELECT 1 FROM conversations WHERE id=?').get(input.conversationId)
-        if (!exists) throw new WechatQueryError('not_found')
+      return withTimelineDatabase(input.conversationId, (database) => {
         const { aroundUid, ...timelineInput } = input
-        if (!aroundUid) return queryTimeline(lease.db, timelineInput)
-        const around = encodeTimelineAnchor(lease.db, input.conversationId, aroundUid)
+        if (!aroundUid) return queryTimeline(database, timelineInput)
+        const around = encodeTimelineAnchor(database, input.conversationId, aroundUid)
         if (!around) throw new WechatQueryError('not_found')
-        return queryTimeline(lease.db, { ...timelineInput, around })
-      } catch (error) {
-        if (error instanceof WechatQueryError) throw error
-        throw new WechatQueryError('unavailable')
-      } finally {
-        lease.release()
-      }
+        return queryTimeline(database, { ...timelineInput, around })
+      })
+    },
+
+    timelineParticipants(input: { conversationId: string; query?: string }) {
+      return withTimelineDatabase(input.conversationId, (database) => (
+        queryTimelineParticipants(database, input)
+      ))
+    },
+
+    timelineDays(input: TimelineDayQueryInput) {
+      return withTimelineDatabase(input.conversationId, (database) => queryTimelineDays(database, input))
     },
 
     artifacts(input: ArtifactQueryInput) {

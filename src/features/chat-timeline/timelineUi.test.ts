@@ -26,8 +26,12 @@ test('renders chat text through a dedicated bounded timeline', () => {
   assert.match(timeline, /formatTimelineDateTime\(timestamp, timeline\.timeZone\)/u)
   assert.match(model, /dateStyle/u)
   assert.match(model, /second: '2-digit'/u)
-  assert.match(hook, /encodeBrowserTimelineCursor/u)
+  assert.match(hook, /timelinePageSchema/u)
+  assert.match(hook, /timelineParticipantPageSchema/u)
+  assert.match(hook, /timelineDayPageSchema/u)
+  assert.match(hook, /apiEndpoints/u)
   assert.match(timeline, /<TimelineRail/u)
+  assert.doesNotMatch(hook, /\.buckets/u)
 })
 
 test('provides a searchable accessible participant panel', () => {
@@ -36,4 +40,18 @@ test('provides a searchable accessible participant panel', () => {
   assert.match(people, /aria-label="筛选发言人"/u)
   assert.match(people, /participantMatches/u)
   assert.match(people, /onKeyDown/u)
+})
+
+test('renders every loaded archive day through a virtualized daily rail', () => {
+  const rail = source('TimelineRail.tsx')
+  const css = fs.readFileSync(path.resolve(process.cwd(), 'src/styles/chat-timeline.css'), 'utf8')
+  assert.match(rail, /TimelineDay/u)
+  assert.match(rail, /useFixedListVirtualizer/u)
+  assert.match(rail, /day\.date/u)
+  assert.doesNotMatch(rail, /sampledBuckets/u)
+  assert.doesNotMatch(rail, /slice\(2\)/u)
+  assert.match(css, /\.timeline-date-scroll\s*\{[\s\S]*?overflow-y:\s*auto/u)
+  assert.match(css, /\.timeline-date-buttons\s*\{[\s\S]*?position:\s*relative/u)
+  assert.match(css, /\.timeline-date-buttons button\s*\{[\s\S]*?position:\s*absolute/u)
+  assert.doesNotMatch(css, /\.timeline-date-buttons\s*\{[^}]*justify-content:\s*space-around/u)
 })

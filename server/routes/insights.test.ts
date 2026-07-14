@@ -35,6 +35,8 @@ test('keeps insight routes as thin application-service adapters', async () => {
   await withServer(createInsightsRouter('C:\\fixture', service), async (baseUrl) => {
     assert.deepEqual(await (await fetch(`${baseUrl}/api/insights`)).json(), { marker: '洞察' })
     assert.deepEqual(await (await fetch(`${baseUrl}/api/overview`)).json(), { marker: '总览' })
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/v1/insights`)).json(), { marker: '洞察' })
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/v1/overview`)).json(), { marker: '总览' })
   })
-  assert.deepEqual(calls, ['insights', 'overview'])
+  assert.deepEqual(calls, ['insights', 'overview', 'insights', 'overview'])
 })

@@ -1,13 +1,15 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
 import { MessageSquareText, Shapes } from 'lucide-react'
+import { chatArtifactMetadataSchema, chatArtifactPageSchema } from '../../../shared/contracts/chatLibrary'
 import type {
   ChatArtifactCounts,
   ChatArtifactListItem,
-  ChatArtifactPage,
   ChatArtifactTab,
   AgentCitation,
   WechatConversation,
 } from '../../types'
+import { readJson } from '../../shared/api/client'
+import { apiEndpoints } from '../../shared/api/endpoints'
 import { useGridVirtualizer } from '../../hooks/useGridVirtualizer'
 import { ArtifactCard } from './ArtifactCard'
 import { ArtifactPreviewDialog } from './ArtifactPreviewDialog'
@@ -16,6 +18,7 @@ import { canLoadMoreArtifacts, isArtifactPageRequestCurrent } from './artifactPa
 import { ArtifactWorkspaceHeader } from './ArtifactWorkspaceHeader'
 import { mergeUnique } from './artifactWorkspaceModel'
 import { ChatTimeline } from '../chat-timeline/ChatTimeline'
+import type { ChatRouteState } from '../chat-timeline/chatRouteState'
 
 const PAGE_SIZE = 120
 const emptyCounts: ChatArtifactCounts = {
@@ -36,6 +39,9 @@ export function ArtifactWorkspace({
   onAnalyze,
   titleRef,
   citationTarget,
+  chatRouteState,
+  onChatRouteStateChange,
+  timeZone,
 }: {
   selection: ChatLibrarySelection
   conversation?: WechatConversation
@@ -45,13 +51,20 @@ export function ArtifactWorkspace({
   onAnalyze: () => void
   titleRef: Ref<HTMLHeadingElement>
   citationTarget?: { citation: AgentCitation; nonce: number }
+  chatRouteState: ChatRouteState
+  onChatRouteStateChange: (patch: Partial<ChatRouteState>) => void
+  timeZone: string
 }) {
   const [tab, setTab] = useState<ChatArtifactTab>(() => (
     citationTarget?.citation.kind === 'message'
+      || chatRouteState.messageUid
+      || chatRouteState.sender
+      || chatRouteState.day
+      || chatRouteState.query
       ? 'chatText'
       : selection.kind === 'collection' && selection.id === 'library' ? 'work' : 'all'
   ))
-  const [query, setQuery] = useState('')
+  const query = chatRouteState.query
   const deferredQuery = useDeferredValue(query.trim())
   const [items, setItems] = useState<ChatArtifactListItem[]>([])
   const [counts, setCounts] = useState<ChatArtifactCounts>(emptyCounts)
@@ -61,7 +74,6 @@ export function ArtifactWorkspace({
   const [error, setError] = useState('')
   const [loadMoreError, setLoadMoreError] = useState('')
   const [previewItem, setPreviewItem] = useState<ChatArtifactListItem>()
-  const focusMessageUid = citationTarget?.citation.kind === 'message' ? citationTarget.citation.id : undefined
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadMoreControllerRef = useRef<AbortController | null>(null)
   const activeRequestScope = artifactRequestUrl({
@@ -88,11 +100,7 @@ export function ArtifactWorkspace({
       offset: 0,
       limit: PAGE_SIZE,
     })
-    fetch(requestScope, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('artifact-page-unavailable')
-        return response.json() as Promise<ChatArtifactPage>
-      })
+    readJson(requestScope, chatArtifactPageSchema, { signal: controller.signal })
       .then((page) => {
         if (!isArtifactPageRequestCurrent(requestScope, activeRequestScopeRef.current)) return
         setItems(page.items)
@@ -121,11 +129,9 @@ export function ArtifactWorkspace({
     if (!target) return
     if (target.kind === 'message') return
     const controller = new AbortController()
-    fetch(`/api/wechat/artifact/${target.id}/metadata`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('citation-unavailable')
-        return response.json() as Promise<ChatArtifactListItem>
-      })
+    readJson(apiEndpoints.artifactMetadata(target.id), chatArtifactMetadataSchema, {
+      signal: controller.signal,
+    })
       .then(setPreviewItem)
       .catch(() => {})
     return () => controller.abort()
@@ -153,11 +159,7 @@ export function ArtifactWorkspace({
       offset: items.length,
       limit: PAGE_SIZE,
     })
-    fetch(url, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('artifact-page-unavailable')
-        return response.json() as Promise<ChatArtifactPage>
-      })
+    readJson(url, chatArtifactPageSchema, { signal: controller.signal })
       .then((page) => {
         if (!isArtifactPageRequestCurrent(requestScope, activeRequestScopeRef.current)) return
         setItems((current) => mergeUnique(current, page.items))
@@ -223,7 +225,7 @@ export function ArtifactWorkspace({
           setLoadingMore(false)
           setError('')
           setLoadMoreError('')
-          setQuery(next)
+          onChatRouteStateChange({ query: next })
         }}
         onTabChange={(next) => {
           setLoading(true)
@@ -249,7 +251,11 @@ export function ArtifactWorkspace({
       >
         {tab === 'chatText' ? (
           selection.kind === 'conversation' ? (
-            <ChatTimeline conversationId={selection.id} focusMessageUid={focusMessageUid} query={deferredQuery} />
+            <ChatTimeline
+              conversationId={selection.id}
+              onRouteStateChange={onChatRouteStateChange}
+              routeState={{ ...chatRouteState, query: deferredQuery }}
+            />
           ) : (
             <div className="artifact-empty"><MessageSquareText size={30} /><p>选择一个会话后查看聊天时间轴</p></div>
           )
@@ -269,7 +275,7 @@ export function ArtifactWorkspace({
               }}
             >
               {visibleItems.map((item) => (
-                <ArtifactCard item={item} key={item.id} onOpen={openItem} />
+                <ArtifactCard item={item} key={item.id} onOpen={openItem} timeZone={timeZone} />
               ))}
             </div>
           </div>
@@ -282,7 +288,9 @@ export function ArtifactWorkspace({
         )}
       </div>
 
-      {previewItem && <ArtifactPreviewDialog item={previewItem} onClose={() => setPreviewItem(undefined)} />}
+      {previewItem && (
+        <ArtifactPreviewDialog item={previewItem} onClose={() => setPreviewItem(undefined)} timeZone={timeZone} />
+      )}
     </section>
   )
 }

@@ -8,10 +8,11 @@ import { createApp } from './app.js'
 import { withServer } from './routes/wechatRouteTestFixtures.js'
 
 test('returns JSON 404 for unknown APIs before serving the SPA fallback', async (t) => {
-  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-app-boundary-'))
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-app-boundary-'))
+  const projectRoot = path.join(temporaryRoot, '.hidden-worktree')
   fs.mkdirSync(path.join(projectRoot, 'dist'), { recursive: true })
   fs.writeFileSync(path.join(projectRoot, 'dist', 'index.html'), '<!doctype html><title>ChatFiles SPA</title>', 'utf8')
-  t.after(() => fs.rmSync(projectRoot, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }))
 
   await withServer(createApp({ projectRoot }), async (baseUrl) => {
     const api = await fetch(`${baseUrl}/api/not-a-real-endpoint`)

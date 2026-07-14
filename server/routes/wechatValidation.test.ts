@@ -57,3 +57,12 @@ test('distinguishes an unavailable conversation product from a real empty list',
     assert.deepEqual(await response.json(), { error: 'Request failed', code: 'database_unavailable' })
   })
 })
+
+test('keeps new UI chat reads under the v1 namespace', async (t) => {
+  const fixtureData = fixture(t)
+  await withServer(createWechatRouter(fixtureData.dependencies), async (baseUrl) => {
+    assert.equal((await fetch(`${baseUrl}/api/v1/chat/conversations`)).status, 200)
+    assert.equal((await fetch(`${baseUrl}/api/v1/chat/artifacts`)).status, 200)
+    assert.equal((await fetch(`${baseUrl}/api/v1/chat/conversations/conv-a/artifacts`)).status, 200)
+  })
+})

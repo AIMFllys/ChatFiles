@@ -22,7 +22,8 @@ test('keeps static data routes as thin query-service adapters', async () => {
   await withServer(createDataRouter('C:\\fixture', service), async (baseUrl) => {
     for (const [index, path] of paths.entries()) {
       assert.deepEqual(await (await fetch(`${baseUrl}/api/${path}`)).json(), { marker: methods[index] })
+      assert.deepEqual(await (await fetch(`${baseUrl}/api/v1/data/${path}`)).json(), { marker: methods[index] })
     }
   })
-  assert.deepEqual(calls, methods)
+  assert.deepEqual(calls, methods.flatMap((method) => [method, method]))
 })

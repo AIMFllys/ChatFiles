@@ -16,13 +16,13 @@ function timelineFixture() {
       occurred_at_epoch_s INTEGER, time_precision TEXT, archive_day TEXT, time INTEGER,
       sender TEXT, person_id TEXT, sender_name TEXT, type INTEGER, type_label TEXT, text TEXT
     );
-    INSERT INTO conversations VALUES ('conv-a','测试会话',1,5,5,100,300);
+    INSERT INTO conversations VALUES ('conv-a','测试会话',1,5,5,100,172800);
     INSERT INTO messages VALUES
       ('conv-a','m-2',0,0,100,'second','1970-01-01',100,'u-2','p-2','李四',1,'文本','进度 100%_完成\\路径'),
       ('conv-a','m-1',1,1,100,'second','1970-01-01',100,'u-1','p-1','张三',1,'文本','中文🙂'),
-      ('conv-a','m-3',2,2,200,'second','1970-01-01',200,'u-1','p-1','张三',1,'文本','第三条'),
-      ('conv-a','m-5',3,3,300,'second','1970-01-01',300,'u-1','p-1','张三',1,'文本','第五条'),
-      ('conv-a','m-4',4,4,300,'second','1970-01-01',300,'u-2','p-2','李四',1,'文本','第四条');
+      ('conv-a','m-3',2,2,86400,'second','1970-01-02',86400,'u-1','p-1','张三',1,'文本','第三条'),
+      ('conv-a','m-5',3,3,172800,'second','1970-01-03',172800,'u-1','p-1','张三',1,'文本','第五条'),
+      ('conv-a','m-4',4,4,172800,'second','1970-01-03',172800,'u-2','p-2','李四',1,'文本','第四条');
     CREATE TABLE parse_runs(run_id TEXT,time_zone TEXT);
     INSERT INTO parse_runs VALUES ('run-fixture','Asia/Shanghai');
   `)
@@ -111,7 +111,6 @@ test('filters senders and treats wildcard search characters literally', async ()
   try {
     const sender = timeline.queryTimeline(db, { conversationId: 'conv-a', limit: 120, sender: 'u-1' })
     assert.deepEqual(sender.messages.map((message) => message.sender), ['u-1', 'u-1', 'u-1'])
-    assert.equal(sender.participants.find((person) => person.id === 'u-1')?.messageCount, 3)
 
     const searched = timeline.queryTimeline(db, { conversationId: 'conv-a', limit: 120, query: '%_完成\\' })
     assert.deepEqual(searched.messages.map((message) => message.message_uid), ['m-2'])
@@ -137,7 +136,33 @@ test('loads around canonical anchors and decodes legacy cursors only for compati
     })
     assert.deepEqual(around.messages.map((message) => message.message_uid), ['m-1', 'm-3', 'm-5'])
     assert.equal(timeline.queryTimeline(db, { conversationId: 'conv-a', limit: 1000 }).limit, 240)
-    assert.equal(around.buckets.reduce((sum, bucket) => sum + bucket.messageCount, 0), 5)
+  } finally {
+    db.close()
+  }
+})
+
+test('queries participant and daily facets independently from message pages', async () => {
+  const timeline = await timelineModule()
+  const db = timelineFixture()
+  try {
+    const participants = timeline.queryTimelineParticipants(db, { conversationId: 'conv-a' })
+    assert.deepEqual(participants.participants[0], {
+      senderKey: 'u-1', personId: 'p-1', name: '张三', identitySource: 'person_id',
+      messageCount: 3, lastTime: 172800,
+    })
+
+    const first = timeline.queryTimelineDays(db, { conversationId: 'conv-a', limit: 2 })
+    assert.deepEqual(first.days, [
+      { date: '1970-01-03', firstMessageUid: 'm-5', firstSequence: 3, messageCount: 2 },
+      { date: '1970-01-02', firstMessageUid: 'm-3', firstSequence: 2, messageCount: 1 },
+    ])
+    assert.deepEqual(first.pageInfo, { nextCursor: '1970-01-02', hasMore: true })
+
+    const next = timeline.queryTimelineDays(db, {
+      conversationId: 'conv-a', limit: 2, before: first.pageInfo.nextCursor!,
+    })
+    assert.deepEqual(next.days.map((day) => day.date), ['1970-01-01'])
+    assert.deepEqual(next.pageInfo, { nextCursor: null, hasMore: false })
   } finally {
     db.close()
   }

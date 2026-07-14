@@ -1,49 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Monitor, Moon, ShieldCheck, SlidersHorizontal, Sun } from 'lucide-react'
-import type {
-  ChatClueDossier,
-  ChatSummary,
-  ChatSynthesis,
-  DatabaseAnalysis,
-  InsightSummary,
-  InsightsResponse,
-  KnowledgeBase,
-  LibraryManifest,
-  Overview,
-  SourceFileManifest,
-  ValueCandidateIndex,
-} from './types'
+import { Suspense, useEffect, useRef } from 'react'
+import { Monitor, Moon, ShieldCheck, SlidersHorizontal, Sun } from 'lucide-react'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { CONFIG_SUB, CONFIG_TAB_IDS, LOWER_NAV, PRIMARY_NAV, TAB_TITLES, type Tab } from './boards/navConfig'
-import OverviewBoard from './boards/Overview'
-import ChatBoard from './boards/Chat'
-import InsightsBoard from './boards/Insights'
-import AcademicsBoard from './boards/Academics'
-import FilesBoard from './boards/Files'
-import AISettings from './boards/AISettings'
-import { ChatClueReader } from './components/workbenches/ChatClueReader'
-import { ChatSynthesisReader } from './components/workbenches/ChatSynthesisReader'
-import { DatabaseWorkbench } from './components/workbenches/DatabaseWorkbench'
-import { KnowledgeReader } from './components/workbenches/KnowledgeReader'
-import { MediaReview } from './components/workbenches/MediaReview'
-import { SummaryReader } from './components/workbenches/SummaryReader'
-import { ValueCandidateWorkbench } from './components/workbenches/ValueCandidateWorkbench'
-import {
-  emptyChatSynthesis,
-  emptyClueDossier,
-  emptyDatabaseAnalysis,
-  emptyInsights,
-  emptyKnowledge,
-  emptyManifest,
-  emptyOverview,
-  emptySourceManifest,
-  emptySummary,
-  emptyValueCandidates,
-} from './utils/constants'
-import { loadAIConfig, type AIConfig } from './utils/aiConfig'
-import type { BrowsableFile } from './utils/tree'
+import { BrandMark } from './components/brand/BrandMark'
 import { useTheme } from './hooks/useTheme'
 import { nextThemePreference, type ThemePreference } from './hooks/themeModel'
-import { BrandMark } from './components/brand/BrandMark'
+import { pathForTab, tabForPath } from './app/navigation'
 import './App.css'
 
 const themeNames: Record<ThemePreference, string> = {
@@ -53,53 +15,18 @@ const themeNames: Record<ThemePreference, string> = {
 }
 
 function App() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const { preference: themePreference, setPreference: setThemePreference } = useTheme()
-  const [manifest, setManifest] = useState<LibraryManifest>(emptyManifest)
-  const [sourceManifest, setSourceManifest] = useState<SourceFileManifest>(emptySourceManifest)
-  const [knowledge, setKnowledge] = useState<KnowledgeBase>(emptyKnowledge)
-  const [summary, setSummary] = useState<ChatSummary>(emptySummary)
-  const [clueDossier, setClueDossier] = useState<ChatClueDossier>(emptyClueDossier)
-  const [chatSynthesis, setChatSynthesis] = useState<ChatSynthesis>(emptyChatSynthesis)
-  const [databaseAnalysis, setDatabaseAnalysis] = useState<DatabaseAnalysis>(emptyDatabaseAnalysis)
-  const [valueCandidates, setValueCandidates] = useState<ValueCandidateIndex>(emptyValueCandidates)
-  const [overview, setOverview] = useState<Overview>(emptyOverview)
-  const [insights, setInsights] = useState<InsightsResponse>(emptyInsights)
-  const [aiConfig, setAiConfig] = useState<AIConfig>(loadAIConfig)
-  const [activeTab, setActiveTab] = useState<Tab>('overview')
-  const [lastConfig, setLastConfig] = useState<Tab>('summary')
-  const [fileMode, setFileMode] = useState<'archive' | 'source'>('archive')
-  const [selected, setSelected] = useState<BrowsableFile>()
-  const [filter, setFilter] = useState('')
-
+  const activeTab = tabForPath(location.pathname)
+  const isConfig = CONFIG_TAB_IDS.includes(activeTab)
+  const lastConfig = useRef<Tab>('summary')
   useEffect(() => {
-    fetch('/api/overview').then((res) => res.json()).then(setOverview).catch(() => setOverview(emptyOverview))
-    fetch('/api/insights').then((res) => res.json()).then(setInsights).catch(() => setInsights(emptyInsights))
-    fetch('/api/library').then((res) => res.json()).then(setManifest).catch(() => setManifest(emptyManifest))
-    fetch('/api/source-library').then((res) => res.json()).then(setSourceManifest).catch(() => setSourceManifest(emptySourceManifest))
-    fetch('/api/knowledge').then((res) => res.json()).then(setKnowledge).catch(() => setKnowledge(emptyKnowledge))
-    fetch('/api/summary').then((res) => res.json()).then(setSummary).catch(() => setSummary(emptySummary))
-    fetch('/api/chat-clues').then((res) => res.json()).then(setClueDossier).catch(() => setClueDossier(emptyClueDossier))
-    fetch('/api/chat-synthesis').then((res) => res.json()).then(setChatSynthesis).catch(() => setChatSynthesis(emptyChatSynthesis))
-    fetch('/api/database-analysis').then((res) => res.json()).then(setDatabaseAnalysis).catch(() => setDatabaseAnalysis(emptyDatabaseAnalysis))
-    fetch('/api/value-candidates').then((res) => res.json()).then(setValueCandidates).catch(() => setValueCandidates(emptyValueCandidates))
-  }, [])
-
-  const summariesByConvId = useMemo(() => {
-    const map = new Map<string, InsightSummary>()
-    for (const s of insights.summaries) map.set(s.convId, s)
-    return map
-  }, [insights.summaries])
-
-  const openMatchedFile = (file: BrowsableFile) => {
-    setSelected(file)
-    if (file.storage !== 'artifact') setFileMode(file.storage)
-    setFilter(file.name)
-    setActiveTab('files')
-  }
+    if (isConfig) lastConfig.current = activeTab
+  }, [activeTab, isConfig])
 
   const heading = TAB_TITLES[activeTab]
   const fullBleed = activeTab === 'overview' || activeTab === 'academics' || activeTab === 'chat'
-  const isConfig = CONFIG_TAB_IDS.includes(activeTab)
   const workspaceClass = [
     'workspace',
     isConfig ? 'cfg' : '',
@@ -115,7 +42,7 @@ function App() {
           aria-current={activeTab === item.id ? 'page' : undefined}
           key={item.id}
           className={activeTab === item.id ? 'rail-button active' : 'rail-button'}
-          onClick={() => setActiveTab(item.id)}
+          onClick={() => navigate(pathForTab(item.id))}
           title={item.label}
           type="button"
         >
@@ -138,26 +65,14 @@ function App() {
           <button
             aria-current={isConfig ? 'page' : undefined}
             className={isConfig ? 'rail-button active' : 'rail-button'}
-            onClick={() => setActiveTab(lastConfig)}
+            onClick={() => navigate(pathForTab(lastConfig.current))}
             title="配置"
             type="button"
           >
             <SlidersHorizontal size={20} />
             <span className="rail-label">配置</span>
           </button>
-          {LOWER_NAV.map((item) => (
-            <button
-              aria-current={activeTab === item.id ? 'page' : undefined}
-              key={item.id}
-              className={activeTab === item.id ? 'rail-button active' : 'rail-button'}
-              onClick={() => setActiveTab(item.id)}
-              title={item.label}
-              type="button"
-            >
-              {item.icon}
-              <span className="rail-label">{item.label}</span>
-            </button>
-          ))}
+          {renderNav(LOWER_NAV, '工具')}
         </nav>
         <button
           aria-label={`当前${themeNames[themePreference]}，切换到${themeNames[nextTheme]}`}
@@ -188,12 +103,11 @@ function App() {
           <div className="config-subnav" role="tablist" aria-label="配置板块">
             {CONFIG_SUB.map((item) => (
               <button
+                aria-current={activeTab === item.id ? 'page' : undefined}
                 key={item.id}
                 className={activeTab === item.id ? 'on' : ''}
-                onClick={() => {
-                  setActiveTab(item.id)
-                  setLastConfig(item.id)
-                }}
+                onClick={() => navigate(pathForTab(item.id))}
+                role="tab"
                 type="button"
               >
                 {item.icon}
@@ -203,53 +117,9 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'overview' ? (
-          <OverviewBoard overview={overview} onGoto={(t) => setActiveTab(t)} />
-        ) : activeTab === 'chat' ? (
-          <ChatBoard summariesByConvId={summariesByConvId} aiConfig={aiConfig} onGotoSettings={() => setActiveTab('ai')} />
-        ) : activeTab === 'insights' ? (
-          <InsightsBoard insights={insights} />
-        ) : activeTab === 'academics' ? (
-          <AcademicsBoard insights={insights} knowledge={knowledge} />
-        ) : activeTab === 'files' ? (
-          <FilesBoard
-            manifest={manifest}
-            sourceManifest={sourceManifest}
-            fileMode={fileMode}
-            setFileMode={setFileMode}
-            selected={selected}
-            setSelected={setSelected}
-            filter={filter}
-            setFilter={setFilter}
-          />
-        ) : activeTab === 'ai' ? (
-          <AISettings config={aiConfig} onChange={setAiConfig} />
-        ) : activeTab === 'summary' ? (
-          <SummaryReader summary={summary} />
-        ) : activeTab === 'clues' ? (
-          <ChatClueReader dossier={clueDossier} sourceManifest={sourceManifest} manifest={manifest} onOpenFile={openMatchedFile} />
-        ) : activeTab === 'synthesis' ? (
-          <ChatSynthesisReader synthesis={chatSynthesis} />
-        ) : activeTab === 'media' ? (
-          <MediaReview manifest={manifest} onOpenFile={openMatchedFile} />
-        ) : activeTab === 'databases' ? (
-          <DatabaseWorkbench analysis={databaseAnalysis} sourceManifest={sourceManifest} onOpenFile={openMatchedFile} />
-        ) : activeTab === 'candidates' ? (
-          <ValueCandidateWorkbench index={valueCandidates} sourceManifest={sourceManifest} onOpenFile={openMatchedFile} />
-        ) : (
-          <>
-            <section className="source-strip">
-              {knowledge.sourceStatus.map((item) => (
-                <div className={`source-card ${item.status}`} key={item.source}>
-                  <CheckCircle2 size={18} />
-                  <strong>{item.source}</strong>
-                  <p>{item.detail}</p>
-                </div>
-              ))}
-            </section>
-            <KnowledgeReader sections={knowledge.sections} />
-          </>
-        )}
+        <Suspense fallback={<div className="empty" role="status">正在打开页面…</div>}>
+          <Outlet />
+        </Suspense>
       </section>
     </main>
   )

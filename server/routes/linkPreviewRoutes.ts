@@ -4,8 +4,11 @@ import { sendError, type WechatRouterDependencies } from './wechatRouteHelpers.j
 type LinkRow = { category: string; url: string | null }
 
 export function registerLinkPreviewRoutes(router: Router, deps: WechatRouterDependencies) {
-  router.get('/api/wechat/artifact/:id/link-preview', async (request, response) => {
-    const artifactId = request.params.id
+  router.get([
+    '/api/wechat/artifact/:id/link-preview',
+    '/api/v1/chat/artifacts/:id/link-preview',
+  ], async (request, response) => {
+    const artifactId = typeof request.params.id === 'string' ? request.params.id : ''
     if (!/^[0-9a-f]{64}$/u.test(artifactId)) return sendError(response, 400, 'invalid_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')

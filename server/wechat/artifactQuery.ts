@@ -10,6 +10,7 @@ import type {
 import { inspectMessageStorage, stableMessageUid } from './legacyMessageIdentity.js'
 import { inspectArtifactStorage, type ArtifactStorageShape } from './artifactStorageShape.js'
 import { artifactAvailabilityFor } from './artifactAvailability.js'
+import { readWechatBundleIdentity } from '../domain/chat/wechatBundleIdentity.js'
 
 export type ArtifactQueryInput = {
   collection?: 'outputs' | 'library'
@@ -154,7 +155,7 @@ function queryArtifactItems(assetDb: DatabaseSync, input: ArtifactQueryInput, sh
     source: { presence: row.source_presence },
     materialization: { status: row.materialization },
     capability: { previewStatus: row.preview_status },
-    metadataUrl: `/api/wechat/artifact/${row.asset_id}/metadata`,
+    metadataUrl: `/api/v1/chat/artifacts/${row.asset_id}/metadata`,
   }))
   return { matchingTotal: Number(matching?.count ?? 0), items }
 }
@@ -220,6 +221,7 @@ export function queryArtifacts(
       : queryChatTextItems(wechatDb, input)
     : queryArtifactItems(assetDb, input, shape)
   return {
+    ...readWechatBundleIdentity(wechatDb),
     tab: input.tab,
     counts,
     total: counts[input.tab],

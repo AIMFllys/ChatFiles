@@ -36,7 +36,7 @@ export async function verifyAgentDock(page: Page) {
   assert.match(await dock.locator('.ai-dock-ctx').innerText(), /多步工具.*2 项证据/su)
   assert.match(await dock.locator('.agent-progress').innerText(), /检索消息[\s\S]*核对消息上下文/su)
   await captureVisual(page, 'agent-dock-dark')
-  await dock.getByRole('button', { name: '[消息:message-001]', exact: true }).click()
+  await dock.getByRole('button', { name: /^\[消息:message-001\]/u }).click()
   await page.locator('#timeline-message-001.is-highlighted').waitFor()
   await dock.getByRole('button', { name: `[文件:${fileId}]`, exact: true }).click()
   await page.getByRole('dialog', { name: 'preview.html', exact: true }).waitFor()

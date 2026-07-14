@@ -49,6 +49,7 @@ export function AIChatDock({
   convName,
   config,
   anchorMessageUid,
+  timeZone,
   onCitation,
   onClose,
   onGotoSettings,
@@ -57,6 +58,7 @@ export function AIChatDock({
   convName: string
   config: AIConfig
   anchorMessageUid?: string
+  timeZone: string
   onCitation: (citation: Citation) => void
   onClose: () => void
   onGotoSettings: () => void
@@ -226,7 +228,7 @@ export function AIChatDock({
             ) : <div className="ai-turn-text">{turn.content}</div>}
           </div>
         ))}
-        {evidence.length > 0 && <div className="agent-citations">{evidence.map((item) => <AgentCitation citation={item} key={item.citation} onOpen={onCitation} />)}</div>}
+        {evidence.length > 0 && <div className="agent-citations">{evidence.map((item) => <AgentCitation citation={item} key={item.citation} onOpen={onCitation} timeZone={timeZone} />)}</div>}
       </div>
 
       {error && <div className="ai-dock-err">{error}</div>}

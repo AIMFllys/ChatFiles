@@ -233,6 +233,30 @@ h1 {
   }
 }
 
+.page-data-state {
+  min-height: min(62vh, 560px);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: var(--ink-mute);
+  text-align: center;
+}
+.page-data-state.is-unavailable strong { color: var(--ink); }
+.page-data-state span { max-width: 460px; }
+.page-data-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-2));
+  color: var(--warning);
+  font-size: 12px;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 70px minmax(0, 1fr);

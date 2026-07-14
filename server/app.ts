@@ -77,7 +77,7 @@ export function createApp(options: AppOptions = {}) {
   const dist = path.join(projectRoot, 'dist')
   if (fs.existsSync(dist)) {
     app.use(express.static(dist))
-    app.use((_request, response) => response.sendFile(path.join(dist, 'index.html')))
+    app.use((_request, response) => response.sendFile('index.html', { root: dist }))
   } else {
     app.use((_request, response) => response.status(503).json({
       error: 'Request failed',

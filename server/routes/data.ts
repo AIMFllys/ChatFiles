@@ -27,7 +27,8 @@ export function createDataRouter(
 ) {
   const router = Router()
   for (const [route, operation] of endpoints) {
-    router.get(route, (_request, response) => {
+    const v1Route = `/api/v1/data/${route.slice('/api/'.length)}`
+    router.get([route, v1Route], (_request, response) => {
       try { return response.json(service[operation]()) } catch { return unavailable(response) }
     })
   }

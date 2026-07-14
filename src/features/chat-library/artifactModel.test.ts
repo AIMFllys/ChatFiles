@@ -98,7 +98,7 @@ test('serializes global and conversation artifact requests with literal query va
       offset: 0,
       limit: 60,
     }),
-    '/api/wechat/artifacts?tab=work&collection=library&offset=0&limit=60',
+    '/api/v1/chat/artifacts?tab=work&collection=library&offset=0&limit=60',
   )
   assert.equal(
     artifactRequestUrl({
@@ -108,7 +108,7 @@ test('serializes global and conversation artifact requests with literal query va
       offset: 120,
       limit: 60,
     }),
-    '/api/wechat/artifacts?tab=all&q=%E4%B8%AD%E6%96%87+%26+100%25&offset=120&limit=60',
+    '/api/v1/chat/artifacts?tab=all&q=%E4%B8%AD%E6%96%87+%26+100%25&offset=120&limit=60',
   )
   assert.equal(
     artifactRequestUrl({
@@ -118,6 +118,6 @@ test('serializes global and conversation artifact requests with literal query va
       offset: 0,
       limit: 60,
     }),
-    '/api/wechat/conversation/conv%2Fwith%20spaces/artifacts?tab=chatText&offset=0&limit=60',
+    '/api/v1/chat/conversations/conv%2Fwith%20spaces/artifacts?tab=chatText&offset=0&limit=60',
   )
 })

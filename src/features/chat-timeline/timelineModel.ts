@@ -54,14 +54,6 @@ function compareMessages(left: TimelineMessage, right: TimelineMessage) {
   return left.message_uid < right.message_uid ? -1 : left.message_uid > right.message_uid ? 1 : 0
 }
 
-export function encodeBrowserTimelineCursor(message: TimelineMessage, runId: string) {
-  const payload = JSON.stringify([2, runId, message.canonical_seq ?? message.seq, message.message_uid])
-  const bytes = new TextEncoder().encode(payload)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
-}
-
 export function formatTimelineClock(timestamp: number, timeZone: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     hour: '2-digit', hourCycle: 'h23', minute: '2-digit', second: '2-digit', timeZone,
@@ -100,7 +92,11 @@ export function trimTimelinePages<T extends TimelinePageWindow>(
 export function participantMatches(participant: TimelineParticipant, query: string) {
   const term = query.trim().toLocaleLowerCase('zh-CN')
   if (!term) return true
-  return `${participant.name}\n${participant.id}`.toLocaleLowerCase('zh-CN').includes(term)
+  return `${participant.name}\n${participant.senderKey}`.toLocaleLowerCase('zh-CN').includes(term)
+}
+
+export function senderKeyForMessage(message: TimelineMessage) {
+  return message.sender || message.sender_name || '?'
 }
 
 export function timelineAnchorTarget(messages: readonly TimelineMessage[], messageUid: string | undefined) {

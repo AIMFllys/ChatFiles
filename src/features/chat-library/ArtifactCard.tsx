@@ -16,7 +16,9 @@ import {
   Wrench,
 } from 'lucide-react'
 import type { ChatArtifactListItem } from '../../types'
+import { formatArchiveTimestamp } from '../../../shared/time/archiveTime'
 import { formatBytes } from '../../utils/format'
+import { apiEndpoints } from '../../shared/api/endpoints'
 import { LinkPreviewCard } from '../link-preview/LinkPreviewCard'
 import { artifactAvailabilityLabel, previewForArtifactName } from './artifactModel'
 
@@ -53,18 +55,14 @@ function PreviewIcon({ preview }: { preview: string }) {
   return <File />
 }
 
-function displayDate(timestamp: number) {
-  if (!timestamp) return '未知时间'
-  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', year: 'numeric' })
-    .format(new Date(timestamp * 1000))
-}
-
 export function ArtifactCard({
   item,
   onOpen,
+  timeZone,
 }: {
   item: ChatArtifactListItem
   onOpen: (item: ChatArtifactListItem) => void
+  timeZone: string
 }) {
   const [failedThumbnail, setFailedThumbnail] = useState(false)
   if (item.itemType === 'chatText') {
@@ -76,7 +74,7 @@ export function ArtifactCard({
         </span>
         <span className="artifact-card-copy">
           <strong>{item.senderName || '未知发送者'}</strong>
-          <small>{displayDate(item.createdAt)}</small>
+          <small>{formatArchiveTimestamp(item.createdAt, timeZone)}</small>
         </span>
       </button>
     )
@@ -105,7 +103,7 @@ export function ArtifactCard({
               alt=""
               loading="lazy"
               onError={() => setFailedThumbnail(true)}
-              src={`/api/wechat/artifact/${item.id}/thumbnail?w=360`}
+              src={apiEndpoints.artifactThumbnail(item.id, 360)}
             />
           ) : (
             <span className="artifact-preset"><PreviewIcon preview={preview} /></span>
@@ -118,7 +116,7 @@ export function ArtifactCard({
         <strong>{item.name}</strong>
         <span className="artifact-card-meta">
           <span>{item.senderName || '未知发送者'}</span>
-          <span>{displayDate(item.createdAt)}</span>
+          <span>{formatArchiveTimestamp(item.createdAt, timeZone)}</span>
         </span>
         <span className="artifact-card-footer">
           <span>{item.size === null ? '大小未知' : formatBytes(item.size)}</span>

@@ -14,21 +14,9 @@ import {
   MessagesSquare,
   Sparkles,
 } from 'lucide-react'
+import type { Tab } from '../app/navigation'
 
-export type Tab =
-  | 'overview'
-  | 'chat'
-  | 'files'
-  | 'insights'
-  | 'academics'
-  | 'media'
-  | 'summary'
-  | 'clues'
-  | 'synthesis'
-  | 'databases'
-  | 'candidates'
-  | 'knowledge'
-  | 'ai'
+export type { Tab } from '../app/navigation'
 
 export interface NavItem {
   id: Tab
