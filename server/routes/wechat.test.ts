@@ -41,6 +41,28 @@ test('serves global and conversation collections and strictly validates query pa
   })
 })
 
+test('leases WeChat and assets from one product snapshot for a combined collection request', async (t) => {
+  const fixtureData = fixture(t)
+  fixtureData.addAsset({ content: 'ready' })
+  let combinedLeases = 0
+  const dependencies = {
+    ...fixtureData.dependencies,
+    openWechatDatabase: () => { throw new Error('separate WeChat lease used') },
+    openArtifactDatabase: () => { throw new Error('separate asset lease used') },
+    openProductDatabases: () => {
+      combinedLeases++
+      return {
+        wechat: { db: fixtureData.wechatDb,release() {} },
+        artifacts: { db: fixtureData.assetDb,release() {} },
+      }
+    },
+  }
+  await withServer(createWechatRouter(dependencies), async (baseUrl) => {
+    assert.equal((await fetch(`${baseUrl}/api/wechat/artifacts`)).status, 200)
+  })
+  assert.equal(combinedLeases, 1)
+})
+
 test('serves a distinct ready-only library collection with coherent pagination', async (t) => {
   const fixtureData = fixture(t)
   fixtureData.addAsset({ name: '可预览.pdf', preview: 'pdf', content: 'ready' })
@@ -102,6 +124,10 @@ test('returns generic 404 and 503 responses for missing conversations and databa
   const unavailable: WechatRouterDependencies = {
     ...fixtureData.dependencies,
     openArtifactDatabase: () => ({ db: null, release() {} }),
+    openProductDatabases: () => ({
+      wechat: { db: fixtureData.wechatDb,release() {} },
+      artifacts: { db: null,release() {} },
+    }),
   }
   await withServer(createWechatRouter(unavailable), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/wechat/artifacts`)

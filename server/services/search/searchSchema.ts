@@ -1,9 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
+import { derivedSearchStatusSchema, type DerivedSearchStatus } from '../../../shared/contracts/dataStatus.js'
+import {
+  classifySearchIndex,
+  SEARCH_INDEX_SCHEMA_VERSION,
+} from '../../../shared/contracts/searchStatus.js'
 import type { EmbeddingFingerprint, SearchChunk, SearchIndexMetadata } from './searchTypes.js'
 
-export const SEARCH_SCHEMA_VERSION = 2
+export const SEARCH_SCHEMA_VERSION = SEARCH_INDEX_SCHEMA_VERSION
 
 export function createSearchSchema(
   db: DatabaseSync,
@@ -113,6 +118,41 @@ export function validateSearchMetadata(
       || metadata.embeddingDimensions !== (expected.embeddingDimensions ?? null))
   ) return { ok: false as const, code: 'embedding_mismatch' as const }
   return { ok: true as const }
+}
+
+export function inspectSearchIndexStatus(
+  filenameInput: string,
+  expectedFingerprint: string | null,
+): DerivedSearchStatus {
+  const filename = path.resolve(filenameInput)
+  if (!fs.existsSync(filename)) {
+    return derivedSearchStatusSchema.parse({ state: 'missing',issues: ['search_index_missing'] })
+  }
+  let database: DatabaseSync | undefined
+  try {
+    const stat = fs.lstatSync(filename)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('unsafe index')
+    database = new DatabaseSync(filename, { readOnly: true })
+    const integrity = database.prepare('PRAGMA integrity_check').get() as { integrity_check?: string }
+    const metadata = readSearchMetadata(database)
+    const chunkCount = Number((database.prepare(
+      'SELECT count(*) AS count FROM search_chunks',
+    ).get() as { count: number }).count)
+    const vectorCount = Number((database.prepare(
+      'SELECT count(*) AS count FROM search_vectors',
+    ).get() as { count: number }).count)
+    if (!metadata) throw new Error('invalid index')
+    return classifySearchIndex({
+      schemaVersion: metadata.schemaVersion,sourceFingerprint: metadata.sourceFingerprint,
+      declaredChunkCount: metadata.chunkCount,actualChunkCount: chunkCount,vectorCount,
+      embeddingModel: metadata.embeddingModel,embeddingDimensions: metadata.embeddingDimensions,
+      integrityOk: integrity.integrity_check === 'ok',
+    }, expectedFingerprint)
+  } catch {
+    return derivedSearchStatusSchema.parse({ state: 'invalid',issues: ['search_index_invalid'] })
+  } finally {
+    database?.close()
+  }
 }
 
 export function activateSearchIndex(stagingPath: string, currentPath: string) {

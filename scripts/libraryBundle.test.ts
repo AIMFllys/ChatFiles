@@ -5,6 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test, { type TestContext } from 'node:test'
 import type { LibraryFile, LibraryManifest } from '../shared/contracts/index.js'
+import { activateCatalog, createProductCatalog } from './data/catalogTransaction.js'
+import { sealedProductSet } from './data/catalogTestSupport.js'
 import {
   publishLibraryNextBundle,
   readLibraryManifestForArchive,
@@ -154,36 +156,21 @@ test('refuses an existing final bundle without changing its contents', async (t)
   assert.equal(fs.existsSync(path.join(owned.dataDirectory, '.library.next.existing-fixture.staging')), false)
 })
 
-test('prefers a validated current manifest and otherwise reads the validated legacy manifest', (t) => {
-  const owned = fixture(t)
-  const legacyPath = owned.trackFile(path.join(owned.dataDirectory, 'library.json'))
-  const legacy = manifest([libraryFile('旧清单.pdf')])
-  fs.writeFileSync(legacyPath, `${JSON.stringify(legacy)}\n`, { encoding: 'utf8', flag: 'wx' })
+test('reads only the active catalog library and never falls back to library.json', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-library-catalog-'))
+  t.after(() => fs.rmSync(root, { recursive: true,force: true }))
+  const dataDirectory = path.join(root, 'data')
+  fs.mkdirSync(dataDirectory)
+  fs.writeFileSync(path.join(dataDirectory, 'library.json'), `${JSON.stringify(manifest())}\n`, 'utf8')
+  assert.throws(() => readLibraryManifestForArchive(dataDirectory), /CATALOG_CURRENT_MISSING/u)
 
-  const legacyResolution = readLibraryManifestForArchive(owned.dataDirectory)
-  assert.equal(legacyResolution.source, 'legacy')
-  assert.deepEqual(legacyResolution.manifest, legacy)
-
-  const currentDirectory = owned.trackDirectory(path.join(owned.dataDirectory, 'library.current'))
-  fs.mkdirSync(currentDirectory)
-  const currentPath = owned.trackFile(path.join(currentDirectory, 'manifest.json'))
-  const current = manifest([libraryFile('当前清单.pdf')])
-  fs.writeFileSync(currentPath, `${JSON.stringify(current)}\n`, { encoding: 'utf8', flag: 'wx' })
-
-  const currentResolution = readLibraryManifestForArchive(owned.dataDirectory)
-  assert.equal(currentResolution.source, 'current')
-  assert.deepEqual(currentResolution.manifest, current)
-  assert.equal(currentResolution.selectedPath, currentPath)
-})
-
-test('rejects an invalid current manifest instead of silently falling back to legacy', (t) => {
-  const owned = fixture(t)
-  const legacyPath = owned.trackFile(path.join(owned.dataDirectory, 'library.json'))
-  fs.writeFileSync(legacyPath, `${JSON.stringify(manifest())}\n`, { encoding: 'utf8', flag: 'wx' })
-  const currentDirectory = owned.trackDirectory(path.join(owned.dataDirectory, 'library.current'))
-  fs.mkdirSync(currentDirectory)
-  const currentPath = owned.trackFile(path.join(currentDirectory, 'manifest.json'))
-  fs.writeFileSync(currentPath, '{"files":[]}', { encoding: 'utf8', flag: 'wx' })
-
-  assert.throws(() => readLibraryManifestForArchive(owned.dataDirectory), /current manifest is invalid/i)
+  fs.rmSync(path.join(dataDirectory, 'library.json'))
+  const products = sealedProductSet(t, root, 'library-current')
+  activateCatalog({ dataRoot: products.dataRoot,catalog: createProductCatalog({
+    transactionId: 'library-current',committedAt: '2026-07-13T00:00:00.000Z',
+    products: products.references,
+  }) })
+  const current = readLibraryManifestForArchive(dataDirectory)
+  assert.equal(current.source, 'current')
+  assert.deepEqual(current.manifest?.files, [])
 })

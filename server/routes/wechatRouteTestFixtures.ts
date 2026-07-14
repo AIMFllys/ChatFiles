@@ -68,6 +68,9 @@ export function fixture(t: TestContext) {
   const dependencies: WechatRouterDependencies = {
     openWechatDatabase: () => ({ db: wechatDb, release() {} }),
     openArtifactDatabase: () => ({ db: assetDb, release() {} }),
+    openProductDatabases: () => ({
+      wechat: { db: wechatDb,release() {} },artifacts: { db: assetDb,release() {} },
+    }),
     accountRootProvider: () => accountRoot,
     imageThumbnail: (target) => target,
     videoThumbnail: (target) => target,

@@ -5,12 +5,12 @@ import express, { type Router } from 'express'
 
 import aiRouter from './routes/ai.js'
 import aiAgentRouter from './routes/aiAgent.js'
-import dataRouter from './routes/data.js'
+import { createDataRouter } from './routes/data.js'
 import filesRouter from './routes/files.js'
-import insightsRouter from './routes/insights.js'
+import { createInsightsRouter } from './routes/insights.js'
 import { createLocalApiRouter } from './routes/localApi.js'
 import sourceFilesRouter from './routes/source-files.js'
-import defaultWechatRouter from './routes/wechat.js'
+import { createWechatRouter } from './routes/wechat.js'
 import { root } from './utils/helpers.js'
 
 export type AppOptions = {
@@ -26,11 +26,11 @@ export function createApp(options: AppOptions = {}) {
   app.use(express.json({ limit: '24mb' }))
 
   app.use(options.localApiRouter ?? createLocalApiRouter({ projectRoot }))
-  app.use(dataRouter)
+  app.use(createDataRouter(projectRoot))
   app.use(filesRouter)
   app.use(sourceFilesRouter)
-  app.use(options.wechatRouter ?? defaultWechatRouter)
-  app.use(insightsRouter)
+  app.use(options.wechatRouter ?? createWechatRouter({}, projectRoot))
+  app.use(createInsightsRouter(projectRoot))
   app.use(options.aiAgentRouter ?? aiAgentRouter)
   app.use(aiRouter)
 

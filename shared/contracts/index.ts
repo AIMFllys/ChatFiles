@@ -96,6 +96,49 @@ export { apiErrorCodeSchema, apiErrorSchema, makeApiError } from './errors.js'
 export type { ApiError, ApiErrorCode } from './errors.js'
 
 export {
+  productCatalogSchema,
+  productDigestSchema,
+  productKindSchema,
+  productManifestSchema,
+  productReferenceSchema,
+} from './productCatalog.js'
+export {
+  productBundleSetCanonicalText,
+  productCatalogCanonicalText,
+  productKinds,
+  productManifestBody,
+  productManifestCanonicalText,
+} from './productCatalogCanonical.js'
+export type {
+  ProductCatalog,
+  ProductKind,
+  ProductManifest,
+  ProductReference,
+} from './productCatalog.js'
+
+export {
+  dataCatalogStatusSchema,
+  dataProductStateSchema,
+  dataProductStatusSchema,
+  derivedSearchStatusSchema,
+} from './dataStatus.js'
+export type {
+  DataCatalogStatus,
+  DataProductState,
+  DataProductStatus,
+  DerivedSearchStatus,
+} from './dataStatus.js'
+
+export {
+  legacyMigrationReceiptSchema,
+  migrationSourceEvidenceSchema,
+} from './dataMigration.js'
+export type { LegacyMigrationReceipt } from './dataMigration.js'
+
+export { classifySearchIndex, SEARCH_INDEX_SCHEMA_VERSION } from './searchStatus.js'
+export type { SearchIndexEvidence } from './searchStatus.js'
+
+export {
   agentContextSummarySchema,
   agentSummaryItemSchema,
   agentSummarySectionsSchema,

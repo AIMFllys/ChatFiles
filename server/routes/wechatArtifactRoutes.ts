@@ -20,7 +20,9 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
     try {
-      const resolver = createArtifactSourceResolver({ assetDb: lease.db, accountRootProvider: deps.accountRootProvider })
+      const resolver = createArtifactSourceResolver({
+        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
+      })
       const content = resolver.resolve(request.params.id, 'content')
       if (content.status === 'malformed' || content.status === 'unknown') return assetResultError(response, content)
       let availability = content.state
@@ -49,7 +51,9 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
     let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({ assetDb: lease.db, accountRootProvider: deps.accountRootProvider })
+      result = createArtifactSourceResolver({
+        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
+      })
         .resolve(request.params.id, 'content')
     } catch {
       return sendError(response, 503, 'database_unavailable')
@@ -69,7 +73,9 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
     let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({ assetDb: lease.db, accountRootProvider: deps.accountRootProvider })
+      result = createArtifactSourceResolver({
+        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
+      })
         .resolve(request.params.id, 'content')
     } catch {
       return sendError(response, 503, 'database_unavailable')
@@ -93,7 +99,9 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
     let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({ assetDb: lease.db, accountRootProvider: deps.accountRootProvider })
+      result = createArtifactSourceResolver({
+        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
+      })
         .resolve(request.params.id, 'content')
     } catch {
       return sendError(response, 503, 'database_unavailable')
@@ -121,7 +129,9 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
     let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({ assetDb: lease.db, accountRootProvider: deps.accountRootProvider })
+      result = createArtifactSourceResolver({
+        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
+      })
         .resolve(request.params.id, 'thumbnail')
     } catch {
       return sendError(response, 503, 'database_unavailable')

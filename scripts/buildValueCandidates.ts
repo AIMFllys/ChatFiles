@@ -3,9 +3,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import type { DeepFileIndex, LibraryManifest, ValueCandidate, ValueCandidateIndex } from '../shared/contracts/index.js'
 import { classify, dataDir, sha256File, writeJson } from './shared.js'
+import { readCurrentLibraryManifest } from './data/catalogConsumer.js'
 
 const deepIndex = JSON.parse(fs.readFileSync(path.join(dataDir, 'deep-index.json'), 'utf8')) as DeepFileIndex
-const library = JSON.parse(fs.readFileSync(path.join(dataDir, 'library.json'), 'utf8')) as LibraryManifest
+const library: LibraryManifest = readCurrentLibraryManifest(path.dirname(dataDir))
 const archivedSources = new Set(library.files.map((file) => file.sourcePath.toLowerCase()))
 const archivedHashes = new Set(library.files.map((file) => file.sha256))
 

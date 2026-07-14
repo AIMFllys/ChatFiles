@@ -5,7 +5,9 @@ import test from 'node:test'
 
 const source = fs.readFileSync(path.resolve(process.cwd(), 'server/services/localAccessRuntime.ts'), 'utf8')
 
-test('validates a derived search index with the same source file identity used by rebuilds', () => {
-  assert.match(source, /sourceFileIdentity\(wechat\.resolution\.selectedPath\)/u)
-  assert.match(source, /wechatSourceFingerprint\(wechat\.db,\s*sourceFileIdentity/u)
+test('binds derived search health and queries to the active WeChat product fingerprint', () => {
+  assert.match(source, /const active = readActiveProductSet\(projectRoot\)/u)
+  assert.match(source, /inspectSearchIndexStatus\([\s\S]*active\.status\.products\.wechat\.fingerprint/u)
+  assert.match(source, /sourceFingerprint:\s*fingerprint/u)
+  assert.doesNotMatch(source, /sourceFileIdentity|wechatSourceFingerprint|state:\s*'unavailable'/u)
 })

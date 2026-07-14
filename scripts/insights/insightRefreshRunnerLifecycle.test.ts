@@ -5,6 +5,7 @@ import test from 'node:test'
 
 import {
   activateInsightRefresh,
+  auditInsightRefresh,
   distillInsightRefresh,
   prepareInsightRefresh,
   rebuildInsightBoards,
@@ -54,4 +55,19 @@ test('journals activation and restores current when next publication fails', (t)
     readJson(path.join(owned.root, 'data', '.insights-activation.rollback.json')).status,
     'rolled_back',
   )
+})
+
+test('audits an insight candidate against an immutable sealed WeChat database', (t) => {
+  const owned = fixture(t)
+  prepareInsightRefresh({ root: owned.root,runId: 'sealed',aliasMapPath: owned.aliasMapPath })
+  distillInsightRefresh({ root: owned.root,runId: 'sealed' })
+  rebuildInsightBoards({ root: owned.root,runId: 'sealed' })
+  const sealedRoot = path.join(owned.root, 'data', 'products', 'wechat', 'a'.repeat(64))
+  fs.mkdirSync(sealedRoot, { recursive: true })
+  const databasePath = path.join(sealedRoot, 'wechat.db')
+  fs.copyFileSync(owned.dbPath, databasePath)
+  const audit = auditInsightRefresh({
+    root: owned.root,bundleDir: path.join(owned.root, 'data', 'insights.next'),databasePath,
+  })
+  assert.equal(audit.ok, true)
 })

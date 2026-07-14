@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express'
 import { root } from '../utils/helpers.js'
 import { queryArtifacts } from '../wechat/artifactQuery.js'
-import { openValidatedWechatDatabase } from '../wechat/databaseOpener.js'
+import { openCatalogWechatDatabase } from '../data/productDatabases.js'
 import { readConversationMessages } from '../wechat/messageQuery.js'
 import { registerWechatArtifactRoutes } from './wechatArtifactRoutes.js'
 import { registerWechatTimelineRoutes } from './wechatTimelineRoutes.js'
@@ -19,13 +19,13 @@ import {
 export type { DatabaseLease, WechatRouterDependencies } from './wechatRouteHelpers.js'
 
 export function wechatDatabaseResolution(projectRoot = root) {
-  const opened = openValidatedWechatDatabase(projectRoot)
+  const opened = openCatalogWechatDatabase(projectRoot)
   opened.db?.close()
-  return opened.resolution
+  return { code: opened.code,runId: opened.runId }
 }
 
 export function wechatDb(projectRoot = root) {
-  return openValidatedWechatDatabase(projectRoot).db
+  return openCatalogWechatDatabase(projectRoot).db
 }
 
 export function createWechatRouter(
@@ -77,8 +77,9 @@ export function createWechatRouter(
     }
     const input = parseCollectionQuery(requestQuery)
     if (!input) return sendError(response, 400, 'invalid_query')
-    const wechatLease = deps.openWechatDatabase()
-    const artifactLease = deps.openArtifactDatabase()
+    const leases = deps.openProductDatabases()
+    const wechatLease = leases.wechat
+    const artifactLease = leases.artifacts
     try {
       if (!wechatLease.db || !artifactLease.db || !canonicalWechatDatabase(wechatLease.db)) {
         return sendError(response, 503, 'database_unavailable')

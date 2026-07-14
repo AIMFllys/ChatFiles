@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
-import { DatabaseSync } from 'node:sqlite'
 
 import { wechatDb } from '../routes/wechat.js'
 import { openValidatedWechatDatabase } from './databaseOpener.js'
@@ -211,21 +210,12 @@ test('prefers a valid complete canonical current database', (t) => {
   }
 })
 
-test('wechat route opener delegates to validated candidate fallback', (t) => {
+test('wechat route opener never falls back to a legacy database without an active catalog', (t) => {
   const root = fixtureRoot(t)
   const currentPath = path.join(root, 'data', 'wechat.current', 'wechat.db')
   fs.mkdirSync(path.dirname(currentPath), { recursive: true })
   fs.writeFileSync(currentPath, 'broken current database', 'utf8')
   createLegacyDatabase(root)
 
-  const openForRoot = wechatDb as (projectRoot: string) => DatabaseSync | null
-  const db = openForRoot(root)
-  try {
-    const row = db?.prepare('SELECT id FROM conversations WHERE id=?').get('fixture-conversation') as
-      | { id: string }
-      | undefined
-    assert.equal(row?.id, 'fixture-conversation')
-  } finally {
-    db?.close()
-  }
+  assert.equal(wechatDb(root), null)
 })

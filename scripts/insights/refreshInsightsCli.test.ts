@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import { parseInsightRefreshArgs } from '../refreshInsights.js'
 
@@ -31,6 +33,12 @@ test('accepts the explicit board rebuild command', () => {
     command: 'boards',
     runId: 'fixture',
   })
+})
+
+test('does not expose the legacy directory-rename activation path', () => {
+  assert.throws(() => parseInsightRefreshArgs(['activate', '--run-id', 'fixture']), /Unknown command/u)
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'))
+  assert.equal(packageJson.scripts['insights:activate'], undefined)
 })
 
 test('parses an explicit audited owner alias map', () => {

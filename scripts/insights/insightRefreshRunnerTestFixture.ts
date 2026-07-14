@@ -3,6 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import type { TestContext } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
+import { activateCatalog, createProductCatalog } from '../data/catalogTransaction.js'
+import { resolveCurrentProductEntrypoint } from '../data/catalogConsumer.js'
+import { sealedProductSet } from '../data/catalogTestSupport.js'
 
 import type { InsightConversation, InsightState } from './insightRefresh.js'
 
@@ -64,13 +67,18 @@ export function fixture(t: TestContext) {
       id TEXT PRIMARY KEY,display TEXT NOT NULL,is_group INTEGER NOT NULL,
       text_count INTEGER NOT NULL,first_time INTEGER NOT NULL,last_time INTEGER NOT NULL
     );
-    CREATE TABLE parse_runs(run_id TEXT NOT NULL,time_zone TEXT NOT NULL);
+    CREATE TABLE parse_runs(
+      run_id TEXT NOT NULL,status TEXT NOT NULL,completed_at TEXT NOT NULL,
+      schema_version INTEGER NOT NULL,time_zone TEXT NOT NULL
+    );
     CREATE TABLE messages (
       conv_id TEXT NOT NULL,message_uid TEXT NOT NULL,canonical_seq INTEGER NOT NULL,
       occurred_at_epoch_s INTEGER NOT NULL,type INTEGER NOT NULL,time INTEGER NOT NULL,
       sender_name TEXT,text TEXT
     );
-    INSERT INTO parse_runs VALUES('fixture-run','Asia/Shanghai');
+    INSERT INTO parse_runs VALUES(
+      'fixture-run','complete','2026-07-13T00:00:00.000Z',2,'Asia/Shanghai'
+    );
   `)
   const insertConversation = db.prepare('INSERT INTO conversations VALUES (?, ?, ?, ?, ?, ?)')
   insertConversation.run('wx:canonical:room@chatroom', '中文群', 1, 50, 50, 300)
@@ -94,5 +102,11 @@ export function fixture(t: TestContext) {
     )
   }
   db.close()
-  return { root, source, dbPath, aliasMapPath }
+  const products = sealedProductSet(t, root, 'insight-fixture', { wechatDatabasePath: dbPath })
+  activateCatalog({ dataRoot: products.dataRoot,catalog: createProductCatalog({
+    transactionId: 'insight-fixture',committedAt: '2026-07-13T00:00:00.000Z',
+    products: products.references,
+  }) })
+  const activeDbPath = resolveCurrentProductEntrypoint(products.dataRoot, 'wechat', 'database')
+  return { root,source,dbPath: activeDbPath,legacyDbPath: dbPath,aliasMapPath }
 }

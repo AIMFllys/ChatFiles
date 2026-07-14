@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { CourseItem, KnowledgeBase, LibraryManifest, SourceDiscovery } from '../shared/contracts/index.js'
+import type { CourseItem, KnowledgeBase, SourceDiscovery } from '../shared/contracts/index.js'
 import { dataDir, root, writeJson } from './shared.js'
+import { readCurrentLibraryManifest } from './data/catalogConsumer.js'
 
 const home = process.env.USERPROFILE ?? ''
 // Owner identity label is injected locally (gitignored .env.local) — see .env.example.
@@ -35,12 +36,7 @@ function dbStatus(filePath: string) {
 }
 
 const courseData = readJson<{ coursePlan: CourseItem[] }>(path.join(dataDir, 'course-plan.json'), { coursePlan: [] })
-const manifest = readJson<LibraryManifest>(path.join(dataDir, 'library.json'), {
-  generatedAt: new Date(0).toISOString(),
-  roots: [],
-  files: [],
-  stats: { discovered: 0, archived: 0, duplicatesSkipped: 0, bytes: 0 },
-})
+const manifest = readCurrentLibraryManifest(path.dirname(dataDir))
 const discovery = readJson<SourceDiscovery>(path.join(dataDir, 'source-discovery.json'), {
   generatedAt: new Date(0).toISOString(),
   roots: [],

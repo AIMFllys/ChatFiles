@@ -13,11 +13,11 @@ import {
   formatArchiveTimestamp,
   resolveArchiveTimeZone,
 } from '../shared/time/archiveTime.js'
+import { resolveCurrentProductEntrypoint } from './data/catalogConsumer.js'
 
 const root = path.resolve(process.cwd())
-const currentDatabase = path.join(root, 'data', 'wechat.current', 'wechat.db')
-const legacyDatabase = path.join(root, 'data', 'wechat.db')
-const db = new DatabaseSync(fs.existsSync(currentDatabase) ? currentDatabase : legacyDatabase, { readOnly: true })
+const databasePath = resolveCurrentProductEntrypoint(path.join(root, 'data'), 'wechat', 'database')
+const db = new DatabaseSync(databasePath, { readOnly: true })
 const digestDir = path.join(root, 'work', 'chat-digest')
 const manifestPath = path.join(root, 'data', 'insights', '_manifest.json')
 fs.mkdirSync(digestDir, { recursive: true })

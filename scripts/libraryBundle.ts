@@ -6,6 +6,7 @@ import type { ArchiveIntegrityIssue } from './archivePlan.js'
 import type { ArchiveSourceIssue } from './archiveSources.js'
 import { validateLibraryManifest } from './libraryManifestValidation.js'
 import { sha256File } from './shared.js'
+import { readCurrentLibraryManifest, resolveCurrentProductEntrypoint } from './data/catalogConsumer.js'
 
 export { validateLibraryManifest } from './libraryManifestValidation.js'
 
@@ -189,48 +190,12 @@ export async function publishLibraryNextBundle(
 
 export function readLibraryManifestForArchive(dataDirectoryInput: string): LibraryManifestResolution {
   const dataDirectory = path.resolve(dataDirectoryInput)
-  const currentDirectory = path.join(dataDirectory, 'library.current')
-  const currentPath = path.join(currentDirectory, 'manifest.json')
+  const projectRoot = path.dirname(dataDirectory)
+  const currentPath = resolveCurrentProductEntrypoint(dataDirectory, 'library', 'manifest')
   const legacyPath = path.join(dataDirectory, 'library.json')
-  const dataRealPath = assertSafeDirectory(dataDirectory)
-
-  if (fs.existsSync(currentDirectory)) {
-    let manifest: LibraryManifest
-    try {
-      const currentRealPath = assertSafeDirectory(currentDirectory)
-      assertContained(dataRealPath, currentRealPath)
-      if (!fs.existsSync(currentPath)) throw new Error('Current manifest is missing')
-      manifest = validateLibraryManifest(readStrictJsonFile(currentPath, currentRealPath))
-    } catch (error) {
-      throw new Error('Current manifest is invalid; refusing legacy fallback', { cause: error })
-    }
-    const serialized = manifestJson(manifest)
-    return {
-      source: 'current',
-      selectedPath: currentPath,
-      currentPath,
-      legacyPath,
-      manifest,
-      manifestSha256: jsonSha256(serialized),
-    }
+  const manifest = readCurrentLibraryManifest(projectRoot)
+  return {
+    source: 'current',selectedPath: currentPath,currentPath,legacyPath,manifest,
+    manifestSha256: jsonSha256(manifestJson(manifest)),
   }
-
-  if (fs.existsSync(legacyPath)) {
-    let manifest: LibraryManifest
-    try {
-      manifest = validateLibraryManifest(readStrictJsonFile(legacyPath, dataRealPath))
-    } catch (error) {
-      throw new Error('Legacy manifest is invalid', { cause: error })
-    }
-    return {
-      source: 'legacy',
-      selectedPath: legacyPath,
-      currentPath,
-      legacyPath,
-      manifest,
-      manifestSha256: jsonSha256(manifestJson(manifest)),
-    }
-  }
-
-  return { source: 'none', selectedPath: null, currentPath, legacyPath }
 }

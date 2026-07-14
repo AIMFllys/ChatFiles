@@ -1,10 +1,19 @@
 import { ToolExecutionError } from './agent/toolRegistry.js'
+import type {
+  DataCatalogStatus,
+  DataProductStatus,
+  DerivedSearchStatus,
+} from '../../shared/contracts/dataStatus.js'
+import type { ProductKind } from '../../shared/contracts/productCatalog.js'
 
 export type LocalStatus = {
   name: string
   wechat: 'ready' | 'unavailable'
   artifacts: 'ready' | 'unavailable'
   version?: number
+  catalog?: DataCatalogStatus
+  products?: Record<ProductKind, DataProductStatus>
+  derived?: { search: DerivedSearchStatus }
 }
 
 export type LocalAccessBackend = {

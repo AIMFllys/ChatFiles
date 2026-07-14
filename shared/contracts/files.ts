@@ -1,4 +1,5 @@
 /** File, manifest, and preview DTOs shared by browser and server runtimes. */
+import { z } from 'zod/v4'
 export type Category =
   | '过去'
   | '创业'
@@ -121,6 +122,52 @@ export type LibraryManifest = {
     bytes: number
   }
 }
+
+const libraryCategorySchema = z.enum([
+  '过去','创业','AI','树林','学业','专业','比赛','生活','健康','项目','财务','旅行','阅读',
+  '工具','人物','素材','未归类',
+])
+
+const libraryPreviewSchema = z.enum([
+  'image','video','audio','voice','pdf','docx','sheet','text','markdown','code','html','json',
+  'presentation','archive','database','font','download',
+])
+
+const archivePathSchema = z.string().min(9).max(2048).superRefine((value, context) => {
+  if (!value.startsWith('archive/') || value.includes('\\') || value.includes('\u0000')
+    || value.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    context.addIssue({ code: 'custom',message: 'archive path must stay inside the archive role' })
+  }
+})
+
+export const libraryManifestSchema = z.object({
+  generatedAt: z.iso.datetime({ offset: true }),
+  roots: z.array(z.string().max(32_768)).max(100_000),
+  files: z.array(z.object({
+    id: z.string().min(1).max(512),name: z.string().min(1).max(1024),
+    ext: z.string().max(64),mime: z.string().max(256),
+    size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    modified: z.iso.datetime({ offset: true }),category: libraryCategorySchema,
+    subcategory: z.array(z.string().min(1).max(256)).max(100),archivePath: archivePathSchema,
+    sourcePath: z.string().min(1).max(32_768),sourceApp: z.enum(['QQ','微信','企业微信','未知']),
+    preview: libraryPreviewSchema,sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  }).strict()).max(1_000_000),
+  stats: z.object({
+    discovered: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    archived: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    duplicatesSkipped: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  }).strict(),
+}).strict().superRefine((manifest, context) => {
+  if (manifest.stats.archived !== manifest.files.length
+    || manifest.stats.bytes !== manifest.files.reduce((sum, file) => sum + file.size, 0)) {
+    context.addIssue({ code: 'custom',path: ['stats'],message: 'library counts must close' })
+  }
+  if (new Set(manifest.files.map((file) => file.id)).size !== manifest.files.length
+    || new Set(manifest.files.map((file) => file.archivePath)).size !== manifest.files.length) {
+    context.addIssue({ code: 'custom',path: ['files'],message: 'library identities must be unique' })
+  }
+})
 
 export type SourceIndexedFile = {
   id: string

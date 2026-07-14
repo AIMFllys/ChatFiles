@@ -3,18 +3,20 @@ import path from 'node:path'
 import type { ChatClueDossier, ChatSynthesis, DatabaseAnalysis, ValueCandidateIndex } from '../../shared/contracts/index.js'
 import { library, readJson, root, sourceLibrary } from '../utils/helpers.js'
 
-const router = Router()
+export function createDataRouter(projectRoot = root) {
+  const router = Router()
 
 router.get('/api/library', (_req, res) => {
-  res.json(library())
+  try { return res.json(library(projectRoot)) }
+  catch { return res.status(503).json({ error: 'Request failed',code: 'data_product_unavailable' }) }
 })
 
 router.get('/api/source-library', (_req, res) => {
-  res.json(sourceLibrary())
+  res.json(sourceLibrary(projectRoot))
 })
 
 router.get('/api/knowledge', (_req, res) => {
-  res.json(readJson(path.join(root, 'data', 'knowledge.json'), {
+  res.json(readJson(path.join(projectRoot, 'data', 'knowledge.json'), {
     generatedAt: new Date(0).toISOString(),
     sourceStatus: [],
     coursePlan: [],
@@ -23,7 +25,7 @@ router.get('/api/knowledge', (_req, res) => {
 })
 
 router.get('/api/summary', (_req, res) => {
-  res.json(readJson(path.join(root, 'data', 'summary.json'), {
+  res.json(readJson(path.join(projectRoot, 'data', 'summary.json'), {
     generatedAt: new Date(0).toISOString(),
     coverage: {
       archivedFiles: 0,
@@ -40,7 +42,7 @@ router.get('/api/summary', (_req, res) => {
 })
 
 router.get('/api/chat-clues', (_req, res) => {
-  res.json(readJson<ChatClueDossier>(path.join(root, 'data', 'chat-clue-dossier.json'), {
+  res.json(readJson<ChatClueDossier>(path.join(projectRoot, 'data', 'chat-clue-dossier.json'), {
     generatedAt: new Date(0).toISOString(),
     totals: {
       groups: 0,
@@ -56,7 +58,7 @@ router.get('/api/chat-clues', (_req, res) => {
 })
 
 router.get('/api/chat-synthesis', (_req, res) => {
-  res.json(readJson<ChatSynthesis>(path.join(root, 'data', 'chat-synthesis.json'), {
+  res.json(readJson<ChatSynthesis>(path.join(projectRoot, 'data', 'chat-synthesis.json'), {
     generatedAt: new Date(0).toISOString(),
     totals: {
       groups: 0,
@@ -73,7 +75,7 @@ router.get('/api/chat-synthesis', (_req, res) => {
 })
 
 router.get('/api/database-analysis', (_req, res) => {
-  res.json(readJson<DatabaseAnalysis>(path.join(root, 'data', 'database-analysis.json'), {
+  res.json(readJson<DatabaseAnalysis>(path.join(projectRoot, 'data', 'database-analysis.json'), {
     generatedAt: new Date(0).toISOString(),
     totals: {
       readableDatabases: 0,
@@ -87,7 +89,7 @@ router.get('/api/database-analysis', (_req, res) => {
 })
 
 router.get('/api/value-candidates', (_req, res) => {
-  res.json(readJson<ValueCandidateIndex>(path.join(root, 'data', 'value-candidates.json'), {
+  res.json(readJson<ValueCandidateIndex>(path.join(projectRoot, 'data', 'value-candidates.json'), {
     generatedAt: new Date(0).toISOString(),
     totals: {
       sourceFiles: 0,
@@ -106,4 +108,7 @@ router.get('/api/value-candidates', (_req, res) => {
   }))
 })
 
-export default router
+  return router
+}
+
+export default createDataRouter()

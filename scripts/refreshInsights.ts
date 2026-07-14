@@ -1,19 +1,20 @@
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
-  activateInsightRefresh,
   auditInsightRefresh,
   distillInsightRefresh,
   prepareInsightRefresh,
   rebuildInsightBoards,
 } from './insights/insightRefreshRunner.js'
 
-type InsightRefreshCommand = 'prepare' | 'distill' | 'boards' | 'audit' | 'activate'
+type InsightRefreshCommand = 'prepare' | 'distill' | 'boards' | 'audit'
 
 export function parseInsightRefreshArgs(argv: string[]) {
   const command = argv[0] as InsightRefreshCommand | undefined
-  if (!command || !new Set(['prepare', 'distill', 'boards', 'audit', 'activate']).has(command)) {
-    throw new Error('Usage: refreshInsights <prepare|distill|boards|audit|activate> [options]')
+  if (!command || !new Set(['prepare', 'distill', 'boards', 'audit']).has(command)) {
+    throw new Error(
+      `Unknown command: ${command ?? ''}. Usage: refreshInsights <prepare|distill|boards|audit> [options]`,
+    )
   }
   const names: ReadonlyMap<string, string> = new Map([
     ['--run-id', 'runId'],
@@ -62,9 +63,7 @@ export function runInsightRefreshCli(argv: string[]) {
     ? prepareInsightRefresh(options)
     : parsed.command === 'distill'
       ? distillInsightRefresh(options)
-      : parsed.command === 'boards'
-        ? rebuildInsightBoards(options)
-        : activateInsightRefresh(options)
+      : rebuildInsightBoards(options)
   console.log(JSON.stringify(result, null, 2))
   return result
 }

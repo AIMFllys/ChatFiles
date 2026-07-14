@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   activateSearchIndex,
   createSearchSchema,
+  inspectSearchIndexStatus,
   readSearchMetadata,
   validateSearchMetadata,
 } from './searchSchema.js'
@@ -54,4 +55,28 @@ test('activates a same-directory staging index without leaving stale bytes', (t)
   fs.writeFileSync(outside, 'outside', 'utf8')
   t.after(() => fs.rmSync(outside, { force: true }))
   assert.throws(() => activateSearchIndex(outside, current), /staging_directory_mismatch/u)
+})
+
+test('classifies missing, ready, stale, and internally inconsistent search indexes', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-search-health-'))
+  t.after(() => fs.rmSync(root, { recursive: true,force: true }))
+  const index = path.join(root, 'ai-index.current.db')
+  assert.deepEqual(inspectSearchIndexStatus(index, 'wechat-bundle-a'), {
+    state: 'missing',issues: ['search_index_missing'],
+  })
+  const database = new DatabaseSync(index)
+  createSearchSchema(database, { sourceFingerprint: 'wechat-bundle-a' })
+  database.close()
+  assert.deepEqual(inspectSearchIndexStatus(index, 'wechat-bundle-a'), {
+    state: 'ready',mode: 'keyword-only',issues: [],
+  })
+  assert.deepEqual(inspectSearchIndexStatus(index, 'wechat-bundle-b'), {
+    state: 'stale',mode: 'keyword-only',issues: ['search_source_mismatch'],
+  })
+  const inconsistent = new DatabaseSync(index)
+  inconsistent.prepare('UPDATE search_metadata SET chunk_count=1 WHERE singleton=1').run()
+  inconsistent.close()
+  assert.deepEqual(inspectSearchIndexStatus(index, 'wechat-bundle-a'), {
+    state: 'invalid',issues: ['search_index_invalid'],
+  })
 })

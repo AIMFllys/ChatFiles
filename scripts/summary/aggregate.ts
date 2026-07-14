@@ -13,18 +13,14 @@ import type {
   TextExtract,
 } from '../../shared/contracts/index.js'
 import { dataDir, root } from '../shared.js'
+import { readCurrentLibraryManifest } from '../data/catalogConsumer.js'
 import { buildEvidenceTexts, readTextExtract } from './evidence.js'
 import type { ExtractionBoundary, PriorityChatDatabase, SummaryContext, SummaryData } from './types.js'
 import { countBy, formatMb, readJson } from './utils.js'
 
 export function loadSummaryData(): SummaryData {
   return {
-    manifest: readJson<LibraryManifest>(path.join(dataDir, 'library.json'), {
-      generatedAt: new Date(0).toISOString(),
-      roots: [],
-      files: [],
-      stats: { discovered: 0, archived: 0, duplicatesSkipped: 0, bytes: 0 },
-    }),
+    manifest: readCurrentLibraryManifest(path.dirname(dataDir)) as LibraryManifest,
     discovery: readJson<SourceDiscovery>(path.join(dataDir, 'source-discovery.json'), {
       generatedAt: new Date(0).toISOString(),
       roots: [],

@@ -2,11 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { LibraryFile, LibraryManifest, ValueCandidateIndex } from '../shared/contracts/index.js'
 import { archiveDir, classify, dataDir, ensureDir, mimeFor, previewFor, root, safeName, sha256File, writeJson } from './shared.js'
+import { readCurrentLibraryManifest } from './data/catalogConsumer.js'
 
-const manifestPath = path.join(dataDir, 'library.json')
 const candidatesPath = path.join(dataDir, 'value-candidates.json')
+const promotedManifestPath = path.join(dataDir, 'promoted-library-candidate.json')
 
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as LibraryManifest
+const manifest: LibraryManifest = readCurrentLibraryManifest(path.dirname(dataDir))
 const candidates = JSON.parse(fs.readFileSync(candidatesPath, 'utf8')) as ValueCandidateIndex
 
 const seenHashes = new Set(manifest.files.map((file) => file.sha256))
@@ -78,7 +79,7 @@ if (promoted.length > 0) {
     const sourceRoot = path.dirname(item.sourcePath)
     if (!manifest.roots.includes(sourceRoot)) manifest.roots.push(sourceRoot)
   }
-  writeJson(manifestPath, manifest)
+  writeJson(promotedManifestPath, manifest)
 }
 
 const report = {

@@ -5,6 +5,12 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
+test('resolves its canonical WeChat database from the active product catalog', () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), 'scripts/buildConversationAssets.ts'), 'utf8')
+  assert.match(source, /resolveCurrentProductEntrypoint/u)
+  assert.doesNotMatch(source, /wechat\.current/u)
+})
+
 test('selects an account root by canonical owner instead of database size', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-account-owner-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))

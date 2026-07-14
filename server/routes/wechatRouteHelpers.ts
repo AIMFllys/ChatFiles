@@ -11,23 +11,25 @@ import type {
   LinkPreview,
 } from '../../shared/contracts/chat.js'
 import { imageThumb, videoPoster } from '../utils/thumbs.js'
-import { openValidatedArtifactDatabase } from '../wechat/artifactDatabase.js'
+import { openCatalogArtifactDatabase, openCatalogWechatDatabase } from '../data/productDatabases.js'
+import { readActiveProductSet } from '../data/catalogReader.js'
 import {
   createArtifactAccountRootProvider,
   type ArtifactSourceAsset,
   type ArtifactSourceResolution,
 } from '../wechat/artifactSourceResolver.js'
-import { openValidatedWechatDatabase } from '../wechat/databaseOpener.js'
 import { createLinkPreviewService } from '../services/linkPreview/linkPreviewService.js'
 
 export type DatabaseLease = {
   db: DatabaseSync | null
+  bundleRoot?: string | null
   release: () => void
 }
 
 export type WechatRouterDependencies = {
   openWechatDatabase: () => DatabaseLease
   openArtifactDatabase: () => DatabaseLease
+  openProductDatabases: () => { wechat: DatabaseLease;artifacts: DatabaseLease }
   accountRootProvider: (assetDb: DatabaseSync) => string | null
   imageThumbnail: (target: string, width: number) => string
   videoThumbnail: (target: string, width: number) => string
@@ -38,13 +40,26 @@ const tabs = new Set<ChatArtifactTab>(['all', 'work', 'document', 'skill', 'link
 const collections = new Set(['outputs', 'library'] as const)
 
 function defaultWechatLease(projectRoot: string): DatabaseLease {
-  const opened = openValidatedWechatDatabase(projectRoot)
+  const opened = openCatalogWechatDatabase(projectRoot)
   return { db: opened.db, release: () => opened.db?.close() }
 }
 
 function defaultArtifactLease(projectRoot: string): DatabaseLease {
-  const opened = openValidatedArtifactDatabase(projectRoot)
-  return { db: opened.db, release: () => opened.db?.close() }
+  const opened = openCatalogArtifactDatabase(projectRoot)
+  return { db: opened.db,bundleRoot: opened.bundleRoot,release: () => opened.db?.close() }
+}
+
+function defaultProductLeases(projectRoot: string) {
+  const active = readActiveProductSet(projectRoot)
+  const readActive = () => active
+  const wechat = openCatalogWechatDatabase(projectRoot, readActive)
+  const artifacts = openCatalogArtifactDatabase(projectRoot, readActive)
+  return {
+    wechat: { db: wechat.db,release: () => wechat.db?.close() },
+    artifacts: {
+      db: artifacts.db,bundleRoot: artifacts.bundleRoot,release: () => artifacts.db?.close(),
+    },
+  }
 }
 
 export function defaultDependencies(projectRoot: string): WechatRouterDependencies {
@@ -52,6 +67,7 @@ export function defaultDependencies(projectRoot: string): WechatRouterDependenci
   return {
     openWechatDatabase: () => defaultWechatLease(projectRoot),
     openArtifactDatabase: () => defaultArtifactLease(projectRoot),
+    openProductDatabases: () => defaultProductLeases(projectRoot),
     accountRootProvider: createArtifactAccountRootProvider({ projectRoot }),
     imageThumbnail: imageThumb,
     videoThumbnail: videoPoster,

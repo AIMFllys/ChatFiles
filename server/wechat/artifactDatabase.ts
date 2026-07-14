@@ -158,7 +158,7 @@ function hasCompleteNormalizedRun(db: DatabaseSync) {
     && expected.every(([column, value]) => Number(run[column]) === value)
 }
 
-function validDatabase(db: DatabaseSync) {
+export function validArtifactDatabase(db: DatabaseSync) {
   if (tableExists(db, 'asset_sources')) {
     return hasSchema(db, normalizedSchema) && hasCompleteNormalizedRun(db)
   }
@@ -198,7 +198,7 @@ export function openValidatedArtifactDatabase(projectRoot: string): OpenedArtifa
     if (!fs.statSync(databasePath).isFile()) return { db: null, code: 'unavailable' }
     db = new DatabaseSync(databasePath, { readOnly: true })
     const normalized = tableExists(db, 'asset_sources')
-    if (!validDatabase(db) || (normalized && !matchesActiveCanonical(db, projectRoot))) {
+    if (!validArtifactDatabase(db) || (normalized && !matchesActiveCanonical(db, projectRoot))) {
       db.close()
       return { db: null, code: 'unavailable' }
     }

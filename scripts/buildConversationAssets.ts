@@ -6,6 +6,7 @@ import { runConversationAssetBuilder } from './wechat/conversationAssetBuilder.j
 import { fingerprintDirectory } from './wechat/assetBundleBinding.js'
 import { resolveConversationAssetSourceScope } from './wechat/conversationAssetSourceScope.js'
 import { loadLocalEnv } from './localEnv.js'
+import { resolveCurrentProductEntrypoint } from './data/catalogConsumer.js'
 
 type CliOptions = {
   sourceSnapshotRoot: string
@@ -120,7 +121,9 @@ export function runConversationAssetCli(args = process.argv.slice(2), root = pat
     'message',
     'message_resource.db',
   )
-  const wechatDbPath = path.join(root, 'data', 'wechat.current', 'wechat.db')
+  const wechatDbPath = resolveCurrentProductEntrypoint(
+    path.join(root, 'data'),'wechat','database',
+  )
   const owner = ownerForSnapshot(wechatDbPath, options.sourceSnapshotRoot)
   const result = runConversationAssetBuilder({
     wechatDbPath,

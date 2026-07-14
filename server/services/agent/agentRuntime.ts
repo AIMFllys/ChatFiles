@@ -1,13 +1,12 @@
 import path from 'node:path'
 import type { AgentRequestConfig, AgentStreamEvent, AgentStreamRequest } from '../../../shared/contracts/aiAgent.js'
-import { openValidatedArtifactDatabase } from '../../wechat/artifactDatabase.js'
+import { readActiveProductSet } from '../../data/catalogReader.js'
+import { openCatalogArtifactDatabase, openCatalogWechatDatabase } from '../../data/productDatabases.js'
 import { createArtifactAccountRootProvider, createArtifactSourceResolver } from '../../wechat/artifactSourceResolver.js'
-import { openValidatedWechatDatabase } from '../../wechat/databaseOpener.js'
 import { root } from '../../utils/helpers.js'
 import { createLinkPreviewService } from '../linkPreview/linkPreviewService.js'
 import { readDocument } from '../documents/readDocument.js'
 import { createRuntimeSearch } from '../search/searchRuntime.js'
-import { sourceFileIdentity, wechatSourceFingerprint } from '../search/sourceFingerprint.js'
 import { buildSearchIndex } from '../search/buildSearchIndex.js'
 import { runAgent } from './agentLoop.js'
 import { prepareHistoryContext } from './historySummary.js'
@@ -20,22 +19,28 @@ export async function executeAgentRuntime(
   signal: AbortSignal,
   projectRoot = root,
 ) {
-  const wechat = openValidatedWechatDatabase(projectRoot)
-  const artifacts = openValidatedArtifactDatabase(projectRoot)
+  const active = readActiveProductSet(projectRoot)
+  const readActive = () => active
+  const wechat = openCatalogWechatDatabase(projectRoot, readActive)
+  const artifacts = openCatalogArtifactDatabase(projectRoot, readActive)
   if (!wechat.db || !artifacts.db) {
     wechat.db?.close()
     artifacts.db?.close()
     throw new Error('database_unavailable')
   }
-  const sourceFingerprint = wechatSourceFingerprint(
-    wechat.db,
-    sourceFileIdentity(wechat.resolution.selectedPath),
-  )
+  const sourceFingerprint = active.status.products.wechat.fingerprint
+  if (!sourceFingerprint) {
+    artifacts.db.close()
+    wechat.db.close()
+    throw new Error('database_unavailable')
+  }
   const search = createRuntimeSearch({
     wechatDb: wechat.db, projectRoot, sourceFingerprint, config: request.config, signal,
   })
   const accountRootProvider = createArtifactAccountRootProvider({ projectRoot })
-  const resolver = createArtifactSourceResolver({ assetDb: artifacts.db, accountRootProvider })
+  const resolver = createArtifactSourceResolver({
+    assetDb: artifacts.db,accountRootProvider,bundleRoot: artifacts.bundleRoot ?? undefined,
+  })
   const links = createLinkPreviewService({ cacheDir: path.join(projectRoot, 'work', 'link-preview-cache') })
   const registry = createToolRegistry({
     wechatDb: wechat.db,
@@ -87,14 +92,15 @@ export async function rebuildSearchIndexRuntime(
 ) {
   if (rebuildActive) throw new Error('index_rebuild_active')
   rebuildActive = true
-  const opened = openValidatedWechatDatabase(projectRoot)
+  const opened = openCatalogWechatDatabase(projectRoot)
   try {
     if (!opened.db) throw new Error('database_unavailable')
-    const fingerprint = wechatSourceFingerprint(opened.db, sourceFileIdentity(opened.resolution.selectedPath))
+    const sourceFingerprint = opened.active.status.products.wechat.fingerprint
+    if (!sourceFingerprint) throw new Error('database_unavailable')
     const dataDir = path.join(projectRoot, 'data')
     return await buildSearchIndex({
       sourceDb: opened.db,
-      sourceFingerprint: fingerprint,
+      sourceFingerprint,
       currentPath: path.join(dataDir, 'ai-index.current.db'),
       stagingPath: path.join(dataDir, `ai-index.staging-${process.pid}-${Date.now()}.db`),
       ...(config.embedding.enabled ? { embedding: {

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { planInsightDelta } from './insightRefresh.js'
+import { resolveCurrentProductEntrypoint } from '../data/catalogConsumer.js'
 
 export type RefreshOptions = {
   root: string
@@ -53,11 +54,14 @@ export function assertRunId(runId: string) {
 
 export function resolvePaths(options: RefreshOptions | AuditOptions) {
   const root = path.resolve(options.root)
+  const databasePath = options.databasePath
+    ? path.resolve(root, options.databasePath)
+    : resolveCurrentProductEntrypoint(path.join(root, 'data'), 'wechat', 'database')
   return {
     root,
     sourceDir: path.resolve(root, 'sourceDir' in options && options.sourceDir ? options.sourceDir : 'data/insights'),
     bundleDir: path.resolve(root, options.bundleDir ?? 'data/insights.next'),
-    databasePath: path.resolve(root, options.databasePath ?? 'data/wechat.current/wechat.db'),
+    databasePath,
   }
 }
 
@@ -106,7 +110,10 @@ export function assertDataRoles(paths: ReturnType<typeof resolvePaths>, mode: 'p
   assertNoLinkedPath(paths.root, paths.sourceDir, 'Insight source')
   assertNoLinkedPath(paths.root, paths.bundleDir, 'Insight bundle')
   assertNoLinkedPath(paths.root, paths.databasePath, 'WeChat database')
-  if (paths.databasePath !== path.join(dataRoot, 'wechat.current', 'wechat.db')) {
+  const currentDatabase = path.join(dataRoot, 'wechat.current', 'wechat.db')
+  const databaseRole = path.relative(dataRoot, paths.databasePath).split(path.sep).join('/')
+  const sealedDatabase = /^products\/wechat\/[0-9a-f]{64}\/wechat\.db$/u.test(databaseRole)
+  if (paths.databasePath !== currentDatabase && !sealedDatabase) {
     throw new Error('WeChat database must be data/wechat.current/wechat.db')
   }
   if (mode !== 'audit' && paths.bundleDir !== path.join(dataRoot, 'insights.next')) {

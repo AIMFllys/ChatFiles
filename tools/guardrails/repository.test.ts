@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,6 +13,8 @@ import {
   listGitCandidateFiles,
   type RepositoryBaseline,
 } from './repository.js'
+
+const repositoryRoot = path.resolve(import.meta.dirname, '..', '..')
 
 function createFixture(t: TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-repository-'))
@@ -263,6 +265,18 @@ test('git candidate discovery includes tracked private files and untracked non-i
   execFileSync('git', ['add', '-f', 'data/聊天.db'], { cwd: root })
 
   assert.deepEqual(listGitCandidateFiles(root), ['.gitignore', 'data/聊天.db', 'src/新增.ts'])
+})
+
+test('git ignores only the root private data role, not source directories named data', () => {
+  const isIgnored = (relativePath: string) => spawnSync(
+    'git',
+    ['check-ignore', '--quiet', '--no-index', '--', relativePath],
+    { cwd: repositoryRoot },
+  ).status === 0
+
+  assert.equal(isIgnored('data/guardrail-private.db'), true)
+  assert.equal(isIgnored('scripts/data/guardrail-source.ts'), false)
+  assert.equal(isIgnored('server/data/guardrail-source.ts'), false)
 })
 
 test('content checks skip a candidate deleted from the working tree', (t) => {

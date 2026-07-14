@@ -8,12 +8,12 @@ import type {
   CompletionAuditItem,
   DatabaseAnalysis,
   DeepFileIndex,
-  LibraryManifest,
   LogTextIndex,
   SourceDiscovery,
   SourceTextIndex,
 } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
+import { readCurrentLibraryManifest } from './data/catalogConsumer.js'
 
 function readJson<T>(filePath: string, fallback: T): T {
   try {
@@ -30,12 +30,7 @@ function statusLine(status: CompletionAuditItem['status']) {
   return '未证明'
 }
 
-const manifest = readJson<LibraryManifest>(path.join(dataDir, 'library.json'), {
-  generatedAt: new Date(0).toISOString(),
-  roots: [],
-  files: [],
-  stats: { discovered: 0, archived: 0, duplicatesSkipped: 0, bytes: 0 },
-})
+const manifest = readCurrentLibraryManifest(path.dirname(dataDir))
 const discovery = readJson<SourceDiscovery>(path.join(dataDir, 'source-discovery.json'), {
   generatedAt: new Date(0).toISOString(),
   roots: [],

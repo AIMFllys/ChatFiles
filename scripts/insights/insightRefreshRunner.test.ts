@@ -109,12 +109,15 @@ test('prepares, distills, audits, and activates a non-destructive canonical insi
 
 test('refuses to advance when queried text rows do not close against count growth', (t) => {
   const owned = fixture(t)
-  const db = new DatabaseSync(owned.dbPath)
+  const db = new DatabaseSync(owned.legacyDbPath)
   db.prepare('UPDATE conversations SET text_count = text_count + 1 WHERE id = ?').run('wx:canonical:room@chatroom')
   db.close()
 
   assert.throws(
-    () => prepareInsightRefresh({ root: owned.root, runId: 'closure', aliasMapPath: owned.aliasMapPath }),
+    () => prepareInsightRefresh({
+      root: owned.root,runId: 'closure',aliasMapPath: owned.aliasMapPath,
+      databasePath: owned.legacyDbPath,
+    }),
     /text growth does not close/u,
   )
   assert.equal(fs.existsSync(path.join(owned.root, 'data', 'insights.next')), false)
@@ -122,13 +125,18 @@ test('refuses to advance when queried text rows do not close against count growt
 
 test('binds distillation to the exact database fingerprint captured during prepare', (t) => {
   const owned = fixture(t)
-  prepareInsightRefresh({ root: owned.root, runId: 'fingerprint', aliasMapPath: owned.aliasMapPath })
-  const db = new DatabaseSync(owned.dbPath)
+  prepareInsightRefresh({
+    root: owned.root,runId: 'fingerprint',aliasMapPath: owned.aliasMapPath,
+    databasePath: owned.legacyDbPath,
+  })
+  const db = new DatabaseSync(owned.legacyDbPath)
   db.prepare('UPDATE conversations SET display = ? WHERE id = ?').run('被替换的数据库', 'wx:canonical:room@chatroom')
   db.close()
 
   assert.throws(
-    () => distillInsightRefresh({ root: owned.root, runId: 'fingerprint' }),
+    () => distillInsightRefresh({
+      root: owned.root,runId: 'fingerprint',databasePath: owned.legacyDbPath,
+    }),
     /database fingerprint/u,
   )
 })
