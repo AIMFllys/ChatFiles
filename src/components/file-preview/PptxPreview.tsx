@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Presentation } from 'lucide-react'
 import JSZip from 'jszip'
+import { readArrayBuffer } from '../../shared/api/client'
 import { fileUrl, type BrowsableFile } from '../../utils/tree'
 
 export function PptxPreview({ file }: { file: BrowsableFile }) {
   const [slides, setSlides] = useState<Array<{ name: string; text: string }>>([])
   const [error, setError] = useState('')
   useEffect(() => {
-    fetch(fileUrl(file))
-      .then((res) => res.arrayBuffer())
+    const controller = new AbortController()
+    readArrayBuffer(fileUrl(file), { signal: controller.signal })
       .then(async (buffer) => {
         const zip = await JSZip.loadAsync(buffer)
         const slideFiles = Object.values(zip.files)
@@ -24,7 +25,11 @@ export function PptxPreview({ file }: { file: BrowsableFile }) {
         )
         setSlides(parsed)
       })
-      .catch(() => setError('PPTX 结构读取失败，可下载原样副本。'))
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        setError('PPTX 结构读取失败，可下载原样副本。')
+      })
+    return () => controller.abort()
   }, [file])
   if (error) {
     return (

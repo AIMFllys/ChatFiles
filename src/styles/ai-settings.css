@@ -221,37 +221,3 @@
   flex: 0 0 auto;
   color: var(--jade);
 }
-
-/* ---- chat-context launcher ---------------------------------------------- */
-.chat-ctx-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.chat-ctx-top .eyebrow {
-  margin: 0;
-}
-.ai-analyze {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid var(--accent-40);
-  border-radius: 8px;
-  background: var(--accent-10);
-  color: var(--gold-2);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.16s ease, transform 0.16s ease;
-}
-.ai-analyze:hover:not(:disabled) {
-  transform: translateY(-1px);
-  border-color: var(--gold);
-}
-.ai-analyze:disabled {
-  opacity: 0.4;
-  cursor: default;
-}

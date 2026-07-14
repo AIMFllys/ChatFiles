@@ -17,9 +17,19 @@ export class ApiClientError extends Error {
   }
 }
 
-type ReadJsonOptions = {
+export type ReadOptions = {
   signal?: AbortSignal
   fetchImpl?: typeof fetch
+}
+
+function request(options: ReadOptions, url: string) {
+  return (options.fetchImpl ?? fetch)(url, { signal: options.signal })
+}
+
+async function successfulResponse(url: string, options: ReadOptions) {
+  const response = await request(options, url)
+  if (!response.ok) throw new ApiClientError('request_failed', response.status)
+  return response
 }
 
 function serverErrorCode(value: unknown) {
@@ -31,9 +41,9 @@ function serverErrorCode(value: unknown) {
 export async function readJson<Schema extends z.ZodType>(
   url: string,
   schema: Schema,
-  options: ReadJsonOptions = {},
+  options: ReadOptions = {},
 ): Promise<z.output<Schema>> {
-  const response = await (options.fetchImpl ?? fetch)(url, { signal: options.signal })
+  const response = await request(options, url)
   const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
   if (!contentType.includes('application/json')) {
     throw new ApiClientError('invalid_content_type', response.status)
@@ -50,4 +60,36 @@ export async function readJson<Schema extends z.ZodType>(
   const parsed = schema.safeParse(value)
   if (!parsed.success) throw new ApiClientError('invalid_response', response.status)
   return parsed.data
+}
+
+export async function readText(url: string, options: ReadOptions = {}) {
+  const response = await successfulResponse(url, options)
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  const textual = contentType.startsWith('text/')
+    || contentType.includes('application/json')
+    || contentType.includes('+json')
+    || contentType.includes('application/xml')
+    || contentType.includes('+xml')
+    || contentType.includes('javascript')
+  if (!textual) {
+    throw new ApiClientError('invalid_content_type', response.status)
+  }
+  return response.text()
+}
+
+async function binaryResponse(url: string, options: ReadOptions) {
+  const response = await successfulResponse(url, options)
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  if (!contentType || contentType.includes('application/json') || contentType.startsWith('text/html')) {
+    throw new ApiClientError('invalid_content_type', response.status)
+  }
+  return response
+}
+
+export async function readBlob(url: string, options: ReadOptions = {}) {
+  return (await binaryResponse(url, options)).blob()
+}
+
+export async function readArrayBuffer(url: string, options: ReadOptions = {}) {
+  return (await binaryResponse(url, options)).arrayBuffer()
 }

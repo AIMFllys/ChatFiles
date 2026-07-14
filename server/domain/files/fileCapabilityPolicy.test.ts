@@ -37,6 +37,14 @@ test('enforces the archive, source, and artifact capability matrix', () => {
     [descriptor('archive', 'pdf'), 'textPreview', false],
     [descriptor('artifact', 'database'), 'databasePreview', false],
     [descriptor('artifact', 'voice'), 'voicePreview', false],
+    [descriptor('artifact', 'voice', {
+      voiceSource: true,
+      artifactCapabilities: ['content'],
+    }), 'voicePreview', true],
+    [descriptor('artifact', 'voice', {
+      voiceSource: true,
+      artifactCapabilities: ['content'],
+    }), 'voiceAudio', true],
     [descriptor('artifact', 'image', { artifactCapabilities: ['thumbnail'] }), 'thumbnail', true],
     [descriptor('artifact', 'image'), 'thumbnail', false],
     [descriptor('artifact', 'archive', { artifactCapabilities: ['archive'] }), 'archivePreview', true],

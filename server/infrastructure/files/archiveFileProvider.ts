@@ -1,6 +1,6 @@
 import type { LibraryFile, LibraryManifest } from '../../../shared/contracts/files.js'
 import type { FileDescriptor } from '../../domain/files/fileCapabilityPolicy.js'
-import { resolveArchiveTarget } from '../../utils/helpers.js'
+import { resolveArchiveTarget } from './archiveFileTarget.js'
 
 function descriptor(item: LibraryFile): FileDescriptor {
   return {

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Archive } from 'lucide-react'
+import { archivePreviewSchema } from '../../../shared/contracts/filePreview'
 import type { ArchivePreview as ArchivePreviewData } from '../../types'
+import { readJson } from '../../shared/api/client'
 import { formatBytes } from '../../utils/format'
 import { archiveUrl, type BrowsableFile } from '../../utils/tree'
 
@@ -8,23 +10,17 @@ export function ArchiveFilePreview({ file }: { file: BrowsableFile }) {
   const [previewState, setPreviewState] = useState<{ fileId: string; data: ArchivePreviewData }>()
   const [errorState, setErrorState] = useState<{ fileId: string; message: string }>()
   useEffect(() => {
-    let cancelled = false
-    fetch(archiveUrl(file))
-      .then(async (res) => {
-        if (!res.ok) throw new Error(await res.text())
-        return res.json() as Promise<ArchivePreviewData>
-      })
+    const controller = new AbortController()
+    readJson(archiveUrl(file), archivePreviewSchema, { signal: controller.signal })
       .then((data) => {
-        if (cancelled) return
         setPreviewState({ fileId: file.id, data })
         setErrorState(undefined)
       })
-      .catch(() => {
-        if (!cancelled) setErrorState({ fileId: file.id, message: '压缩包目录读取失败，可下载后用本地工具查看。' })
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        setErrorState({ fileId: file.id, message: '压缩包目录读取失败，可下载后用本地工具查看。' })
       })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [file])
 
   const error = errorState?.fileId === file.id ? errorState.message : undefined

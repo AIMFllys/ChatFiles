@@ -17,7 +17,7 @@ test('renders chat text through a dedicated bounded timeline', () => {
   const hook = source('useChatTimeline.ts')
   const timeline = source('ChatTimeline.tsx')
   const model = source('timelineModel.ts')
-  const publicTypes = fs.readFileSync(path.resolve(process.cwd(), 'src/types.ts'), 'utf8')
+  const publicTypes = fs.readFileSync(path.resolve(process.cwd(), 'shared/contracts/chatTimeline.ts'), 'utf8')
   assert.match(publicTypes, /TimelineMessage/u)
   assert.match(workspace, /tab === 'chatText'[\s\S]*?<ChatTimeline/u)
   assert.match(hook, /const MAX_PAGES = 5/u)

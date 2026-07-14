@@ -1,74 +1,19 @@
-# 09 · AI 助手规格（自带模型 · 聊天 AI 解析）
+# AI 助手补充说明
 
-> 让机主接入**任意 OpenAI 兼容接口**，在聊天板块对**单个会话的完整上下文**与 AI 对话。密钥只存浏览器、经本机代理一次性透传，**永不写盘**。本篇是该功能的完整可复刻规格。配套服务端接口见 [`07_server-api.md`](07_server-api.md)，前端集成见 [`08_frontend.md`](08_frontend.md)。
+> 文档状态：补充说明；架构、字段、能力和激活规则以 [01_architecture.md](01_architecture.md) 为唯一权威。
 
-## 0. 目标与边界
+AI 助手不读取整段会话全文。它通过 `operationCatalog` 中的只读工具逐步获取证据：
 
-- 在 **AI 板块**（配置组）配置 `Base URL / API Key / 模型 ID / 上下文阈值 / 温度`。
-- 在 **聊天板块右栏**点「AI 解析」→ 弹出悬浮窗，AI 能读取**当前会话的完整逐字转写**（注入式），据此回答。
-- 用户可把**上下文注入阈值**从 **1 万 token 调到 80 万 token**；当某会话实际上下文的**预估 token 超过阈值**时**必须报错**（不静默截断后照发），提示调高阈值或换更大窗口模型。
-- **隐私红线**：API Key 仅存 `localStorage`；服务端代理只做一次性转发，**不落盘、不记录**；不上传任何聊天内容到我们自己的服务。
+- `list_conversations`
+- `search_messages`
+- `get_message_context`
+- `search_artifacts`
+- `read_document`
+- `get_timeline_slice`
+- `get_link_preview`
 
-## 1. 配置模型（`src/utils/aiConfig.ts`）
+每个工具声明 Zod input/output、依赖能力与上限。Agent、HTTP、CLI 和 MCP 调用同一领域 executor，引用格式绑定消息 UID 或资产 ID。
 
-```ts
-interface AIConfig {
-  baseURL: string      // 如 https://api.openai.com/v1
-  apiKey: string       // sk-…（仅存 localStorage）
-  model: string        // 如 gpt-4o-mini
-  threshold: number    // 上下文注入阈值，10_000 .. 800_000
-  temperature: number  // 0 .. 1.5
-}
-```
+浏览器配置只保存用户主动提供的上游地址、模型和 key；服务端不写盘、不打印 key。`/api/ai/chat` 与 `/api/ai/agent` 共用一个 upstream，body 有独立上限。上下文预算按完整 Unicode 消息裁剪，不切断中文或 emoji；资产不可用时，纯聊天搜索仍可工作。
 
-- 常量：`MIN_THRESHOLD = 10_000`、`MAX_THRESHOLD = 800_000`、`DEFAULT_AI_CONFIG`（baseURL 默认 `https://api.openai.com/v1`、model `gpt-4o-mini`、threshold `128_000`、temperature `0.6`）。
-- 持久化键：`localStorage['chatfiles.ai.config']`。
-- 函数：
-  - `loadAIConfig(): AIConfig` —— 读 localStorage，与默认值浅合并；解析失败回退默认。
-  - `saveAIConfig(cfg): void` —— `JSON.stringify` 写入。
-  - `isConfigured(cfg): boolean` —— `baseURL && apiKey && model` 三者非空。
-  - `estimateTokens(text): number` —— **保守**估算：遍历字符，CJK/兼容/全角区码点（`0x3000–0x9FFF`、`0xF900–0xFAFF`、`0xFF00–0xFFEF`）按 **1 token/字**，其余按 **3.5 字/token**；`ceil(cjk + other/3.5)`。故意高估，使阈值闸门偏保守。
-  - `streamChat(cfg, messages, onDelta, signal?)` —— `POST /api/ai/chat`，逐块解析 SSE（`data:` 行、`[DONE]` 收尾、`choices[0].delta.content`），每块回调 `onDelta`；非 2xx 抛出含状态码与上游报文片段的错误。
-
-> `streamChat` 经**本机代理**而非浏览器直连上游，目的有二：① 规避第三方接口的浏览器 **CORS** 限制；② 让密钥不必暴露在跨域请求里。代理实现见 [`07_server-api.md`](07_server-api.md)。
-
-## 2. 服务端（`server/routes/ai.ts`，详见 07）
-
-- `GET /api/wechat/conversation/:id/transcript?maxChars=` —— 从 `data/wechat.db` 按时间顺序构建逐行转写（`发言人: 内容`，媒体记为 `[类型]`），行数上限 `ceil(maxChars/6)+2000`、字符到 `maxChars` 截断，返回 `{ meta, text, chars, lines, truncated }`。对超大群有内存上界。
-- `POST /api/ai/chat` —— body `{baseURL, apiKey, model, messages, temperature}`；缺字段返回 **400**；否则向 `${baseURL}/chat/completions` 发起 `stream:true` 请求（`Authorization: Bearer <apiKey>`），把 SSE 字节**原样回流**（`text/event-stream`）。密钥**仅本次转发**，不写盘、不日志。
-- `server/index.ts` 必须 `app.use(express.json({ limit: '24mb' }))`（注入的上下文可达数 MB）并 `app.use(aiRouter)`。
-
-## 3. AI 设置板块（`src/boards/AISettings.tsx`）
-
-- 表单字段：Base URL、API Key（`type=password`）、模型 ID、温度（range 0–1.5）、**上下文注入阈值**（range `MIN_THRESHOLD`–`MAX_THRESHOLD`，step 10_000，显示 `toLocaleString()` tokens）。
-- 「保存配置」→ 规整（trim + 阈值夹取到 `[1万,80万]`）→ `saveAIConfig` → 回传父级 `onChange`。
-- 「测试连接」→ 先保存，再用 `streamChat` 发一条「回复两个字：在线」探测，成功显示回包片段、失败显示错误。
-- 顶部与底部明确告知**隐私**：密钥仅存浏览器、经 `/api/ai/chat` 透传、服务端不落盘不记录。
-
-## 4. 聊天「AI 解析」悬浮窗（`src/components/ai/AIChatDock.tsx`）
-
-由聊天右栏 `ChatContext` 的「AI 解析」按钮（`onAnalyze`）打开，props：`convId / convName / config / onClose / onGotoSettings`。
-
-行为：
-1. **拉取上下文**：会话或阈值变化时 `GET …/transcript?maxChars=min(threshold*4, 4_000_000)`；用 `estimateTokens(text)` 估 token，存 `{text, tokens, lines, truncated}`。
-2. **阈值闸门**：`over = tokens > threshold`。顶部状态条显示「注入 N 行 · 约 X tokens / 阈值 Y」；`over` 时该条标红、输入框禁用，发送被拦截并报错：`上下文 X tokens 超过阈值 Y tokens，请在 AI 设置调高阈值或改用更大窗口模型`。
-3. **未配置**：`isConfigured` 为假时提示并给「前往配置 →」按钮（`onGotoSettings` 切到 AI 板块）。
-4. **对话 + Markdown**：每次发送组装 `messages = [system, ...历史]`，`system` 注入该会话全文（`你是严谨的聊天记录分析助手……可用 Markdown 排版……===== 会话记录开始 ===== …`），调 `streamChat` 流式把增量拼到最后一条 assistant 气泡；assistant 气泡用 **`react-markdown` + `remark-gfm` 渲染 Markdown**（`.ai-turn-text.markdown-body`，代码块/表格/列表/行内代码均生效），user 气泡保持纯文本；`AbortController` 在关闭/重发/清除时中止上一请求。
-5. **本地历史 + 注入**：每个会话的对话**持久化到 localStorage**（`chatfiles.ai.history.<convId>`，`saveHistory`/`loadHistory`，保留最近 60 条）。重新打开悬浮窗自动 `loadHistory(convId)` 恢复——**之前聊过的内容还在，并作为 `...历史` 一并注入上下文**，AI 能接着上次聊。状态条在有历史时附「· 含历史对话」。
-6. **清除上下文**：头部 `Trash2` 按钮 `clearCtx()` → 中止请求 + `setTurns([])` + `clearHistory(convId)`，把该会话的对话与注入历史清空（不影响会话转写本身）。
-7. **自由调节大小**：悬浮窗左上角 `.ai-dock-resize` 拖拽手柄（`onPointerDown` → 监听 `pointermove`）调节 `width/height`（夹取 `[320, vw-48] × [360, vh-90]`），尺寸持久化到 `chatfiles.ai.docksize`（`loadDockSize`/`saveDockSize`），下次打开沿用。
-8. 切换会话时由 `Chat.tsx` 关闭并重置悬浮窗（`dockOpen=false`），避免把 A 会话的对话错配到 B 会话；重开时各自加载自己的历史。
-
-样式见 `src/styles/ai.css`（`.ai-dock` 右下角悬浮、可缩放、macOS 式头、流式 Markdown 气泡、`.ai-dock-resize` 手柄）。
-
-## 5. 验收
-
-- AI 板块保存后刷新仍在（localStorage）。
-- `POST /api/ai/chat` 缺字段 → 400；带 `{baseURL,apiKey,model,messages}` → 转发上游（假 key 得 401 透传即证明打通）。
-- 聊天点「AI 解析」→ 悬浮窗加载转写、显示 token/阈值；当 `tokens > threshold` 时发送被拦截并报错（本项目首会话约 31.7 万 token，在默认 12.8 万阈值下正确进入 `over` 态）。
-- assistant 回复渲染 **Markdown**（代码块/表格/列表生效）；user 气泡为纯文本。
-- 关闭再打开同一会话的悬浮窗：**之前的对话还在**并被注入上下文；点「清除上下文」按钮即清空该会话历史。
-- 拖拽左上角手柄可**自由调节窗口大小**，尺寸记忆到下次打开。
-- 全程密钥不出现在任何服务端文件或日志中。
-
-> 安全：本功能严格遵守 [`../../AGENTS.md`](../../AGENTS.md) 第 2 节红线——只读机主本地数据、密钥不落盘、不上传聊天内容到第三方以外的任何地方（上游即用户自己配置的接口）。
+AI 结果是辅助解释，不改变 canonical 人物、顺序、资产关联或数据产品 receipt。

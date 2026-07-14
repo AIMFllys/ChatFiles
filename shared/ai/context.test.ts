@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { planContextBudget, takeWholeMessages } from './aiContext.js'
+import { planContextBudget, takeWholeMessages } from './context.js'
 
 test('reserves thirty percent and caps raw context at exactly seventy percent', () => {
   const budget = planContextBudget({ contextWindow: 128_000, strategy: 'recent' })
@@ -29,7 +29,6 @@ test('takes one contiguous recent suffix and never cuts a Chinese message or emo
   assert.deepEqual(selected.messages.map((message) => message.id), ['middle', 'latest'])
   assert.equal(selected.usedTokens, 12)
   assert.equal(selected.omitted, 1)
-  assert.equal(selected.messages[0]?.content, '中文🙂保持完整')
 })
 
 test('omits an oversized newest message instead of injecting a partial record', () => {

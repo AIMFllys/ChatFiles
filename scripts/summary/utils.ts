@@ -1,12 +1,4 @@
-import fs from 'node:fs'
-
-export function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
-}
+export { readJsonFile as readJson } from '../../pipeline/common/jsonFile.js'
 
 export function formatMb(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`

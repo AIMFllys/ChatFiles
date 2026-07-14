@@ -13,7 +13,6 @@ import {
   type TimelineDayQueryInput,
 } from '../../services/chatTimelineFacets.js'
 import { queryArtifacts, type ArtifactQueryInput } from '../../wechat/artifactQuery.js'
-import { readConversationMessages } from '../../wechat/messageQuery.js'
 
 type DatabaseLease = { db: DatabaseSync | null; release: () => void }
 type WechatQueryAdapters = {
@@ -64,22 +63,6 @@ export function createWechatQueryService(adapters: WechatQueryAdapters) {
         `).get()
         return { ...readWechatBundleIdentity(lease.db),conversations,totals }
       } catch {
-        throw new WechatQueryError('unavailable')
-      } finally {
-        lease.release()
-      }
-    },
-
-    messages(input: { conversationId: string; query: string; limit: number; offset: number }) {
-      const lease = adapters.openWechatDatabase()
-      if (!lease.db) throw new WechatQueryError('unavailable')
-      try {
-        const meta = lease.db.prepare('SELECT * FROM conversations WHERE id=?').get(input.conversationId)
-        if (!meta) throw new WechatQueryError('not_found')
-        const { messages } = readConversationMessages(lease.db, input)
-        return { meta, messages, offset: input.offset, limit: input.limit }
-      } catch (error) {
-        if (error instanceof WechatQueryError) throw error
         throw new WechatQueryError('unavailable')
       } finally {
         lease.release()

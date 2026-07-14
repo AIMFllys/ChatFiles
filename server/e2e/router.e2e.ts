@@ -44,6 +44,7 @@ async function verifyRouteDeepLinks(page: Page, baseUrl: string) {
   await page.goto(deepUrl, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: '会话 001', exact: true }).waitFor()
   await page.locator('#timeline-timeline-100.is-highlighted').waitFor()
+  await page.locator('#timeline-timeline-100 time', { hasText: '08:00:00' }).waitFor()
   assert.equal(await page.getByRole('textbox', { name: '检索当前素材', exact: true }).inputValue(), '时间轴测试消息 100')
   assert.equal(await page.locator('#timeline-timeline-100 time').innerText(), '08:00:00')
   assert.equal(await page.locator('.timeline-date-buttons button').first().innerText(), '2025-04-11')

@@ -224,15 +224,6 @@ h1 {
 }
 
 /* ---- responsive ---------------------------------------------------------- */
-@media (max-width: 1200px) {
-  .chat3 {
-    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-  }
-  .chat-ctx {
-    display: none;
-  }
-}
-
 .page-data-state {
   min-height: min(62vh, 560px);
   display: grid;
@@ -283,8 +274,7 @@ h1 {
   .value-workbench,
   .chat-synthesis,
   .clue-judgement,
-  .ins,
-  .chat3 {
+  .ins {
     grid-template-columns: 1fr;
   }
 

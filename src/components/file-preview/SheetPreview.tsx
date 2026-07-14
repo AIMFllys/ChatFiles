@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import JSZip from 'jszip'
 import { fileUrl, type BrowsableFile } from '../../utils/tree'
+import { readBlob, readText } from '../../shared/api/client'
 
 type SpreadsheetSheet = {
   name: string
@@ -79,29 +80,32 @@ export function SheetPreview({ file }: { file: BrowsableFile }) {
   const [sheetState, setSheetState] = useState<{ fileId: string; sheets: SpreadsheetSheet[] }>()
   const [activeSheet, setActiveSheet] = useState(0)
   useEffect(() => {
+    const controller = new AbortController()
     let cancelled = false
-    fetch(fileUrl(file)).then(async (res) => {
+    Promise.resolve().then(async () => {
       if (file.ext === '.csv') {
-        const text = await res.text()
+        const text = await readText(fileUrl(file), { signal: controller.signal })
         if (!cancelled) {
           setActiveSheet(0)
           setSheetState({ fileId: file.id, sheets: [{ name: 'CSV', rows: text.split(/\r?\n/).filter(Boolean).map((line) => line.split(',')) }] })
         }
         return
       }
-      const blob = await res.blob()
+      const blob = await readBlob(fileUrl(file), { signal: controller.signal })
       const workbook = await parseXlsxWorkbook(blob)
       if (!cancelled) {
         setActiveSheet(0)
         setSheetState({ fileId: file.id, sheets: workbook })
       }
-    }).catch(() => {
+    }).catch((reason: unknown) => {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return
       if (!cancelled) {
         setActiveSheet(0)
         setSheetState({ fileId: file.id, sheets: [{ name: '预览失败', rows: [['表格预览失败，可下载查看。']] }] })
       }
     })
     return () => {
+      controller.abort()
       cancelled = true
     }
   }, [file])

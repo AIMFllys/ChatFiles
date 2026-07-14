@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { readJsonFile as readJson } from '../pipeline/common/jsonFile.js'
 import type { DeepFileIndex, LibraryFile, SourceTextExtract, SourceTextIndex } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 
@@ -22,14 +23,6 @@ const signalRules: Array<[string, RegExp]> = [
   ['聊天线索', /群聊|聊天记录|撤回了一条消息|发送者|接收者|消息正文|msgContent|message_content|talker|wxid_|conversationId|sender.+content|fromUser|toUser/i],
   ['生活/关系', /朋友|关系|沟通|家庭|生活|情绪|压力|喜欢|老师|同学|社团/i],
 ]
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
-}
 
 function idFor(value: string) {
   return crypto.createHash('sha1').update(value).digest('hex').slice(0, 16)

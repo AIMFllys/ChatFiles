@@ -97,7 +97,7 @@ test('serves a distinct ready-only library collection with coherent pagination',
   })
 })
 
-test('preserves the existing conversations and messages HTTP endpoints', async (t) => {
+test('preserves conversation discovery but removes the unconsumed legacy messages endpoint', async (t) => {
   const fixtureData = fixture(t)
   await withServer(createWechatRouter(fixtureData.dependencies), async (baseUrl) => {
     const conversations = await fetch(`${baseUrl}/api/wechat/conversations`)
@@ -108,8 +108,7 @@ test('preserves the existing conversations and messages HTTP endpoints', async (
     )
 
     const messages = await fetch(`${baseUrl}/api/wechat/conversation/conv-a/messages`)
-    assert.equal(messages.status, 200)
-    assert.equal((await messages.json() as { messages: Array<{ text: string }> }).messages[0]?.text, '中文消息')
+    assert.equal(messages.status, 404)
   })
 })
 

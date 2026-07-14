@@ -12,6 +12,12 @@ export type {
   DeepFileIndex,
 } from './files.js'
 export type { ArchivePreviewBlockedReason } from './archivePreview.js'
+export {
+  archivePreviewSchema,
+  databasePreviewSchema,
+  fileInspectionSchema,
+  voicePreviewSchema,
+} from './filePreview.js'
 
 export type {
   SummaryInsight,
@@ -36,7 +42,6 @@ export type {
   WechatConversationList,
   WechatMessage,
   MessageDto,
-  WechatMessagePage,
   ChatArtifactTab,
   ChatArtifactAvailability,
   ChatArtifactCounts,

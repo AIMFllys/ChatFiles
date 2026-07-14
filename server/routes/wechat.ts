@@ -19,26 +19,6 @@ import {
 
 export type { DatabaseLease, WechatRouterDependencies } from './wechatRouteHelpers.js'
 
-function boundedInteger(
-  value: unknown,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-) {
-  if (value === undefined) return fallback
-  if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null
-}
-
-function messageQuery(query: Record<string, unknown>) {
-  const limit = boundedInteger(query.limit, 400, 1, 2_000)
-  const offset = boundedInteger(query.offset, 0, 0, Number.MAX_SAFE_INTEGER)
-  const text = query.q ?? ''
-  if (limit === null || offset === null || typeof text !== 'string' || [...text].length > 500) return null
-  return { limit, offset, query: text.trim() }
-}
-
 function parameter(value: string | string[] | undefined) {
   return typeof value === 'string' ? value : undefined
 }
@@ -81,19 +61,6 @@ export function createWechatRouter(
 
   router.get(['/api/wechat/conversations', '/api/v1/chat/conversations'], (_request, response) => {
     try { return response.json(queries.conversations()) } catch (error) { return queryError(response, error) }
-  })
-
-  router.get('/api/wechat/conversation/:id/messages', (request, response) => {
-    const parsed = messageQuery(request.query as Record<string, unknown>)
-    if (!parsed) return sendError(response, 400, 'invalid_query')
-    try {
-      return response.json(queries.messages({
-        conversationId: request.params.id,
-        query: parsed.query,
-        limit: parsed.limit,
-        offset: parsed.offset,
-      }))
-    } catch (error) { return queryError(response, error) }
   })
 
   const collection = (conversationId: string | undefined, requestQuery: Record<string, unknown>, response: Response) => {

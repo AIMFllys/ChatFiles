@@ -1,5 +1,7 @@
 # ChatFiles 本地更新 · 只补新增、不重复分析
 
+> 历史迁移材料：不得作为现行架构或接口规范。请先阅读 [`replication/docs/spec/01_architecture.md`](../../replication/docs/spec/01_architecture.md)。
+
 > [!WARNING]
 > **2026-07 起请先执行 [`06_现行安全管线.md`](06_现行安全管线.md)。** 本目录 00-05 保留的是早期原理与历史参考，其中 `crackv4` 覆盖式解密、`data/wechat.db`、按旧 owner ID 计算 delta、直接覆盖洞察文件等命令已经过时，禁止原样执行。
 

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { readJsonFile as readJson } from '../pipeline/common/jsonFile.js'
 import type {
   BinaryTextIndex,
   ChatClueDossier,
@@ -14,14 +15,6 @@ import type {
 } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
 import { readCurrentLibraryManifest } from './data/catalogConsumer.js'
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
-}
 
 function statusLine(status: CompletionAuditItem['status']) {
   if (status === 'proved') return '已证明'

@@ -1,5 +1,7 @@
 # 本地部署教程 · 把克隆下来的空壳，灌入你自己的数据
 
+> 历史部署材料：不得作为现行架构或接口规范。请先阅读 [`replication/docs/spec/01_architecture.md`](../../replication/docs/spec/01_architecture.md)。
+
 > 这套 Spec 文档面向**已经 `git clone` 了本仓库**的你（或你的 AI agent）。仓库里有完整的代码框架，但**没有任何聊天记录、媒体、洞察**——它是一个空壳。本教程指导 AI **在你本机自主搜索**你自己的微信 / QQ 数据，解密、解析、归档、提炼，把空壳灌满，最后跑起来。
 >
 > 关键词遵循 **RFC 2119**：MUST / MUST NOT / SHOULD / MAY。中文「必须 / 禁止 / 应当 / 可以」与之等义。

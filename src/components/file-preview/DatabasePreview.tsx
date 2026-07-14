@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { DatabaseZap } from 'lucide-react'
+import { databasePreviewSchema } from '../../../shared/contracts/filePreview'
 import type { DatabasePreview as DatabasePreviewData } from '../../types'
+import { readJson } from '../../shared/api/client'
+import { apiEndpoints } from '../../shared/api/endpoints'
 import { formatBytes } from '../../utils/format'
 import type { BrowsableFile } from '../../utils/tree'
 
@@ -10,23 +13,21 @@ export function DatabaseFilePreview({ file }: { file: BrowsableFile }) {
   const unsupported = file.storage !== 'source'
   useEffect(() => {
     if (unsupported) return
-    let cancelled = false
-    fetch(`/api/source-file/${file.id}/database`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(await res.text())
-        return res.json() as Promise<DatabasePreviewData>
-      })
+    const controller = new AbortController()
+    readJson(
+      apiEndpoints.fileCapability('source', file.id, 'database'),
+      databasePreviewSchema,
+      { signal: controller.signal },
+    )
       .then((data) => {
-        if (cancelled) return
         setPreviewState({ fileId: file.id, data })
         setErrorState(undefined)
       })
-      .catch(() => {
-        if (!cancelled) setErrorState({ fileId: file.id, message: '数据库结构读取失败，可下载后用本地工具查看。' })
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        setErrorState({ fileId: file.id, message: '数据库结构读取失败，可下载后用本地工具查看。' })
       })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [file.id, unsupported])
 
   const error = unsupported ? '数据库预览只对全量源文件索引开放。' : errorState?.fileId === file.id ? errorState.message : ''

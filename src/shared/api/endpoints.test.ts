@@ -26,3 +26,18 @@ test('builds versioned artifact and evidence URLs without component string assem
   assert.equal(apiEndpoints.artifactThumbnail('a/b', 360), '/api/v1/chat/artifacts/a%2Fb/thumbnail?w=360')
   assert.equal(apiEndpoints.artifactLinkPreview('a/b'), '/api/v1/chat/artifacts/a%2Fb/link-preview')
 })
+
+test('builds every file capability URL from one scoped v1 endpoint', () => {
+  assert.equal(
+    apiEndpoints.fileCapability('artifact', 'a/b', 'inspect'),
+    '/api/v1/files/artifact/a%2Fb/inspect',
+  )
+  assert.equal(
+    apiEndpoints.fileThumbnail('source', '中文 文件', 480),
+    '/api/v1/files/source/%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6/thumb?w=480',
+  )
+  assert.equal(
+    apiEndpoints.fileContent('archive', 'file-1'),
+    '/api/v1/files/archive/file-1/content',
+  )
+})

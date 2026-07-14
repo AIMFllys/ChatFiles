@@ -45,3 +45,27 @@ test('keeps malformed and unknown artifact IDs distinct', async () => {
   assert.equal((await provider.open('bad', 'content')).status, 'invalid')
   assert.equal((await provider.open('b'.repeat(64), 'content')).status, 'not_found')
 })
+
+test('exposes verified voice artifacts through the shared voice preview capability', async () => {
+  const voice = {
+    ...asset,
+    id: 'b'.repeat(64),
+    category: 'work' as const,
+    kind: 'voice' as const,
+    name: '语音.amr',
+    preview: 'voice',
+  }
+  const resolver: ArtifactSourceResolver = {
+    describe(id) { return id === voice.id ? { status: 'known', asset: voice } : { status: 'unknown' } },
+    resolve(id) {
+      return id === voice.id
+        ? { status: 'available', state: 'ready', asset: voice, target: 'C:\\private\\语音.amr' }
+        : { status: 'unknown' }
+    },
+  }
+  const provider = createArtifactFileProvider(resolver)
+  const described = await provider.describe(voice.id)
+  assert.equal(described?.voiceSource, true)
+  assert.equal((await provider.open(voice.id, 'voicePreview')).status, 'available')
+  assert.equal((await provider.open(voice.id, 'voiceAudio')).status, 'available')
+})

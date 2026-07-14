@@ -4,8 +4,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import type { LibraryFile } from '../../shared/contracts/files.js'
-import { resolveArchiveTarget } from './helpers.js'
+import type { LibraryFile } from '../../../shared/contracts/files.js'
+import { resolveArchiveTarget } from './archiveFileTarget.js'
 
 function file(archivePath: string, content: string): LibraryFile {
   return {

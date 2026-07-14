@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { readJsonFile as readJson } from '../pipeline/common/jsonFile.js'
 import type {
   BinaryTextIndex,
   BinaryTextSnippet,
@@ -16,14 +17,6 @@ import { dataDir, sourceApp, writeJson } from './shared.js'
 type DraftGroup = Omit<ChatClueGroup, 'score' | 'value' | 'signals' | 'snippetCount' | 'verdict' | 'next' | 'excerpts'> & {
   signals: Set<string>
   excerpts: string[]
-}
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
 }
 
 function idFor(value: string) {

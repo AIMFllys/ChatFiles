@@ -1,16 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { readJsonFile as readJson } from '../pipeline/common/jsonFile.js'
 import type { DatabaseAnalysis, DatabaseTableAnalysis, DatabaseTextSample, DeepFileIndex } from '../shared/contracts/index.js'
 import { dataDir, sourceApp, writeJson } from './shared.js'
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
-}
 
 function quoteIdent(value: string) {
   return `"${value.replace(/"/g, '""')}"`

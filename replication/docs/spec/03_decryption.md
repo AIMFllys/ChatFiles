@@ -1,5 +1,7 @@
 # 03 · 解密规格（微信 4.0 SQLCipher v4，完整可复现）
 
+> 文档状态：补充说明；现行架构、字段、能力和激活规则以 [01_architecture.md](01_architecture.md) 为唯一权威。只允许处理机主明确授权的本地副本。
+
 > 这是全项目技术含量最高、也最容易被现成工具卡住的一步。本文件的目标是：**让任何人照着做，就能把自己机器上、自己微信账号的 `db_storage\*.db` 解密成明文 SQLite。** 不是"贴个命令"，而是把"为什么现成工具失效 + 我们打了哪两个补丁 + 真正奏效的派生密钥内存扫描算法 + SQLCipher v4 全部参数"讲到能独立重写。
 >
 > 本项目结果：主账号 **17 个数据库全部解密成功，0 坏页**（`message_0.db` 673MB、`contact.db`、`session.db`、`favorite.db` 等核心库全过）。
@@ -313,7 +315,7 @@ return dec ‖ pageBuf[pageSize-reserve : pageSize]          // 末 80 字节原
 
 - 产物目录镜像源结构：`{{输出目录}}\db_storage\message\message_0.db` 等。本项目实测产物（节选）：`db_storage/{message,contact,session,favorite,sns,bizchat,emoticon,general,hardlink,head_image,solitaire}/*.db`，外加 `-wal`/`-shm` 旁文件复制。
 - **逐库期望 `bad=0`**。出现大量坏页通常意味着：encKey 误判（极少，三级校验后基本不会）、或副本与取密钥时的库**不是同一 salt 来源**（确保副本与活进程是同一账号同一库）。
-- 解密后即可进入 [04_parsing.md](04_parsing.md)：按微信 4.0 schema（每会话一张 `Msg_<md5(username)>` 表、`message_content` 为 zstd 压缩、`contact.db` 还原发送人/显示名等）解析成 `data/wechat.db`。
+- 解密后的只读副本进入 [04_parsing.md](04_parsing.md) 的 source inventory 与 canonical adapter；不得直接覆盖活动数据角色。
 
 ---
 

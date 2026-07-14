@@ -6,14 +6,18 @@
 
 ---
 
-## 三条路径，按你的处境选
+## 先读现行架构
+
+现行架构、字段映射、数据关系、能力矩阵与激活流程的唯一 prose 权威是 [`replication/docs/spec/01_architecture.md`](replication/docs/spec/01_architecture.md)。代码中的 Zod/SQL 是其可执行实现；冲突时必须停止并修正。
+
+## 三类资料，按用途选择
 
 ```
 你手上是什么？                              用哪套文档
 ────────────────────────────────────────────────────────────
-已 clone 本仓库，想用自己的数据点亮它   →  docs/本地部署教程/      ← 多数人走这条
-空目录，想让 AI 从零把代码也造出来      →  replication/
-已经部署好了，想补新消息/新账号         →  docs/ChatFiles本地更新/
+检查或开发现有代码                       →  先读 canonical architecture
+理解早期本地部署踩坑                     →  docs/本地部署教程/（历史）
+理解早期增量更新思路                     →  docs/ChatFiles本地更新/（历史）
 ```
 
 ### 🚀 路径一：clone 本仓库，灌入你自己的数据（推荐）
@@ -26,7 +30,7 @@ cd ChatFiles
 npm install
 ```
 
-然后打开 [`docs/本地部署教程/`](docs/本地部署教程/)，把里面的 [`PROMPT.md`](docs/本地部署教程/PROMPT.md) 复制给 AI（Claude Code 里 `/goal ` 粘贴）——它会**自主搜索你电脑里的微信 / QQ 数据**，一步步解密、解析、归档、提炼，最后 `npm start` 点亮 `http://127.0.0.1:3456`。整套是带验收断言的 Spec 文档：
+先运行 `npm run data:doctor` 判断活动 catalog 状态。`docs/本地部署教程/` 是历史材料，不得直接执行其中的旧布局命令；legacy 数据必须按 canonical 文档显式迁移并准确提供 account root。
 
 | 文档 | 内容 |
 |---|---|
@@ -36,21 +40,22 @@ npm install
 
 > 配置自己的身份（昵称 / 学校 / 课程站点等）只写进 **gitignored 的 `.env.local`**（模板见 [`.env.example`](.env.example)），绝不进仓库。
 
-### 🧱 路径二：从零复刻整套项目
+### 🧱 当前复刻规范
 
-想让 AI 连代码一起重建（在一个空目录里），用仓库根的 [`replication/`](replication/)：
+实现或审查项目时使用仓库根的 [`replication/`](replication/)：
 
 | 文档 | 内容 |
 |---|---|
 | [`AGENTS.md`](replication/AGENTS.md) | 项目宪法 — 安全红线、架构规范、工作流 |
-| [`docs/spec/`](replication/docs/spec/)（12 篇） | **完整技术规格**（从数据源到前端，唯一权威施工图纸） |
+| [`01_architecture.md`](replication/docs/spec/01_architecture.md) | **唯一 prose 权威**：架构、数据关系、能力与发布 |
+| [`docs/spec/`](replication/docs/spec/) | 其余文件均为补充背景，不得覆盖 01 |
 | [`docs/PROMPT.md`](replication/docs/PROMPT.md) | 从零复刻的一键咒语 |
 | [`docs/RUNBOOK.md`](replication/docs/RUNBOOK.md) | 逐步操作手册 |
 | [`docs/SKILLS.md`](replication/docs/SKILLS.md) | 用到的 skills 与方法论 |
 
 ### 🔁 路径三：增量更新已部署的项目
 
-已经装好数据，想把**最新消息**和**之前没解密的账号**补进来，且**不重复分析**旧会话：用 [`docs/ChatFiles本地更新/`](docs/ChatFiles本地更新/)。它靠"高水位线"做增量去重——新会话全量提炼、长大的会话只读新尾巴并追加合并、没变的会话一个 agent 都不跑。入口同样是其中的 [`PROMPT.md`](docs/ChatFiles本地更新/PROMPT.md)。
+[`docs/ChatFiles本地更新/`](docs/ChatFiles本地更新/) 保留早期经验，但不是现行执行入口。当前增量顺序是 source inventory → canonical candidate → assets/library/insights → seal catalog → 审计后显式激活；消息高水位使用 `canonical_seq`。
 
 ---
 

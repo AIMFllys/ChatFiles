@@ -1,5 +1,7 @@
 # 04 · 微信解密副本解析与身份审计
 
+> 文档状态：补充说明；现行 Canonical schema、字段和顺序以 [01_architecture.md](01_architecture.md) 为唯一权威。
+
 > 本章规定从微信 4.x 解密副本生成候选明文库的完整契约。关键词 **MUST / MUST NOT / SHOULD** 按 RFC 2119 理解。所有中文、路径和 JSON 均使用 UTF-8。
 
 ---

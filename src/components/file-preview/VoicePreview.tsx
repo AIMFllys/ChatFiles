@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Mic2 } from 'lucide-react'
+import { voicePreviewSchema } from '../../../shared/contracts/filePreview'
 import type { VoicePreview as VoicePreviewData } from '../../types'
+import { readJson } from '../../shared/api/client'
 import { formatBytes } from '../../utils/format'
 import { voiceUrl, type BrowsableFile } from '../../utils/tree'
 
@@ -8,23 +10,17 @@ export function VoiceFilePreview({ file }: { file: BrowsableFile }) {
   const [previewState, setPreviewState] = useState<{ fileId: string; data: VoicePreviewData }>()
   const [errorState, setErrorState] = useState<{ fileId: string; message: string }>()
   useEffect(() => {
-    let cancelled = false
-    fetch(voiceUrl(file))
-      .then(async (res) => {
-        if (!res.ok) throw new Error(await res.text())
-        return res.json() as Promise<VoicePreviewData>
-      })
+    const controller = new AbortController()
+    readJson(voiceUrl(file), voicePreviewSchema, { signal: controller.signal })
       .then((data) => {
-        if (cancelled) return
         setPreviewState({ fileId: file.id, data })
         setErrorState(undefined)
       })
-      .catch(() => {
-        if (!cancelled) setErrorState({ fileId: file.id, message: '语音转码预览失败，可下载原始文件。' })
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        setErrorState({ fileId: file.id, message: '语音转码预览失败，可下载原始文件。' })
       })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [file])
 
   const error = errorState?.fileId === file.id ? errorState.message : undefined

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { z } from 'zod/v4'
 
 import { ApiClientError, readJson } from './client.js'
+import * as client from './client.js'
 
 const schema = z.object({ value: z.string() }).strict()
 
@@ -27,3 +28,43 @@ test('validates status, JSON content type, and response schema centrally', async
     )
   }
 })
+
+test('validates status and content type for text and binary responses', async () => {
+  const api = client as typeof client & {
+    readText?: FetchText
+    readBlob?: FetchBlob
+    readArrayBuffer?: FetchArrayBuffer
+  }
+  assert.equal(typeof api.readText, 'function')
+  assert.equal(typeof api.readBlob, 'function')
+  assert.equal(typeof api.readArrayBuffer, 'function')
+  if (!api.readText || !api.readBlob || !api.readArrayBuffer) return
+
+  assert.equal(await api.readText('/text', {
+    fetchImpl: async () => new Response('中文🙂', { headers: { 'content-type': 'text/plain' } }),
+  }), '中文🙂')
+  assert.equal(await api.readText('/json-text', {
+    fetchImpl: async () => new Response('{"中文":true}', { headers: { 'content-type': 'application/json' } }),
+  }), '{"中文":true}')
+  assert.equal((await api.readBlob('/blob', {
+    fetchImpl: async () => new Response('bytes', { headers: { 'content-type': 'application/octet-stream' } }),
+  })).size, 5)
+  assert.equal((await api.readArrayBuffer('/buffer', {
+    fetchImpl: async () => new Response('data', { headers: { 'content-type': 'application/zip' } }),
+  })).byteLength, 4)
+  await assert.rejects(
+    api.readBlob('/error', {
+      fetchImpl: async () => new Response('{}', {
+        status: 404, headers: { 'content-type': 'application/json' },
+      }),
+    }),
+    (error: unknown) => error instanceof ApiClientError && error.code === 'request_failed',
+  )
+})
+
+type FetchText = (url: string, options?: { signal?: AbortSignal, fetchImpl?: typeof fetch }) => Promise<string>
+type FetchBlob = (url: string, options?: { signal?: AbortSignal, fetchImpl?: typeof fetch }) => Promise<Blob>
+type FetchArrayBuffer = (
+  url: string,
+  options?: { signal?: AbortSignal, fetchImpl?: typeof fetch },
+) => Promise<ArrayBuffer>

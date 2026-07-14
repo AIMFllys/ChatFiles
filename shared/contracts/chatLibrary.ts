@@ -1,5 +1,4 @@
 import { z } from 'zod/v4'
-import type { WechatMessage } from './chatIdentity.js'
 import { stableIdSchema, timeZoneSchema, unixSecondsSchema } from './primitives.js'
 
 export type WechatConversation = {
@@ -24,13 +23,6 @@ export type WechatConversationList = {
     messages: number
     textMessages?: number
   }
-}
-
-export type WechatMessagePage = {
-  meta: WechatConversation
-  messages: WechatMessage[]
-  offset: number
-  limit: number
 }
 
 export type ChatArtifactTab = 'all' | 'work' | 'document' | 'skill' | 'link' | 'chatText'

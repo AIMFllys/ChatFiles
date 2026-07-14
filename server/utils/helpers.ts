@@ -3,7 +3,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import mime from 'mime'
-import type { DeepFileIndex, LibraryFile, LibraryManifest, SourceFileManifest } from '../../shared/contracts/index.js'
+import type { DeepFileIndex, LibraryManifest, SourceFileManifest } from '../../shared/contracts/index.js'
+import { sourceFileManifestSchema } from '../../shared/contracts/index.js'
+import { readJsonSource } from '../../shared/json.js'
 import { readActiveProductSet } from '../data/catalogReader.js'
 import { readCatalogLibrary } from '../data/productReaders.js'
 
@@ -14,11 +16,7 @@ export const root = path.resolve(__dirname, '..', '..')
 export const audioCacheDir = path.join(root, 'work', 'audio-cache')
 
 export function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
+  return readJsonSource(() => fs.readFileSync(filePath, 'utf8'), fallback)
 }
 
 export function library(projectRoot = root): LibraryManifest {
@@ -57,7 +55,7 @@ export function sourceLibrary(projectRoot = root): SourceFileManifest {
     sourceApp: item.sourceApp,
     preview: item.preview,
   }))
-  return {
+  return sourceFileManifestSchema.parse({
     generatedAt: deepIndex.generatedAt,
     roots: deepIndex.roots.filter((item) => item.exists).map((item) => item.path),
     files,
@@ -68,60 +66,7 @@ export function sourceLibrary(projectRoot = root): SourceFileManifest {
       mediaCandidates: deepIndex.totals.mediaCandidates,
       textCandidates: deepIndex.totals.textCandidates,
     },
-  }
-}
-
-export function resolveFile(id: string, projectRoot = root) {
-  const item = library(projectRoot).files.find((file) => file.id === id)
-  if (!item) return null
-  const target = resolveArchiveTarget(projectRoot, item)
-  if (!target) return null
-  return { item, target }
-}
-
-function digestRegularFile(filename: string) {
-  const hash = crypto.createHash('sha256')
-  const buffer = Buffer.allocUnsafe(1024 * 1024)
-  const handle = fs.openSync(filename, 'r')
-  try {
-    let read = 0
-    do {
-      read = fs.readSync(handle, buffer, 0, buffer.length, null)
-      if (read > 0) hash.update(buffer.subarray(0, read))
-    } while (read > 0)
-  } finally { fs.closeSync(handle) }
-  return hash.digest('hex')
-}
-
-export function resolveArchiveTarget(projectRoot: string, item: LibraryFile) {
-  try {
-    const archiveRoot = path.resolve(projectRoot, 'archive')
-    const archiveStat = fs.lstatSync(archiveRoot)
-    if (!archiveStat.isDirectory() || archiveStat.isSymbolicLink()) return null
-    const archiveReal = fs.realpathSync(archiveRoot)
-    const target = path.resolve(projectRoot, ...item.archivePath.split('/'))
-    const lexicalRelative = path.relative(archiveRoot, target)
-    if (!lexicalRelative || lexicalRelative === '..' || lexicalRelative.startsWith(`..${path.sep}`)
-      || path.isAbsolute(lexicalRelative)) return null
-    const targetStat = fs.lstatSync(target)
-    if (!targetStat.isFile() || targetStat.isSymbolicLink() || targetStat.size !== item.size) return null
-    const targetReal = fs.realpathSync(target)
-    const realRelative = path.relative(archiveReal, targetReal)
-    if (!realRelative || realRelative === '..' || realRelative.startsWith(`..${path.sep}`)
-      || path.isAbsolute(realRelative) || digestRegularFile(targetReal) !== item.sha256) return null
-    return targetReal
-  } catch { return null }
-}
-
-export function resolveSourceFile(id: string) {
-  const manifest = sourceLibrary()
-  const item = manifest.files.find((file) => file.id === id)
-  if (!item) return null
-  const target = path.resolve(item.sourcePath)
-  const allowedRoots = manifest.roots.map((itemRoot) => path.resolve(itemRoot))
-  if (!allowedRoots.some((itemRoot) => target === itemRoot || target.startsWith(`${itemRoot}${path.sep}`))) return null
-  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return null
-  return { item, target }
+  })
 }
 
 export function printableAscii(buffer: Buffer) {

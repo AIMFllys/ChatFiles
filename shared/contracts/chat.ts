@@ -37,7 +37,6 @@ export type {
 export type {
   WechatConversation,
   WechatConversationList,
-  WechatMessagePage,
   ChatArtifactTab,
   ChatArtifactAvailability,
   ChatArtifactCounts,

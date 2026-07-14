@@ -15,6 +15,7 @@ function descriptor(asset: ArtifactSourceAsset, capabilities: ArtifactFileCapabi
     name: asset.name,
     preview: asset.preview,
     size: asset.size ?? 0,
+    voiceSource: asset.kind === 'voice',
     artifactCapabilities: capabilities,
   }
 }
@@ -45,8 +46,7 @@ export function createArtifactFileProvider(resolver: ArtifactSourceResolver) {
       return descriptor(asset, capabilities)
     },
     async open(id: string, operation: FileOperation) {
-      if (operation === 'databasePreview' || operation === 'textPreview'
-        || operation === 'voicePreview' || operation === 'voiceAudio') {
+      if (operation === 'databasePreview' || operation === 'textPreview') {
         return { status: 'unsupported' as const }
       }
       return mapResolution(resolver.resolve(id, operation === 'thumbnail' ? 'thumbnail' : 'content'))

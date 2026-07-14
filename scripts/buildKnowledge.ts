@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { readJsonFile as readJson } from '../pipeline/common/jsonFile.js'
 import type { CourseItem, KnowledgeBase, SourceDiscovery } from '../shared/contracts/index.js'
 import { dataDir, root, writeJson } from './shared.js'
 import { readCurrentLibraryManifest } from './data/catalogConsumer.js'
@@ -11,14 +12,6 @@ const OWNER_IDENTITY = (process.env.OWNER_IDENTITY || '').trim()
 const idPrefix = OWNER_IDENTITY ? `${OWNER_IDENTITY} ` : ''
 const qqDb = path.join(home, 'Documents', 'Tencent Files', (process.env.QQ_NUMBER || ''), 'nt_qq', 'nt_db', 'nt_msg.db')
 const wechatRoam = path.join(home, 'AppData', 'Roaming', 'Tencent', 'xwechat', 'roam')
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
-}
 
 function dbStatus(filePath: string) {
   if (!fs.existsSync(filePath)) return `未找到：${filePath}`

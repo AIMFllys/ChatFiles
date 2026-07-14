@@ -1,15 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { readJsonFile as readJson } from '../pipeline/common/jsonFile.js'
 import type { BinaryTextIndex, BinaryTextSnippet, DeepFileIndex } from '../shared/contracts/index.js'
 import { dataDir, writeJson } from './shared.js'
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return fallback
-  }
-}
 
 function signals(text: string) {
   const out: string[] = []

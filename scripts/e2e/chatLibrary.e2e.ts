@@ -7,7 +7,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { chromium, type Browser } from 'playwright'
 import { createApp } from '../../server/app.js'
-import { createFixtureInsightsRouter } from './fixtureDataRouters.js'; import { createWechatRouter } from '../../server/routes/wechat.js'
+import { createFixtureInsightsRouter } from './fixtureDataRouters.js'; import { createWechatRouter } from '../../server/routes/wechat.js'; import { createFixtureFileRouter } from './fixtureFileRouter.js'
 import { captureVisual, createFixtureAgentRouter, resolveFixtureLinkPreview, seedLongTimeline, verifyAgentDock, verifyAISettings, verifyLinkPreviews, verifyLongTimeline, verifySidebarCollapse } from './e2eAssertions.js'
 function fixtureDatabases() {
   const accountRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatfiles-e2e-'))
@@ -120,7 +120,7 @@ const wechatRouter = createWechatRouter({
   videoThumbnail: (target) => target,
   resolveLinkPreview: resolveFixtureLinkPreview,
 })
-const server = createApp({ aiAgentRouter: createFixtureAgentRouter(),insightsRouter: createFixtureInsightsRouter(),wechatRouter }).listen(0, '127.0.0.1')
+const server = createApp({ aiAgentRouter: createFixtureAgentRouter(),fileRouter: createFixtureFileRouter('1'.padStart(64, '0'), previewPath),insightsRouter: createFixtureInsightsRouter(),wechatRouter }).listen(0, '127.0.0.1')
 let browser: Browser | undefined
 
 try {

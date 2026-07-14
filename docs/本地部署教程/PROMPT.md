@@ -1,5 +1,7 @@
 # PROMPT · 本地部署咒语（喂给 AI 一键灌数据并跑起来）
 
+> 历史材料，禁止直接执行旧布局命令。现行架构与迁移流程以 [`replication/docs/spec/01_architecture.md`](../../replication/docs/spec/01_architecture.md) 为唯一 prose 权威；先运行 `npm run data:doctor`。
+
 > 适用场景：你**已经 `git clone` 了本仓库**（代码现成，是个空壳），想让 AI 在你本机自主搜索你自己的数据，灌进项目并跑起来。
 >
 > 前提：① 微信（QQ）**正在运行且已登录**（内存取密钥的硬前提）；② 已装 Node 24+、Python 3.14、ffmpeg、git，可联网（见 [`01_环境与克隆.md`](01_环境与克隆.md) §3）。

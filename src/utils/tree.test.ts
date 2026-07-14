@@ -10,6 +10,6 @@ test('uses structured artifact endpoints for binary inspection and archive listi
     contentUrl: `/api/wechat/artifact/${'a'.repeat(64)}/content`,
   } as BrowsableFile
 
-  assert.equal(inspectUrl(artifact), `/api/wechat/artifact/${artifact.id}/inspect`)
-  assert.equal(archiveUrl(artifact), `/api/wechat/artifact/${artifact.id}/archive`)
+  assert.equal(inspectUrl(artifact), `/api/v1/files/artifact/${artifact.id}/inspect`)
+  assert.equal(archiveUrl(artifact), `/api/v1/files/artifact/${artifact.id}/archive`)
 })

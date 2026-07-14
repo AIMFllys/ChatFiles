@@ -75,7 +75,9 @@ export function decideFileCapability(
     return { allowed: true }
   }
   if (operation === 'voicePreview' || operation === 'voiceAudio') {
-    return file.ref.scope !== 'artifact' && file.voiceSource ? { allowed: true } : denied()
+    if (!file.voiceSource) return denied()
+    if (file.ref.scope === 'artifact') return artifactAllows(file, 'content') ? { allowed: true } : denied()
+    return { allowed: true }
   }
   return denied()
 }

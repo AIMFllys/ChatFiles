@@ -1,5 +1,7 @@
 # SKILLS · 用到的 Skills 与方法论
 
+> 文档状态：补充说明；现行架构、字段、能力和激活规则以 [01_architecture.md](spec/01_architecture.md) 为唯一权威。
+
 复刻"同款质量"的关键，不在提示词文字，而在 AI 收到后动用的 **skills / 能力**。本文逐项说明本项目用了什么、在哪一步、怎么用，并补上**最新一轮迭代**（AI 助手 + 懒加载 + 独立滚动 + 导航重组 + 本复刻文档包重建）新动用的方法。`skill` 指 Claude Code 的 Skill 系统。
 
 > 相关文档：项目宪法 [`../AGENTS.md`](../AGENTS.md)；复刻提示词 [`./PROMPT.md`](./PROMPT.md)；解密规格 [`./spec/03_decryption.md`](./spec/03_decryption.md)；提炼规格 [`./spec/06_insights.md`](./spec/06_insights.md)；前端规格 [`./spec/08_frontend.md`](./spec/08_frontend.md)；AI 助手规格 [`./spec/09_ai-assistant.md`](./spec/09_ai-assistant.md)。

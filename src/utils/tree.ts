@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { Archive, DatabaseZap, FileText, Image as ImageIcon, Mic2 } from 'lucide-react'
 import type { LibraryFile, SourceIndexedFile } from '../types'
+import { apiEndpoints, type FileScope } from '../shared/api/endpoints'
 
 export type BrowsableFile = LibraryFile & {
   storage: 'archive' | 'source' | 'artifact'
@@ -97,34 +98,28 @@ export function fileIcon(file: BrowsableFile) {
 }
 
 export function fileUrl(file: BrowsableFile) {
-  if (file.storage === 'artifact') return file.contentUrl ?? '#'
-  return file.storage === 'source' ? `/source-files/${file.id}` : `/files/${file.id}`
+  return apiEndpoints.fileContent(file.storage as FileScope, file.id)
 }
 
 export function thumbUrl(file: BrowsableFile, w = 360) {
-  if (file.storage === 'artifact') return file.thumbnailUrl ? `${file.thumbnailUrl}?w=${w}` : fileUrl(file)
-  const base = file.storage === 'source' ? `/api/source-file/${file.id}/thumb` : `/api/file/${file.id}/thumb`
-  return `${base}?w=${w}`
+  return apiEndpoints.fileThumbnail(file.storage as FileScope, file.id, w)
 }
 
 export function textUrl(file: BrowsableFile) {
   if (file.storage === 'artifact') return fileUrl(file)
-  return file.storage === 'source' ? `/api/source-file/${file.id}/text` : `/api/file/${file.id}/text`
+  return apiEndpoints.fileCapability(file.storage as FileScope, file.id, 'text')
 }
 
 export function inspectUrl(file: BrowsableFile) {
-  if (file.storage === 'artifact') return `/api/wechat/artifact/${file.id}/inspect`
-  return file.storage === 'source' ? `/api/source-file/${file.id}/inspect` : `/api/file/${file.id}/inspect`
+  return apiEndpoints.fileCapability(file.storage as FileScope, file.id, 'inspect')
 }
 
 export function archiveUrl(file: BrowsableFile) {
-  if (file.storage === 'artifact') return `/api/wechat/artifact/${file.id}/archive`
-  return file.storage === 'source' ? `/api/source-file/${file.id}/archive` : `/api/file/${file.id}/archive`
+  return apiEndpoints.fileCapability(file.storage as FileScope, file.id, 'archive')
 }
 
 export function voiceUrl(file: BrowsableFile) {
-  if (file.storage === 'artifact') return fileUrl(file)
-  return file.storage === 'source' ? `/api/source-file/${file.id}/voice` : `/api/file/${file.id}/voice`
+  return apiEndpoints.fileCapability(file.storage as FileScope, file.id, 'voice')
 }
 
 export function isVoiceFile(file: BrowsableFile) {

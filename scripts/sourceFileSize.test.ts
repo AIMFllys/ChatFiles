@@ -23,6 +23,7 @@ test('tracked TypeScript and CSS source files stay within the 300-line boundary'
     .filter((file) => LIMITED_EXTENSIONS.has(path.extname(file).toLowerCase()))
 
   const oversized = trackedFiles.flatMap((file) => {
+    if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) return []
     const lines = physicalLineCount(fs.readFileSync(file, 'utf8'))
     return lines > MAX_LINES ? [`${file}: ${lines}`] : []
   })

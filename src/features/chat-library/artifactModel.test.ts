@@ -11,6 +11,7 @@ import {
   safeExternalUrl,
   type ChatArtifact,
 } from './artifactModel.js'
+import * as artifactModel from './artifactModel.js'
 
 test('keeps an emoji avatar as one Unicode code point', () => {
   assert.equal(firstCodePoint('📜 自律者联盟', '聊'), '📜')
@@ -28,6 +29,17 @@ test('presents artifact availability as readable Chinese status text', () => {
   assert.equal(artifactAvailabilityLabel('source_changed'), '源文件内容已变化')
   assert.equal(artifactAvailabilityLabel('cdn_only'), '仅有 CDN 引用')
   assert.equal(artifactAvailabilityLabel('unexpected'), '状态未知')
+})
+
+test('keeps detailed availability explanations in the shared artifact model', () => {
+  const describe = (artifactModel as typeof artifactModel & {
+    artifactAvailabilityDescription?: (availability: string) => string
+  }).artifactAvailabilityDescription
+  assert.equal(typeof describe, 'function')
+  if (!describe) return
+  assert.equal(describe('cdn_only'), '这条消息只保留了 CDN 引用，本地没有缓存')
+  assert.equal(describe('unsupported_codec'), '当前环境不支持此媒体编码')
+  assert.equal(describe('unexpected'), '这条记录没有可安全打开的本地内容')
 })
 
 test('classifies mutually exclusive output kinds with skill precedence', () => {

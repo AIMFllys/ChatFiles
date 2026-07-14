@@ -24,8 +24,15 @@ type ArtifactParameters = {
   limit: number
 }
 
+export type FileScope = 'archive' | 'source' | 'artifact'
+export type FileCapability = 'text' | 'archive' | 'database' | 'inspect' | 'voice' | 'content'
+
 function conversationBase(conversationId: string) {
   return `/api/v1/chat/conversations/${encodeURIComponent(conversationId)}`
+}
+
+function fileBase(scope: FileScope, fileId: string) {
+  return `/api/v1/files/${scope}/${encodeURIComponent(fileId)}`
 }
 
 function append(params: URLSearchParams, key: string, value: string | undefined) {
@@ -67,6 +74,18 @@ export const apiEndpoints = {
 
   artifactLinkPreview(assetId: string) {
     return `/api/v1/chat/artifacts/${encodeURIComponent(assetId)}/link-preview`
+  },
+
+  fileCapability(scope: FileScope, fileId: string, capability: FileCapability) {
+    return `${fileBase(scope, fileId)}/${capability}`
+  },
+
+  fileContent(scope: FileScope, fileId: string) {
+    return `${fileBase(scope, fileId)}/content`
+  },
+
+  fileThumbnail(scope: FileScope, fileId: string, width: number) {
+    return `${fileBase(scope, fileId)}/thumb?w=${width}`
   },
 
   timeline(conversationId: string, input: TimelineParameters) {
