@@ -3,6 +3,37 @@ import { AgentUpstreamError, type AgentCompletion, type AgentUpstream } from './
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 type UpstreamConfig = { baseURL: string; apiKey: string; model: string; temperature: number }
 
+async function requestOpenAI(
+  config: UpstreamConfig,
+  payload: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+  fetchImpl: FetchLike,
+) {
+  let response: Response
+  try {
+    response = await fetchImpl(`${config.baseURL.replace(/\/+$/u, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ model: config.model, temperature: config.temperature, ...payload }),
+      ...(signal ? { signal } : {}),
+    })
+  } catch {
+    throw new AgentUpstreamError('upstream_failed')
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    if (response.status === 400 && /(?:tool|function)/iu.test(detail)
+      && /(?:unsupported|not supported|unknown)/iu.test(detail)) {
+      throw new AgentUpstreamError('tools_unsupported')
+    }
+    throw new AgentUpstreamError('upstream_failed')
+  }
+  return response
+}
+
 function parseCompletion(value: unknown): AgentCompletion | null {
   if (!value || typeof value !== 'object') return null
   const choices = (value as { choices?: unknown }).choices
@@ -28,37 +59,26 @@ function parseCompletion(value: unknown): AgentCompletion | null {
 
 export function createOpenAIUpstream(config: UpstreamConfig, fetchImpl: FetchLike = fetch): AgentUpstream {
   return async (request) => {
-    let response: Response
-    try {
-      response = await fetchImpl(`${config.baseURL.replace(/\/+$/u, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model: config.model,
-          messages: request.messages,
-          temperature: config.temperature,
-          stream: false,
-          ...(request.tools !== undefined ? { tools: request.tools, tool_choice: 'auto' } : {}),
-        }),
-        signal: request.signal,
-      })
-    } catch {
-      throw new AgentUpstreamError('upstream_failed')
-    }
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      if (response.status === 400 && /(?:tool|function)/iu.test(detail) && /(?:unsupported|not supported|unknown)/iu.test(detail)) {
-        throw new AgentUpstreamError('tools_unsupported')
-      }
-      throw new AgentUpstreamError('upstream_failed')
-    }
+    const response = await requestOpenAI(config, {
+      messages: request.messages,
+      stream: false,
+      ...(request.tools !== undefined ? { tools: request.tools, tool_choice: 'auto' } : {}),
+    }, request.signal, fetchImpl)
     let body: unknown
     try { body = await response.json() } catch { throw new AgentUpstreamError('upstream_failed') }
     const completion = parseCompletion(body)
     if (!completion) throw new AgentUpstreamError('upstream_failed')
     return completion
   }
+}
+
+export async function streamOpenAIChat(
+  config: UpstreamConfig,
+  messages: readonly unknown[],
+  signal?: AbortSignal,
+  fetchImpl: FetchLike = fetch,
+) {
+  const response = await requestOpenAI(config, { messages, stream: true }, signal, fetchImpl)
+  if (!response.body) throw new AgentUpstreamError('upstream_failed')
+  return response.body
 }

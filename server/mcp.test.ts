@@ -48,6 +48,23 @@ test('lists six namespaced read-only tools and returns structured Chinese conten
   assert.match(JSON.stringify(document.structuredContent), /中文说明\.md[\s\S]*正文/u)
 })
 
+test('uses canonical Unicode limits while preserving public snake_case arguments', async (t) => {
+  let received = ''
+  const local = service()
+  local.search = async (input) => { received = input.query; return { mode: 'keyword-only', hits: [] } }
+  const server = createChatFilesMcpServer(local)
+  const client = new Client({ name: 'chatfiles-unicode-client', version: '1.0.0' })
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  t.after(async () => { await client.close(); await server.close() })
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+  const query = '🙂'.repeat(500)
+  const result = await client.callTool({
+    name: 'chatfiles_search_messages', arguments: { query, conversation_id: 'conv-a', response_format: 'json' },
+  })
+  assert.equal(result.isError, undefined)
+  assert.equal(received, query)
+})
+
 test('completes initialize, list, and call over the real stdio subprocess without log pollution', async (t) => {
   const environment = Object.fromEntries(Object.entries(process.env)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string'))

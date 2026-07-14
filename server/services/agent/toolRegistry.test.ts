@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
+import { operationCatalog } from '../../../shared/contracts/operations.js'
 import { createToolRegistry, ToolExecutionError } from './toolRegistry.js'
 import type { RankedSearchHit } from '../search/searchTypes.js'
 import { stableMessageUid } from '../../wechat/legacyMessageIdentity.js'
@@ -43,14 +44,15 @@ function fixture(t: test.TestContext) {
   artifactDb.prepare('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(linkId, 'conv-a', 'link', 'link', '示例链接', 'link', 'https://example.test', null, 101, '李四', '链接摘要', 'exported', 'ready')
   t.after(() => { wechatDb.close(); artifactDb.close() })
-  const registry = createToolRegistry({
+  const dependencies = {
     wechatDb,
     artifactDb,
     searchMessages: async () => ({ mode: 'keyword-only', reason: 'not_configured', hits: [searchHit('m-1'), searchHit('m-2'), searchHit('m-3')] }),
     readDocument: async (id, maxCharacters) => ({ assetId: id, title: '中文说明.md', text: '文档正文'.slice(0, maxCharacters), truncated: false, citation: `[文件:${id}]` }),
     resolveLinkPreview: async (id, url) => ({ status: 'ready', url, domain: 'example.test', title: '链接标题', description: '简介', siteName: '站点', iconUrl: '', updatedAt: '2026-07-13T00:00:00.000Z', assetId: id }),
-  })
-  return { assetId, linkId, registry }
+  }
+  const registry = createToolRegistry(dependencies)
+  return { assetId, linkId, registry, dependencies }
 }
 
 function minimalLegacyFixture(t: test.TestContext) {
@@ -108,6 +110,33 @@ test('rejects malformed and extra arguments with a stable error code', async (t)
   )
 })
 
+test('runs chat-only tools without assets and reports asset tools as unavailable', async (t) => {
+  const { dependencies } = fixture(t)
+  const registry = createToolRegistry({
+    wechatDb: dependencies.wechatDb,
+    searchMessages: dependencies.searchMessages,
+  })
+  const result = await registry.execute('list_conversations', {}) as { conversations: unknown[] }
+  assert.equal(result.conversations.length, 1)
+  await assert.rejects(
+    registry.execute('search_artifacts', {}),
+    (error: unknown) => error instanceof ToolExecutionError && error.code === 'unavailable',
+  )
+})
+
+test('uses canonical catalog defaults when the registry is called directly', async () => {
+  let maximum = 0
+  const assetId = 'a'.repeat(64)
+  const registry = createToolRegistry({
+    readDocument: async (id, maxCharacters) => {
+      maximum = maxCharacters
+      return { assetId: id, title: '说明.md', text: '正文', truncated: false, citation: `[文件:${id}]` }
+    },
+  })
+  await registry.execute('read_document', { assetId })
+  assert.equal(maximum, 12_000)
+})
+
 test('caps message search and returns stable message citations', async (t) => {
   const { registry } = fixture(t)
   const result = await registry.execute('search_messages', { query: '目标', limit: 2 }) as {
@@ -137,6 +166,23 @@ test('shares bounded conversation, context, artifact, document, timeline, and li
   assert.equal(link.citation, `[文件:${linkId}]`)
   assert.equal(link.domain, 'example.test')
   assert.doesNotMatch(JSON.stringify({ conversations, context, artifacts, timeline, link }), /rawPath|source_relative|private/u)
+})
+
+test('returns values accepted by every canonical operation output schema', async (t) => {
+  const { assetId, linkId, registry } = fixture(t)
+  const calls = [
+    ['list_conversations', {}],
+    ['search_messages', { query: '目标' }],
+    ['search_artifacts', {}],
+    ['read_document', { assetId }],
+    ['get_message_context', { messageUid: 'm-mid' }],
+    ['get_timeline_slice', { conversationId: 'conv-a' }],
+    ['get_link_preview', { assetId: linkId }],
+  ] as const
+  for (const [name, input] of calls) {
+    const result = await registry.execute(name, input)
+    assert.equal(operationCatalog[name].outputSchema.safeParse(result).success, true, name)
+  }
 })
 
 test('loads legacy message context through the same synthetic identity used by search', async (t) => {

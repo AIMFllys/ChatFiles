@@ -1,13 +1,14 @@
 import { Router, type Response } from 'express'
 import { root } from '../utils/helpers.js'
-import { queryArtifacts } from '../wechat/artifactQuery.js'
+import {
+  createWechatQueryService,
+  WechatQueryError,
+} from '../application/chat/wechatQueryService.js'
 import { openCatalogWechatDatabase } from '../data/productDatabases.js'
-import { readConversationMessages } from '../wechat/messageQuery.js'
 import { registerWechatArtifactRoutes } from './wechatArtifactRoutes.js'
 import { registerWechatTimelineRoutes } from './wechatTimelineRoutes.js'
 import { registerLinkPreviewRoutes } from './linkPreviewRoutes.js'
 import {
-  canonicalWechatDatabase,
   defaultDependencies,
   parseCollectionQuery,
   sendError,
@@ -17,6 +18,36 @@ import {
 } from './wechatRouteHelpers.js'
 
 export type { DatabaseLease, WechatRouterDependencies } from './wechatRouteHelpers.js'
+
+function boundedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+) {
+  if (value === undefined) return fallback
+  if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(value)) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null
+}
+
+function messageQuery(query: Record<string, unknown>) {
+  const limit = boundedInteger(query.limit, 400, 1, 2_000)
+  const offset = boundedInteger(query.offset, 0, 0, Number.MAX_SAFE_INTEGER)
+  const text = query.q ?? ''
+  if (limit === null || offset === null || typeof text !== 'string' || [...text].length > 500) return null
+  return { limit, offset, query: text.trim() }
+}
+
+function queryError(response: Response, error: unknown) {
+  if (!(error instanceof WechatQueryError) || error.code === 'unavailable') {
+    return sendError(response, 503, 'database_unavailable')
+  }
+  if (error.code === 'offset_not_satisfiable') {
+    return sendError(response, 416, 'offset_not_satisfiable')
+  }
+  return sendError(response, 404, 'not_found')
+}
 
 export function wechatDatabaseResolution(projectRoot = root) {
   const opened = openCatalogWechatDatabase(projectRoot)
@@ -33,6 +64,10 @@ export function createWechatRouter(
   projectRoot = root,
 ) {
   const deps = { ...defaultDependencies(projectRoot), ...dependencies }
+  const queries = createWechatQueryService({
+    openWechatDatabase: deps.openWechatDatabase,
+    openProductDatabases: deps.openProductDatabases,
+  })
   const router = Router()
 
   router.use((_request, response, next) => {
@@ -41,34 +76,20 @@ export function createWechatRouter(
   })
 
   router.get('/api/wechat/conversations', (_request, response) => {
-    const lease = deps.openWechatDatabase()
-    if (!lease.db) return response.json({ conversations: [], totals: { conversations: 0, messages: 0 } })
-    try {
-      const conversations = lease.db
-        .prepare('SELECT id, account, username, display, is_group, msg_count, text_count, first_time, last_time, summary FROM conversations ORDER BY last_time DESC')
-        .all()
-      const totals = lease.db.prepare('SELECT count(*) AS conversations, sum(msg_count) AS messages, sum(text_count) AS textMessages FROM conversations').get()
-      return response.json({ conversations, totals })
-    } finally {
-      lease.release()
-    }
+    try { return response.json(queries.conversations()) } catch (error) { return queryError(response, error) }
   })
 
   router.get('/api/wechat/conversation/:id/messages', (request, response) => {
-    const lease = deps.openWechatDatabase()
-    if (!lease.db) return sendError(response, 404, 'not_found')
+    const parsed = messageQuery(request.query as Record<string, unknown>)
+    if (!parsed) return sendError(response, 400, 'invalid_query')
     try {
-      const id = request.params.id
-      const limit = Math.min(Number(request.query.limit ?? 400), 2000)
-      const offset = Math.max(Number(request.query.offset ?? 0), 0)
-      const query = String(request.query.q ?? '').trim()
-      const meta = lease.db.prepare('SELECT * FROM conversations WHERE id=?').get(id)
-      if (!meta) return sendError(response, 404, 'not_found')
-      const { messages } = readConversationMessages(lease.db, { conversationId: id, query, limit, offset })
-      return response.json({ meta, messages, offset, limit })
-    } finally {
-      lease.release()
-    }
+      return response.json(queries.messages({
+        conversationId: request.params.id,
+        query: parsed.query,
+        limit: parsed.limit,
+        offset: parsed.offset,
+      }))
+    } catch (error) { return queryError(response, error) }
   })
 
   const collection = (conversationId: string | undefined, requestQuery: Record<string, unknown>, response: Response) => {
@@ -77,26 +98,9 @@ export function createWechatRouter(
     }
     const input = parseCollectionQuery(requestQuery)
     if (!input) return sendError(response, 400, 'invalid_query')
-    const leases = deps.openProductDatabases()
-    const wechatLease = leases.wechat
-    const artifactLease = leases.artifacts
     try {
-      if (!wechatLease.db || !artifactLease.db || !canonicalWechatDatabase(wechatLease.db)) {
-        return sendError(response, 503, 'database_unavailable')
-      }
-      if (conversationId !== undefined) {
-        const exists = wechatLease.db.prepare('SELECT 1 FROM conversations WHERE id=?').get(conversationId)
-        if (!exists) return sendError(response, 404, 'not_found')
-      }
-      const page = queryArtifacts(artifactLease.db, wechatLease.db, { ...input, conversationId })
-      if (page.offset > page.matchingTotal) return sendError(response, 416, 'offset_not_satisfiable')
-      return response.json(page)
-    } catch {
-      return sendError(response, 503, 'database_unavailable')
-    } finally {
-      artifactLease.release()
-      wechatLease.release()
-    }
+      return response.json(queries.artifacts({ ...input, conversationId }))
+    } catch (error) { return queryError(response, error) }
   }
 
   router.get('/api/wechat/artifacts', (request, response) => (
@@ -106,7 +110,7 @@ export function createWechatRouter(
     collection(request.params.id, request.query as Record<string, unknown>, response)
   ))
 
-  registerWechatTimelineRoutes(router, deps)
+  registerWechatTimelineRoutes(router, queries)
   registerLinkPreviewRoutes(router, deps)
   registerWechatArtifactRoutes(router, deps)
   return router

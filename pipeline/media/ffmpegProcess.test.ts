@@ -8,10 +8,13 @@ test('waits for close after timeout and escalates termination once', async () =>
     kill: (signal?: NodeJS.Signals) => boolean
   }
   const signals: Array<NodeJS.Signals | undefined> = []
-  child.kill = (signal) => {
-    signals.push(signal)
-    return true
-  }
+  const hardKilled = new Promise<void>((resolve) => {
+    child.kill = (signal) => {
+      signals.push(signal)
+      if (signal === 'SIGKILL') resolve()
+      return true
+    }
+  })
   const run = createFfmpegProcessRunner(() => child, { killGraceMs: 5 })
   const invocation: FfmpegInvocation = {
     executable: 'ffmpeg',args: [],cwd: process.cwd(),shell: false,timeoutMs: 5,
@@ -21,7 +24,7 @@ test('waits for close after timeout and escalates termination once', async () =>
     (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
   ))
 
-  await new Promise((resolve) => setTimeout(resolve, 30))
+  await hardKilled
   assert.deepEqual(signals, [undefined, 'SIGKILL'])
   assert.equal(settled, false)
   child.emit('close', null)

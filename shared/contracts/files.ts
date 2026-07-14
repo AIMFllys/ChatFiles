@@ -1,5 +1,6 @@
 /** File, manifest, and preview DTOs shared by browser and server runtimes. */
 import { z } from 'zod/v4'
+import type { ArchivePreviewBlockedReason } from './archivePreview.js'
 export type Category =
   | '过去'
   | '创业'
@@ -92,6 +93,7 @@ export type ArchivePreview = {
   format: string
   readable: boolean
   error?: string
+  blockedReason?: ArchivePreviewBlockedReason
   entries: Array<{
     name: string
     size?: number

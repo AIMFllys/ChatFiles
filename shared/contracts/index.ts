@@ -11,6 +11,7 @@ export type {
   SourceDiscovery,
   DeepFileIndex,
 } from './files.js'
+export type { ArchivePreviewBlockedReason } from './archivePreview.js'
 
 export type {
   SummaryInsight,
@@ -137,6 +138,21 @@ export type { LegacyMigrationReceipt } from './dataMigration.js'
 
 export { classifySearchIndex, SEARCH_INDEX_SCHEMA_VERSION } from './searchStatus.js'
 export type { SearchIndexEvidence } from './searchStatus.js'
+
+export {
+  AGENT_OPERATION_NAMES,
+  OPERATION_NAMES,
+  isOperationName,
+  operationCatalog,
+} from './operations.js'
+export type {
+  OperationDependency,
+  OperationInput,
+  OperationLimit,
+  OperationName,
+  OperationOutput,
+  ParsedOperationInput,
+} from './operations.js'
 
 export {
   agentContextSummarySchema,

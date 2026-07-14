@@ -148,8 +148,15 @@ function dependencyIssues(graph: ReadonlyMap<string, ReadonlySet<string>>) {
     if (!importerLayer) continue
     for (const dependency of dependencies) {
       const dependencyLayer = sourceLayer(dependency)
-      if (!dependencyLayer || ALLOWED_DEPENDENCIES[importerLayer].has(dependencyLayer)) continue
-      const signature = `dependency-direction:${importerLayer}->${dependencyLayer}:${importer}->${dependency}`
+      const applicationAdapterImport = importer.startsWith('server/application/')
+        && ['server/http/', 'server/routes/', 'server/services/agent/']
+          .some((prefix) => dependency.startsWith(prefix))
+      if (!applicationAdapterImport
+        && (!dependencyLayer || ALLOWED_DEPENDENCIES[importerLayer].has(dependencyLayer))) continue
+      const direction = applicationAdapterImport
+        ? `server/application->${dependency.split('/').slice(0, 3).join('/')}`
+        : `${importerLayer}->${dependencyLayer}`
+      const signature = `dependency-direction:${direction}:${importer}->${dependency}`
       issues.push({
         kind: 'dependency-direction',
         signature,

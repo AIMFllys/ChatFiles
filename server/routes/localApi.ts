@@ -32,9 +32,12 @@ function number(value: string | undefined) {
   return parsed
 }
 
-function clampedNumber(value: string | undefined, minimum: number, maximum: number) {
+function boundedNumber(value: string | undefined, minimum: number, maximum: number) {
   const parsed = number(value)
-  return parsed === undefined ? undefined : Math.max(minimum, Math.min(maximum, parsed))
+  if (parsed !== undefined && (parsed < minimum || parsed > maximum)) {
+    throw new LocalAccessError('invalid_input')
+  }
+  return parsed
 }
 
 function parameter(value: string | string[] | undefined) {
@@ -80,13 +83,13 @@ export function createLocalApiRouter(options: Options = {}) {
   }))
   router.get('/api/local/v1/conversations', route(async (request) => {
     const value = query(request, ['query', 'limit'])
-    return service.conversations({ query: value.query, limit: clampedNumber(value.limit, 1, 100) })
+    return service.conversations({ query: value.query, limit: boundedNumber(value.limit, 1, 100) })
   }))
   router.get('/api/local/v1/search', route(async (request) => {
     const value = query(request, ['q', 'conversation', 'sender', 'after', 'before', 'limit'])
     return service.search({
       query: value.q ?? '', conversationId: value.conversation, sender: value.sender,
-      after: number(value.after), before: number(value.before), limit: clampedNumber(value.limit, 1, 100),
+      after: number(value.after), before: number(value.before), limit: boundedNumber(value.limit, 1, 100),
     })
   }))
   router.get('/api/local/v1/artifacts', route(async (request) => {
@@ -94,16 +97,16 @@ export function createLocalApiRouter(options: Options = {}) {
     return service.artifacts({
       query: value.q, conversationId: value.conversation,
       category: value.category as 'all' | 'work' | 'document' | 'skill' | 'link' | undefined,
-      limit: clampedNumber(value.limit, 1, 100),
+      limit: boundedNumber(value.limit, 1, 100),
     })
   }))
   router.get('/api/local/v1/documents/:id', route(async (request) => {
     const value = query(request, ['maxChars'])
-    return service.readDocument({ assetId: parameter(request.params.id), maxCharacters: clampedNumber(value.maxChars, 1, 50_000) })
+    return service.readDocument({ assetId: parameter(request.params.id), maxCharacters: boundedNumber(value.maxChars, 1, 50_000) })
   }))
   router.get('/api/local/v1/messages/:uid/context', route(async (request) => {
     const value = query(request, ['radius'])
-    return service.messageContext({ messageUid: parameter(request.params.uid), radius: clampedNumber(value.radius, 0, 20) })
+    return service.messageContext({ messageUid: parameter(request.params.uid), radius: boundedNumber(value.radius, 0, 20) })
   }))
   return router
 }

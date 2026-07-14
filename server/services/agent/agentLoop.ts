@@ -5,6 +5,7 @@ import type {
   AgentStreamEvent,
 } from '../../../shared/contracts/aiAgent.js'
 import type { AgentToolName } from './toolSchemas.js'
+import { ToolExecutionError } from './toolRegistry.js'
 
 export type AgentToolCall = { id: string; name: string; arguments: string }
 export type AgentCompletion = { content: string; toolCalls: AgentToolCall[] }
@@ -249,8 +250,11 @@ export async function runAgent(input: RunAgentInput) {
         addEvidence(result, evidence, input.emit)
         messages.push({ role: 'tool', tool_call_id: call.id, content: boundedJson(result) })
         input.emit({ type: 'tool', step, name: call.name, status: 'complete' })
-      } catch {
-        messages.push({ role: 'tool', tool_call_id: call.id, content: '{"error":"invalid_or_failed_tool_call"}' })
+      } catch (error) {
+        const failure = error instanceof ToolExecutionError && error.code === 'unavailable'
+          ? 'unavailable'
+          : 'invalid_or_failed_tool_call'
+        messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: failure }) })
         input.emit({ type: 'tool', step, name: call.name, status: 'rejected' })
       }
     }

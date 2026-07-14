@@ -7,11 +7,11 @@ function output() {
   return { write: (chunk: string) => { value += chunk }, value: () => value }
 }
 
-test('prints stable UTF-8 JSON and clamps list limits through the HTTP adapter', async () => {
+test('prints stable UTF-8 JSON with a canonical valid list limit', async () => {
   const stdout = output()
   const stderr = output()
   let requested = ''
-  const code = await runCli(['conversations', '--query', '中文', '--limit', '999', '--json'], {
+  const code = await runCli(['conversations', '--query', '中文', '--limit', '100', '--json'], {
     stdout: stdout.write, stderr: stderr.write,
     fetchImpl: async (input) => {
       requested = String(input)
@@ -36,6 +36,16 @@ test('returns exit code 2 for input errors without making a request', async () =
   assert.equal(code, 2)
   assert.equal(called, false)
   assert.match(stderr.value(), /用法/u)
+
+  for (const value of ['-1', '0', '101', 'NaN', 'Infinity', '1.5']) {
+    called = false
+    const invalid = await runCli(['conversations', '--limit', value], {
+      stdout: () => {}, stderr: () => {},
+      fetchImpl: async () => { called = true; return Response.json({}) },
+    })
+    assert.equal(invalid, 2, value)
+    assert.equal(called, false, value)
+  }
 })
 
 test('returns exit code 1 and a sanitized error for HTTP failures', async () => {
@@ -54,8 +64,8 @@ test('maps every documented read-only command to its stable local route', async 
     ['status', '--json'],
     ['search', '目标', '--json'],
     ['artifacts', '说明', '--category', 'document', '--json'],
-    ['read-document', 'a'.repeat(64), '--max-chars', '999999', '--json'],
-    ['message-context', '消息-一', '--radius', '999', '--json'],
+    ['read-document', 'a'.repeat(64), '--max-chars', '50000', '--json'],
+    ['message-context', '消息-一', '--radius', '20', '--json'],
   ]
   for (const args of cases) {
     const code = await runCli(args, {

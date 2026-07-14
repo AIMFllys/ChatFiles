@@ -72,7 +72,13 @@ export type ArtifactSourceResolution =
       target: string
     }
 
+export type ArtifactSourceDescription =
+  | { status: 'malformed' }
+  | { status: 'unknown' }
+  | { status: 'known'; asset: ArtifactSourceAsset }
+
 export type ArtifactSourceResolver = {
+  describe: (id: string) => ArtifactSourceDescription
   resolve: (id: string, purpose: ArtifactSourcePurpose) => ArtifactSourceResolution
 }
 
@@ -210,11 +216,23 @@ export function createArtifactSourceResolver(
     FROM artifacts WHERE asset_id=? AND ${shape.verifiedPredicate}
   `)
 
+  function rowFor(id: string) {
+    if (!/^[0-9a-f]{64}$/u.test(id)) return { status: 'malformed' as const }
+    const row = find.get(id) as InternalArtifactRow | undefined
+    return row ? { status: 'known' as const, row } : { status: 'unknown' as const }
+  }
+
   return {
+    describe(id) {
+      const found = rowFor(id)
+      return found.status === 'known'
+        ? { status: 'known', asset: publicAsset(found.row) }
+        : found
+    },
     resolve(id, purpose) {
-      if (!/^[0-9a-f]{64}$/u.test(id)) return { status: 'malformed' }
-      const row = find.get(id) as InternalArtifactRow | undefined
-      if (!row) return { status: 'unknown' }
+      const found = rowFor(id)
+      if (found.status !== 'known') return found
+      const row = found.row
       const asset = publicAsset(row)
       const state = artifactAvailabilityFor(row.materialization, row.preview_status, shape.version)
       if (row.kind !== 'resource' && row.kind !== 'voice') {

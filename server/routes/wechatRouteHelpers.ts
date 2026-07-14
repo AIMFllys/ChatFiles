@@ -20,6 +20,8 @@ import {
 } from '../wechat/artifactSourceResolver.js'
 import { createLinkPreviewService } from '../services/linkPreview/linkPreviewService.js'
 
+export { isCanonicalWechatDatabase as canonicalWechatDatabase } from '../domain/chat/canonicalWechatDatabase.js'
+
 export type DatabaseLease = {
   db: DatabaseSync | null
   bundleRoot?: string | null
@@ -119,15 +121,6 @@ export function parseCollectionQuery(query: Record<string, unknown>) {
     query: queryValue.trim(),
     limit,
     offset,
-  }
-}
-
-export function canonicalWechatDatabase(db: DatabaseSync) {
-  try {
-    const columns = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
-    return columns.some((column) => column.name === 'message_uid')
-  } catch {
-    return false
   }
 }
 
@@ -235,19 +228,19 @@ function inlineMime(mimeType: string) {
     || /^video\//u.test(mimeType)
 }
 
-export function sendResolvedFile(response: Response, result: Extract<ArtifactSourceResolution, { status: 'available' }>) {
-  const mimeType = mime.getType(result.target) ?? mime.getType(result.asset.name) ?? 'application/octet-stream'
+export function sendPrivateFile(response: Response, file: { target: string; name: string }) {
+  const mimeType = mime.getType(file.target) ?? mime.getType(file.name) ?? 'application/octet-stream'
   const disposition = inlineMime(mimeType) ? 'inline' : 'attachment'
   setPrivateFileHeaders(response)
   const contentType = mimeType === 'text/html' || mimeType === 'text/plain' || mimeType === 'text/markdown'
     ? `${mimeType}; charset=utf-8`
     : mimeType
   response.setHeader('Content-Type', contentType)
-  response.setHeader('Content-Disposition', contentDisposition(disposition, result.asset.name))
+  response.setHeader('Content-Disposition', contentDisposition(disposition, file.name))
   if (mimeType === 'text/html') {
     response.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
   }
-  response.sendFile(result.target, (error) => {
+  response.sendFile(file.target, (error) => {
     if (!error) return
     const status = (error as Error & { status?: number }).status === 416 ? 416 : 409
     if (response.headersSent) {
@@ -257,6 +250,10 @@ export function sendResolvedFile(response: Response, result: Extract<ArtifactSou
     clearFileRepresentationHeaders(response)
     sendError(response, status, status === 416 ? 'range_not_satisfiable' : 'source_unavailable')
   })
+}
+
+export function sendResolvedFile(response: Response, result: Extract<ArtifactSourceResolution, { status: 'available' }>) {
+  return sendPrivateFile(response, { target: result.target, name: result.asset.name })
 }
 
 export function parseThumbnailWidth(value: unknown) {

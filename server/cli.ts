@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { operationCatalog } from '../shared/contracts/operations.js'
 
 type CliDependencies = {
   fetchImpl?: typeof fetch
@@ -42,10 +43,14 @@ function flag(parsed: Parsed, name: string) {
   return typeof value === 'string' ? value : undefined
 }
 
-function boundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number) {
-  if (value === undefined) return fallback
-  if (!/^\d+$/u.test(value)) return undefined
-  return Math.max(minimum, Math.min(maximum, Number(value)))
+type NumberSchema = {
+  safeParse: (value: unknown) => { success: true; data: number } | { success: false }
+}
+
+function schemaNumber(value: string | undefined, schema: NumberSchema) {
+  if (value !== undefined && !/^\d+$/u.test(value)) return undefined
+  const parsed = schema.safeParse(value === undefined ? undefined : Number(value))
+  return parsed.success ? parsed.data : undefined
 }
 
 function valid(parsed: Parsed, allowed: readonly string[], positions: number) {
@@ -55,7 +60,7 @@ function valid(parsed: Parsed, allowed: readonly string[], positions: number) {
 
 function requestPath(parsed: Parsed) {
   const query = new URLSearchParams()
-  const limit = boundedNumber(flag(parsed, '--limit'), 20, 1, 100)
+  const limit = schemaNumber(flag(parsed, '--limit'), operationCatalog.list_conversations.inputSchema.shape.limit)
   if (parsed.command === 'status' && valid(parsed, [], 0)) return '/api/local/v1/status'
   if (parsed.command === 'conversations' && valid(parsed, ['--query', '--limit'], 0) && limit) {
     if (flag(parsed, '--query')) query.set('query', flag(parsed, '--query')!)
@@ -77,13 +82,15 @@ function requestPath(parsed: Parsed) {
     return `/api/local/v1/artifacts?${query}`
   }
   if (parsed.command === 'read-document' && valid(parsed, ['--max-chars'], 1)) {
-    const maximum = boundedNumber(flag(parsed, '--max-chars'), 12_000, 1, 50_000)
+    const maximum = schemaNumber(
+      flag(parsed, '--max-chars'), operationCatalog.read_document.inputSchema.shape.maxCharacters,
+    )
     if (!maximum) return undefined
     query.set('maxChars', String(maximum))
     return `/api/local/v1/documents/${encodeURIComponent(parsed.positionals[0])}?${query}`
   }
   if (parsed.command === 'message-context' && valid(parsed, ['--radius'], 1)) {
-    const radius = boundedNumber(flag(parsed, '--radius'), 8, 0, 20)
+    const radius = schemaNumber(flag(parsed, '--radius'), operationCatalog.get_message_context.inputSchema.shape.radius)
     if (radius === undefined) return undefined
     query.set('radius', String(radius))
     return `/api/local/v1/messages/${encodeURIComponent(parsed.positionals[0])}/context?${query}`

@@ -1,8 +1,16 @@
 import fs from 'node:fs'
 import type { Router } from 'express'
-import type { ChatArtifactCapability } from '../../shared/contracts/chat.js'
+import type { ChatArtifactAvailability, ChatArtifactCapability } from '../../shared/contracts/chat.js'
+import {
+  createFileApplicationService,
+  FileApplicationError,
+} from '../application/files/fileApplicationService.js'
+import { createArtifactFileProvider } from '../infrastructure/files/artifactFileProvider.js'
 import { inspectArchive, inspectFile } from '../utils/inspect.js'
-import { createArtifactSourceResolver, type ArtifactSourceResolution } from '../wechat/artifactSourceResolver.js'
+import {
+  createArtifactSourceResolver,
+  type ArtifactSourceResolver,
+} from '../wechat/artifactSourceResolver.js'
 import {
   assetResultError,
   byteRangeSatisfiable,
@@ -10,10 +18,59 @@ import {
   parseThumbnailWidth,
   publicMetadata,
   sendError,
-  sendResolvedFile,
+  sendPrivateFile,
   setPrivateFileHeaders,
   type WechatRouterDependencies,
 } from './wechatRouteHelpers.js'
+
+function fileService(resolver: ArtifactSourceResolver, deps: WechatRouterDependencies) {
+  const unsupported = () => { throw new Error('unsupported_file_operation') }
+  return createFileApplicationService({
+    providers: { artifact: createArtifactFileProvider(resolver) },
+    limits: { maxArchiveBytes: 512 * 1024 * 1024, maxTextBytes: 5 * 1024 * 1024 },
+    adapters: {
+      readText: async () => unsupported(),
+      inspectFile,
+      inspectArchive,
+      inspectDatabase: unsupported,
+      inspectVoice: unsupported,
+      thumbnail: (target, width, preview) => {
+        try {
+          return preview === 'video'
+            ? deps.videoThumbnail(target, width)
+            : deps.imageThumbnail(target, width)
+        } catch {
+          throw new FileApplicationError('file_operation_failed')
+        }
+      },
+      transcodeVoice: unsupported,
+    },
+  })
+}
+
+function artifactRef(id: string) {
+  return /^[0-9a-f]{64}$/u.test(id) ? { scope: 'artifact' as const, id } : null
+}
+
+function regularFile(target: string) {
+  try { return fs.statSync(target).isFile() } catch { return false }
+}
+
+function fileError(response: Parameters<typeof sendError>[0], error: unknown) {
+  if (!(error instanceof FileApplicationError)) return sendError(response, 503, 'database_unavailable')
+  if (error.code === 'invalid_file_reference') return sendError(response, 400, 'malformed_asset_id')
+  if (error.code === 'file_not_found') return sendError(response, 404, 'asset_not_found')
+  if (error.code === 'unsupported_file_capability') return sendError(response, 415, 'operation_unsupported')
+  if (error.state === 'configuration_unavailable') {
+    return sendError(response, 503, 'configuration_unavailable')
+  }
+  return sendError(
+    response,
+    409,
+    'source_unavailable',
+    error.state as ChatArtifactAvailability | undefined,
+  )
+}
 
 export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterDependencies) {
   router.get('/api/wechat/artifact/:id/metadata', (request, response) => {
@@ -46,112 +103,87 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
     }
   })
 
-  router.get('/api/wechat/artifact/:id/inspect', (request, response) => {
+  router.get('/api/wechat/artifact/:id/inspect', async (request, response) => {
+    const ref = artifactRef(request.params.id)
+    if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
-    let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({
+      const resolver = createArtifactSourceResolver({
         assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
       })
-        .resolve(request.params.id, 'content')
-    } catch {
-      return sendError(response, 503, 'database_unavailable')
+      const inspected = await fileService(resolver, deps).inspect(ref)
+      return response.json({ ...inspected, path: '' })
+    } catch (error) {
+      return fileError(response, error)
     } finally {
       lease.release()
-    }
-    if (result.status !== 'available') return assetResultError(response, result)
-    try {
-      return response.json({ ...inspectFile(result.target), path: '' })
-    } catch {
-      return sendError(response, 409, 'source_unavailable', 'source_unavailable')
     }
   })
 
   router.get('/api/wechat/artifact/:id/archive', async (request, response) => {
+    const ref = artifactRef(request.params.id)
+    if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
-    let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({
+      const resolver = createArtifactSourceResolver({
         assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
       })
-        .resolve(request.params.id, 'content')
-    } catch {
-      return sendError(response, 503, 'database_unavailable')
+      const preview = await fileService(resolver, deps).readArchive(ref)
+      return response.json({ ...preview, path: '', ...(preview.readable ? {} : { error: '压缩包目录不可读' }) })
+    } catch (error) {
+      return fileError(response, error)
     } finally {
       lease.release()
-    }
-    if (result.status !== 'available') return assetResultError(response, result)
-    if (result.asset.preview !== 'archive' && !/\.(?:zip|rar|7z)$/iu.test(result.asset.name)) {
-      return sendError(response, 415, 'operation_unsupported', result.state)
-    }
-    try {
-      const preview = await inspectArchive(result.target)
-      return response.json({ ...preview, path: '', ...(preview.readable ? {} : { error: '压缩包目录不可读' }) })
-    } catch {
-      return sendError(response, 409, 'source_unavailable', 'source_unavailable')
     }
   })
 
-  router.get('/api/wechat/artifact/:id/content', (request, response) => {
+  router.get('/api/wechat/artifact/:id/content', async (request, response) => {
+    const ref = artifactRef(request.params.id)
+    if (!ref) return sendError(response, 400, 'malformed_asset_id')
     const lease = deps.openArtifactDatabase()
     if (!lease.db) return sendError(response, 503, 'database_unavailable')
-    let result: ArtifactSourceResolution
     try {
-      result = createArtifactSourceResolver({
+      const resolver = createArtifactSourceResolver({
         assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
       })
-        .resolve(request.params.id, 'content')
-    } catch {
-      return sendError(response, 503, 'database_unavailable')
-    } finally {
-      lease.release()
-    }
-    if (result.status !== 'available') return assetResultError(response, result)
-    try {
-      const range = byteRangeSatisfiable(request.headers.range, result.target)
+      const opened = await fileService(resolver, deps).openContent(ref)
+      const range = byteRangeSatisfiable(request.headers.range, opened.target)
       if (!range.ok) {
         setPrivateFileHeaders(response)
         response.setHeader('Content-Range', `bytes */${range.size}`)
         return sendError(response, 416, 'range_not_satisfiable')
       }
-    } catch {
-      return sendError(response, 409, 'source_unavailable', 'source_unavailable')
-    }
-    return sendResolvedFile(response, result)
-  })
-
-  router.get('/api/wechat/artifact/:id/thumbnail', (request, response) => {
-    const width = parseThumbnailWidth(request.query.w)
-    if (width === null) return sendError(response, 400, 'invalid_thumbnail_width')
-    const lease = deps.openArtifactDatabase()
-    if (!lease.db) return sendError(response, 503, 'database_unavailable')
-    let result: ArtifactSourceResolution
-    try {
-      result = createArtifactSourceResolver({
-        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
-      })
-        .resolve(request.params.id, 'thumbnail')
-    } catch {
-      return sendError(response, 503, 'database_unavailable')
+      return sendPrivateFile(response, { target: opened.target, name: opened.descriptor.name })
+    } catch (error) {
+      return fileError(response, error)
     } finally {
       lease.release()
     }
-    if (result.status !== 'available') return assetResultError(response, result)
-    let target: string
+  })
+
+  router.get('/api/wechat/artifact/:id/thumbnail', async (request, response) => {
+    const width = parseThumbnailWidth(request.query.w)
+    if (width === null) return sendError(response, 400, 'invalid_thumbnail_width')
+    const ref = artifactRef(request.params.id)
+    if (!ref) return sendError(response, 400, 'malformed_asset_id')
+    const lease = deps.openArtifactDatabase()
+    if (!lease.db) return sendError(response, 503, 'database_unavailable')
     try {
-      target = result.asset.preview === 'video'
-        ? deps.videoThumbnail(result.target, width)
-        : deps.imageThumbnail(result.target, width)
-    } catch {
-      return sendError(response, 415, 'thumbnail_unavailable', 'unsupported_codec')
-    }
-    try {
-      if (!fs.statSync(target).isFile()) return sendError(response, 409, 'source_unavailable', 'source_unavailable')
+      const resolver = createArtifactSourceResolver({
+        assetDb: lease.db,accountRootProvider: deps.accountRootProvider,bundleRoot: lease.bundleRoot ?? undefined,
+      })
+      const opened = await fileService(resolver, deps).openThumbnail(
+        ref,
+        width,
+      )
+      if (!regularFile(opened.target)) {
+        return sendError(response, 409, 'source_unavailable', 'source_unavailable')
+      }
       setPrivateFileHeaders(response)
       response.type('image/webp')
-      return response.sendFile(target, (error) => {
+      return response.sendFile(opened.target, (error) => {
         if (!error) return
         if (response.headersSent) {
           if (!response.writableEnded) response.end()
@@ -160,8 +192,13 @@ export function registerWechatArtifactRoutes(router: Router, deps: WechatRouterD
         clearFileRepresentationHeaders(response)
         sendError(response, 409, 'source_unavailable', 'source_unavailable')
       })
-    } catch {
-      return sendError(response, 409, 'source_unavailable', 'source_unavailable')
+    } catch (error) {
+      if (error instanceof FileApplicationError && error.code === 'file_operation_failed') {
+        return sendError(response, 415, 'thumbnail_unavailable', 'unsupported_codec')
+      }
+      return fileError(response, error)
+    } finally {
+      lease.release()
     }
   })
 }

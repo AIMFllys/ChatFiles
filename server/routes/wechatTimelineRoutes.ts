@@ -1,10 +1,12 @@
 import type { Router } from 'express'
-import { decodeTimelineCursor, encodeTimelineAnchor, queryTimeline } from '../services/chatTimeline.js'
 import {
-  canonicalWechatDatabase,
+  WechatQueryError,
+  type WechatQueryService,
+} from '../application/chat/wechatQueryService.js'
+import { decodeTimelineCursor } from '../services/chatTimeline.js'
+import {
   sendError,
   validConversationId,
-  type WechatRouterDependencies,
 } from './wechatRouteHelpers.js'
 
 function single(value: unknown, fallback = '') {
@@ -38,31 +40,19 @@ function parseTimelineQuery(query: Record<string, unknown>) {
   }
 }
 
-export function registerWechatTimelineRoutes(router: Router, deps: WechatRouterDependencies) {
+export function registerWechatTimelineRoutes(router: Router, queries: WechatQueryService) {
   router.get('/api/wechat/conversation/:id/timeline', (request, response) => {
     const conversationId = request.params.id
     if (!validConversationId(conversationId)) return sendError(response, 400, 'invalid_conversation_id')
     const input = parseTimelineQuery(request.query as Record<string, unknown>)
     if (!input) return sendError(response, 400, 'invalid_query')
-    const lease = deps.openWechatDatabase()
-    if (!lease.db) return sendError(response, 503, 'database_unavailable')
     try {
-      if (!canonicalWechatDatabase(lease.db)) return sendError(response, 503, 'database_unavailable')
-      const exists = lease.db.prepare('SELECT 1 FROM conversations WHERE id=?').get(conversationId)
-      if (!exists) return sendError(response, 404, 'not_found')
-      let timelineInput = input
-      if (input.aroundUid) {
-        const around = encodeTimelineAnchor(lease.db, conversationId, input.aroundUid)
-        if (!around) return sendError(response, 404, 'not_found')
-        const rest = { ...input }
-        delete rest.aroundUid
-        timelineInput = { ...rest, around }
+      return response.json(queries.timeline({ conversationId, ...input }))
+    } catch (error) {
+      if (error instanceof WechatQueryError && error.code === 'not_found') {
+        return sendError(response, 404, 'not_found')
       }
-      return response.json(queryTimeline(lease.db, { conversationId, ...timelineInput }))
-    } catch {
       return sendError(response, 503, 'database_unavailable')
-    } finally {
-      lease.release()
     }
   })
 }

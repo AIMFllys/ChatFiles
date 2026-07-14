@@ -76,6 +76,22 @@ test('suppresses duplicate calls, rejects invalid calls, and never exceeds six c
   assert.ok(invalidEvents.some((event) => event.status === 'rejected'))
 })
 
+test('reports an unavailable capability explicitly so the model can continue with chat tools', async () => {
+  const requests: AgentCompletionRequest[] = []
+  const replies = [
+    toolResponse('asset-call', 'search_artifacts', {}),
+    { content: '素材不可用，改用聊天证据。', toolCalls: [] },
+  ]
+  await runAgent({
+    question: '查找资料', strategy: 'recent', history: [],
+    registry: { schemas, execute: async () => { throw new ToolExecutionError('unavailable') } },
+    upstream: async (request) => { requests.push(request); return replies.shift()! },
+    emit() {},
+  })
+  const toolMessage = requests[1]?.messages.find((message) => message.role === 'tool')
+  assert.equal(toolMessage?.content, '{"error":"unavailable"}')
+})
+
 test('stops at eight steps and propagates cancellation with stable errors', async () => {
   let calls = 0
   await assert.rejects(runAgent({

@@ -50,6 +50,19 @@ test('resolves layer aliases before enforcing dependency direction', (t) => {
   assert.match(issues[0]?.message ?? '', /src\/view\.ts.*server\/read\.ts/u)
 })
 
+test('rejects application imports from server adapter layers', (t) => {
+  const root = createFixture(t, {
+    'server/application/run.ts': "import { agent } from '../services/agent/registry.js'\nexport const run = agent\n",
+    'server/services/agent/registry.ts': "export const agent = 'adapter'\n",
+  })
+
+  const issues = inspectArchitecture(root, EMPTY_ARCHITECTURE_BASELINE).issues
+
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0]?.kind, 'dependency-direction')
+  assert.match(issues[0]?.message ?? '', /server\/application\/run\.ts.*server\/services\/agent\/registry\.ts/u)
+})
+
 test('rejects a cross-layer TypeScript reference directive', (t) => {
   const root = createFixture(t, {
     'server/read.ts': 'export interface ReadResult { value: number }\n',

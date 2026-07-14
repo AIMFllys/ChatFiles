@@ -1,11 +1,22 @@
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import mime from 'mime'
-import JSZip from 'jszip'
 import type { ArchivePreview, DatabasePreview, FileInspection } from '../../shared/contracts/index.js'
+import {
+  readZipDirectoryFile,
+  type ZipDirectoryLimits,
+} from '../infrastructure/archives/zipDirectoryReader.js'
+import { readTarDirectory } from '../infrastructure/archives/tarDirectoryReader.js'
 import { printableAscii } from './helpers.js'
+
+const DEFAULT_ARCHIVE_LIMITS: ZipDirectoryLimits = {
+  maxArchiveBytes: 512 * 1024 * 1024,
+  maxEntries: 600,
+  maxDirectoryReadMs: 15_000,
+  maxExpandedBytes: 2 * 1024 * 1024 * 1024,
+  maxCentralDirectoryBytes: 16 * 1024 * 1024,
+}
 
 function fileHeader(filePath: string) {
   const fd = fs.openSync(filePath, 'r')
@@ -76,7 +87,10 @@ export function inspectFile(filePath: string): FileInspection {
   }
 }
 
-export async function inspectArchive(filePath: string): Promise<ArchivePreview> {
+export async function inspectArchive(
+  filePath: string,
+  overrides: Partial<ZipDirectoryLimits> = {},
+): Promise<ArchivePreview> {
   const stat = fs.statSync(filePath)
   const ext = path.extname(filePath).toLowerCase()
   const base = {
@@ -85,55 +99,35 @@ export async function inspectArchive(filePath: string): Promise<ArchivePreview> 
     modified: stat.mtime.toISOString(),
     format: ext || '[none]',
   }
+  const limits = { ...DEFAULT_ARCHIVE_LIMITS, ...overrides }
+  if (stat.size > limits.maxArchiveBytes) {
+    return { ...base, readable: false, blockedReason: 'archive_file_too_large' as const, entries: [] }
+  }
   if (ext === '.zip') {
     try {
-      const zip = await JSZip.loadAsync(fs.readFileSync(filePath))
-      return {
-        ...base,
-        readable: true,
-        entries: Object.values(zip.files)
-          .slice(0, 600)
-          .map((entry) => ({
-            name: entry.name,
-            size: (entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize,
-            directory: entry.dir,
-          })),
-      }
-    } catch (error) {
+      return { ...base, ...await readZipDirectoryFile(filePath, limits) }
+    } catch {
       return {
         ...base,
         readable: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: 'archive_listing_failed',
         entries: [],
       }
     }
   }
 
   try {
-    const output = execFileSync('tar', ['-tf', filePath], {
-      encoding: 'utf8',
-      maxBuffer: 1024 * 1024,
-      timeout: 15000,
-      windowsHide: true,
-    })
-    return {
-      ...base,
-      readable: true,
-      entries: output
-        .split(/\r?\n/)
-        .map((name) => name.trim())
-        .filter(Boolean)
-        .slice(0, 600)
-        .map((name) => ({
-          name,
-          directory: name.endsWith('/'),
-        })),
-    }
-  } catch (error) {
+    return { ...base, ...await readTarDirectory(filePath, {
+      maxEntries: limits.maxEntries,
+      maxDirectoryBytes: Math.min(limits.maxCentralDirectoryBytes, 1024 * 1024),
+      maxDirectoryReadMs: limits.maxDirectoryReadMs,
+      killGraceMs: 1_000,
+    }) }
+  } catch {
     return {
       ...base,
       readable: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: 'archive_listing_failed',
       entries: [],
     }
   }

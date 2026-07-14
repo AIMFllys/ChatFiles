@@ -13,3 +13,9 @@ test('uses one active WeChat product fingerprint for agent queries and index reb
   assert.match(source, /opened\.active\.status\.products\.wechat\.fingerprint/u)
   assert.match(source, /sourceFingerprint[,}]/u)
 })
+
+test('lets the operation executor degrade unavailable capabilities independently', () => {
+  assert.match(source, /createRuntimeOperationExecutor/u)
+  assert.doesNotMatch(source, /openCatalogArtifactDatabase/u)
+  assert.doesNotMatch(source, /!wechat\.db\s*\|\|\s*!artifacts\.db/u)
+})

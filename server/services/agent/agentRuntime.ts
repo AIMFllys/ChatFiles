@@ -1,17 +1,13 @@
 import path from 'node:path'
 import type { AgentRequestConfig, AgentStreamEvent, AgentStreamRequest } from '../../../shared/contracts/aiAgent.js'
-import { readActiveProductSet } from '../../data/catalogReader.js'
-import { openCatalogArtifactDatabase, openCatalogWechatDatabase } from '../../data/productDatabases.js'
-import { createArtifactAccountRootProvider, createArtifactSourceResolver } from '../../wechat/artifactSourceResolver.js'
+import { createRuntimeOperationExecutor } from '../../application/runtimeOperationExecutor.js'
+import { openCatalogWechatDatabase } from '../../data/productDatabases.js'
 import { root } from '../../utils/helpers.js'
-import { createLinkPreviewService } from '../linkPreview/linkPreviewService.js'
-import { readDocument } from '../documents/readDocument.js'
-import { createRuntimeSearch } from '../search/searchRuntime.js'
 import { buildSearchIndex } from '../search/buildSearchIndex.js'
 import { runAgent } from './agentLoop.js'
+import { createAgentOperationRegistry } from './agentOperationRegistry.js'
 import { prepareHistoryContext } from './historySummary.js'
 import { createOpenAIUpstream } from './openAIUpstream.js'
-import { createToolRegistry } from './toolRegistry.js'
 
 export async function executeAgentRuntime(
   request: AgentStreamRequest,
@@ -19,68 +15,20 @@ export async function executeAgentRuntime(
   signal: AbortSignal,
   projectRoot = root,
 ) {
-  const active = readActiveProductSet(projectRoot)
-  const readActive = () => active
-  const wechat = openCatalogWechatDatabase(projectRoot, readActive)
-  const artifacts = openCatalogArtifactDatabase(projectRoot, readActive)
-  if (!wechat.db || !artifacts.db) {
-    wechat.db?.close()
-    artifacts.db?.close()
-    throw new Error('database_unavailable')
-  }
-  const sourceFingerprint = active.status.products.wechat.fingerprint
-  if (!sourceFingerprint) {
-    artifacts.db.close()
-    wechat.db.close()
-    throw new Error('database_unavailable')
-  }
-  const search = createRuntimeSearch({
-    wechatDb: wechat.db, projectRoot, sourceFingerprint, config: request.config, signal,
+  const operations = createRuntimeOperationExecutor({ projectRoot, config: request.config, signal })
+  const registry = createAgentOperationRegistry(operations)
+  const upstream = createOpenAIUpstream(request.config)
+  if (request.config.contextStrategy === 'summary') emit({ type: 'step', step: 0, label: '校验较早对话摘要' })
+  const prepared = await prepareHistoryContext({
+    requested: request.config.contextStrategy, history: request.history, summary: request.summary,
+    contextWindow: request.config.contextWindow, upstream, signal,
   })
-  const accountRootProvider = createArtifactAccountRootProvider({ projectRoot })
-  const resolver = createArtifactSourceResolver({
-    assetDb: artifacts.db,accountRootProvider,bundleRoot: artifacts.bundleRoot ?? undefined,
+  return await runAgent({
+    question: request.question, conversationId: request.conversationId,
+    conversationName: request.conversationName, anchorMessageUid: request.anchorMessageUid,
+    strategy: prepared.strategy, history: prepared.history, summary: prepared.summary,
+    summaryReason: prepared.reason, registry, upstream, emit, signal,
   })
-  const links = createLinkPreviewService({ cacheDir: path.join(projectRoot, 'work', 'link-preview-cache') })
-  const registry = createToolRegistry({
-    wechatDb: wechat.db,
-    artifactDb: artifacts.db,
-    searchMessages: search.search,
-    readDocument: (assetId, maxCharacters) => readDocument(resolver, { assetId, maxCharacters }),
-    resolveLinkPreview: (assetId, url) => links.resolve(assetId, url),
-  })
-  try {
-    const upstream = createOpenAIUpstream(request.config)
-    if (request.config.contextStrategy === 'summary') {
-      emit({ type: 'step', step: 0, label: '校验较早对话摘要' })
-    }
-    const prepared = await prepareHistoryContext({
-      requested: request.config.contextStrategy,
-      history: request.history,
-      summary: request.summary,
-      contextWindow: request.config.contextWindow,
-      upstream,
-      signal,
-    })
-    return await runAgent({
-      question: request.question,
-      conversationId: request.conversationId,
-      conversationName: request.conversationName,
-      anchorMessageUid: request.anchorMessageUid,
-      strategy: prepared.strategy,
-      history: prepared.history,
-      summary: prepared.summary,
-      summaryReason: prepared.reason,
-      registry,
-      upstream,
-      emit,
-      signal,
-    })
-  } finally {
-    search.close()
-    artifacts.db.close()
-    wechat.db.close()
-  }
 }
 
 let rebuildActive = false
