@@ -44,7 +44,8 @@ export function wavyPlane(
   }
   geo.computeVertexNormals();
   const m = new THREE.Mesh(geo, mat);
-  m.castShadow = true;
+  // 半透明纱/布料不投影，避免地面出现大片脏影
+  m.castShadow = !(mat as THREE.MeshStandardMaterial).transparent;
   m.receiveShadow = true;
   return m;
 }

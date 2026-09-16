@@ -41,8 +41,8 @@ function main(): void {
       desk: { pos: new THREE.Vector3(-0.15, 1.32, 3.05), target: new THREE.Vector3(-1.02, 0.95, 2.45) },
       beds: { pos: new THREE.Vector3(0.25, 1.55, 1.4), target: new THREE.Vector3(-0.1, 1.75, -1.6) },
       student: { pos: new THREE.Vector3(1.18, 1.3, 0.75), target: new THREE.Vector3(0.92, 0.85, 0.1) },
-      balcony: { pos: new THREE.Vector3(0.62, 1.55, -4.35), target: new THREE.Vector3(-0.15, 1.0, -6.05) },
-      bathroom: { pos: new THREE.Vector3(1.18, 1.5, -4.42), target: new THREE.Vector3(1.52, 0.95, -5.55) },
+      balcony: { pos: new THREE.Vector3(0.66, 1.62, -4.05), target: new THREE.Vector3(-0.18, 1.05, -6.0) },
+      bathroom: { pos: new THREE.Vector3(1.22, 1.72, -4.18), target: new THREE.Vector3(1.52, 0.5, -5.3) },
       door: { pos: new THREE.Vector3(-0.85, 1.5, 3.15), target: new THREE.Vector3(0.05, 1.25, 3.95) },
     };
     const applyView = (id: string, instant: boolean): void => {

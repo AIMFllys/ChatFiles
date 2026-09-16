@@ -115,7 +115,7 @@ class MaterialLib {
   /** 蚊帐纱：半透明双面，带轻微透射感 */
   mosquitoNet(): THREE.Material {
     return this.mat('net', () => new THREE.MeshStandardMaterial({
-      color: PALETTE.netWhite, transparent: true, opacity: 0.14, roughness: 1,
+      color: PALETTE.netWhite, transparent: true, opacity: 0.09, roughness: 1,
       side: THREE.DoubleSide, depthWrite: false,
     }));
   }
