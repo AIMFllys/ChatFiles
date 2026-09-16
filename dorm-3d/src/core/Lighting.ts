@@ -18,11 +18,11 @@ export class Lighting {
   constructor(private scene: THREE.Scene) {
     RectAreaLightUniformsLib.init();
 
-    const hemi = new THREE.HemisphereLight(0xf4f6ff, 0x8c7a5e, 0.35);
+    const hemi = new THREE.HemisphereLight(0xf4f6ff, 0x8c7a5e, 0.24);
     scene.add(hemi);
     this.dayLights.push(hemi);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.12);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.07);
     scene.add(ambient);
 
     // 窗外阳光：从阳台方向（z-）斜射，主阴影来源
@@ -54,7 +54,7 @@ export class Lighting {
     tray.castShadow = false;
     g.add(tray);
     // 两根乳白灯管
-    const tubeMat = materials.emissive(0xeef6ff, 2.2) as THREE.MeshStandardMaterial;
+    const tubeMat = materials.emissive(0xeef6ff, 1.7) as THREE.MeshStandardMaterial;
     this.tubeMeshes.push(tubeMat);
     for (const dx of [-0.05, 0.05]) {
       const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.32, 12), tubeMat);
@@ -65,7 +65,7 @@ export class Lighting {
     }
     this.scene.add(g);
 
-    const rect = new THREE.RectAreaLight(0xe8f1ff, 4.2, 0.3, 1.5);
+    const rect = new THREE.RectAreaLight(0xe8f1ff, 3.2, 0.3, 1.5);
     rect.position.set(x, 2.68, z);
     rect.lookAt(x, 0.6, z);
     this.scene.add(rect);

@@ -45,10 +45,26 @@ function main(): void {
       bathroom: { pos: new THREE.Vector3(1.18, 1.5, -4.42), target: new THREE.Vector3(1.52, 0.95, -5.55) },
       door: { pos: new THREE.Vector3(-0.85, 1.5, 3.15), target: new THREE.Vector3(0.05, 1.25, 3.95) },
     };
-    overlay.onView = (id) => {
+    const applyView = (id: string, instant: boolean): void => {
       const p = presets[id];
-      if (p) ctx.flyTo(p);
+      if (!p) return;
+      if (instant) ctx.jumpTo(p);
+      else ctx.flyTo(p);
+      document.querySelectorAll('.chip[data-id]').forEach((c) => {
+        c.classList.toggle('active', (c as HTMLElement).dataset.id === id);
+      });
     };
+    overlay.onView = (id) => {
+      history.replaceState(null, '', `#${id}`);
+      applyView(id, false);
+    };
+    // 深链接直达：index.html#bathroom
+    const initialView = location.hash.replace('#', '');
+    if (initialView in presets) applyView(initialView, true);
+    window.addEventListener('hashchange', () => {
+      const id = location.hash.replace('#', '');
+      if (id in presets) applyView(id, true);
+    });
 
     overlay.onToggle = (id, on) => {
       if (id === 'rotate') ctx.setAutoRotate(on);

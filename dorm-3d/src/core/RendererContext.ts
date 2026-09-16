@@ -34,7 +34,7 @@ export class RendererContext {
     this.renderer.shadowMap.enabled = QUALITY.enableShadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 0.96;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene.background = new THREE.Color(0x0e1014);
@@ -74,6 +74,13 @@ export class RendererContext {
       fromTgt: this.controls.target.clone(), toTgt: preset.target.clone(),
       t: 0, dur,
     };
+  }
+
+  /** 无动画跳转（深链接直达 / 低帧率环境） */
+  jumpTo(preset: CameraPreset): void {
+    this.tween = null;
+    this.camera.position.copy(preset.pos);
+    this.controls.target.copy(preset.target);
   }
 
   setAutoRotate(on: boolean): void {
