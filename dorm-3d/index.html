@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>寝室 3D 实景复刻 · Three.js</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="stage"></canvas>
+
+      <!-- 加载 / 失败状态机：首帧渲染成功才会淡出 -->
+      <div id="loader" class="loader">
+        <div class="loader-card">
+          <div class="loader-ring"></div>
+          <div class="loader-title">正在重建寝室空间</div>
+          <div class="loader-sub" id="loaderMsg">程序化生成材质与几何体…</div>
+        </div>
+      </div>
+
+      <!-- 顶部信息 -->
+      <header class="hud hud-top">
+        <div class="hud-brand">
+          <span class="hud-dot"></span>
+          寝室 3D 实景复刻
+        </div>
+        <div class="hud-meta">拖拽旋转 · 滚轮缩放 · 右键平移</div>
+      </header>
+
+      <!-- 左下：视角预设 -->
+      <nav class="hud hud-views" id="viewBar"></nav>
+
+      <!-- 右下：开关 -->
+      <nav class="hud hud-toggles" id="toggleBar"></nav>
+
+      <!-- 3D 热点标注层 -->
+      <div class="labels" id="labels"></div>
+
+      <!-- 底部说明条 -->
+      <footer class="hud hud-bottom" id="statusBar">
+        基于 5 张实拍照片程序化重建 · 无外部资源依赖 · 单文件可离线运行
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

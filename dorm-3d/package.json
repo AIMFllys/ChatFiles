@@ -1,0 +1,22 @@
+{
+  "name": "dorm-room-3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "基于实拍照片程序化重建的寝室 3D 模型（Three.js + TypeScript，单文件 HTML 产物）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "check:utf8": "node ./scripts/check-utf8.mjs"
+  },
+  "dependencies": {
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.179.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vite-plugin-singlefile": "^2.1.0"
+  }
+}
